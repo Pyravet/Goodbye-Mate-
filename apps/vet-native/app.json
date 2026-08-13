@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Goodbye Mate",
+    "slug": "goodbye-mate-vet",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#33453A",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#33453A"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "au.com.goodbyemate.vet"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#33453A"
+      },
+      "package": "au.com.goodbyemate.vet"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#33453A"
+        }
+      ]
+    ],
+    "extra": {
+      "apiUrl": "https://goodbye-mate-production.up.railway.app/api",
+      "eas": {
+        "projectId": "60f8c9a5-5aa0-405c-b590-33b3ace643c4"
+      }
+    }
+  }
+}

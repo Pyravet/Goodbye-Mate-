@@ -71,12 +71,16 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   res.json({
     accessToken,
+    // The native app has no cookie jar to rely on, so it stores this
+    // itself (in secure on-device storage) and sends it back explicitly
+    // on refresh. Web clients ignore this field and use the cookie instead.
+    refreshToken: raw,
     user: { id: user.id, email: user.email, role: user.role, fullName: user.full_name },
   });
 });
 
 router.post('/refresh', async (req, res) => {
-  const raw = req.cookies?.refresh_token;
+  const raw = req.cookies?.refresh_token || req.body?.refreshToken;
   if (!raw) return res.status(401).json({ error: 'No refresh token' });
 
   const hash = hashRefreshToken(raw);
@@ -106,11 +110,11 @@ router.post('/refresh', async (req, res) => {
   setRefreshCookie(res, newRaw, expiresAt);
 
   const accessToken = signAccessToken({ id: tokenRow.user_id, role: tokenRow.role, email: tokenRow.email });
-  res.json({ accessToken });
+  res.json({ accessToken, refreshToken: newRaw });
 });
 
 router.post('/logout', async (req, res) => {
-  const raw = req.cookies?.refresh_token;
+  const raw = req.cookies?.refresh_token || req.body?.refreshToken;
   if (raw) {
     const hash = hashRefreshToken(raw);
     await query('UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1', [hash]);
@@ -126,6 +130,32 @@ router.get('/me', requireAuth, async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });
   res.json({ user: rows[0] });
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+
+router.post('/change-password', requireAuth, async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
+
+  const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [req.user.sub]);
+  if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+
+  const valid = await bcrypt.compare(parsed.data.currentPassword, rows[0].password_hash);
+  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+
+  const newHash = await bcrypt.hash(parsed.data.newPassword, 12);
+  await query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [newHash, req.user.sub]);
+  await logAction({ actorUserId: req.user.sub, action: 'password_changed', targetType: 'user', targetId: req.user.sub });
+
+  // Revoke all existing refresh tokens so other sessions require re-login
+  // with the new password — standard practice after a password change.
+  await query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [req.user.sub]);
+
+  res.status(204).end();
 });
 
 export default router;

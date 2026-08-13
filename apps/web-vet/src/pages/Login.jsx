@@ -29,15 +29,15 @@ export default function Login() {
     <div style={styles.wrap}>
       <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.logo} />
       <form onSubmit={onSubmit} style={styles.form}>
-        <p style={styles.subtitle}>Admin</p>
+        <p style={styles.subtitle}>Vet sign in</p>
         {error && <p style={styles.error}>{error}</p>}
         <label style={styles.label}>
           Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={styles.input} autoFocus />
+          <input type="email" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required style={styles.input} autoFocus />
         </label>
         <label style={styles.label}>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} />
+          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required style={styles.input} />
         </label>
         <button type="submit" disabled={submitting} style={styles.button}>
           {submitting ? 'Signing in…' : 'Sign in'}
@@ -48,12 +48,12 @@ export default function Login() {
 }
 
 const styles = {
-  wrap: { display: 'flex', flexDirection: 'column', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--gm-forest)', padding: 24 },
-  logo: { width: 260, height: 'auto', marginBottom: 32 },
-  form: { width: 340, padding: '32px 32px 36px', background: '#fff', borderRadius: 14 },
-  subtitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--gm-ink-soft)', marginBottom: 20, fontWeight: 600 },
+  wrap: { display: 'flex', flexDirection: 'column', minHeight: '100dvh', alignItems: 'center', justifyContent: 'center', background: 'var(--gm-forest)', padding: 24 },
+  logo: { width: 220, height: 'auto', marginBottom: 28 },
+  form: { width: '100%', maxWidth: 340, padding: '28px 24px 32px', background: '#fff', borderRadius: 14 },
+  subtitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.6, color: 'var(--gm-ink-soft)', marginBottom: 18, fontWeight: 600 },
   label: { display: 'block', fontSize: 12, color: 'var(--gm-ink-soft)', marginBottom: 14 },
-  input: { display: 'block', width: '100%', marginTop: 6, padding: '9px 11px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14 },
-  button: { width: '100%', padding: '11px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500, marginTop: 6 },
+  input: { display: 'block', width: '100%', marginTop: 6, padding: '11px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 16 },
+  button: { width: '100%', padding: '13px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 15, fontWeight: 500, marginTop: 6 },
   error: { color: 'var(--gm-brick)', fontSize: 13, marginBottom: 14 },
 };

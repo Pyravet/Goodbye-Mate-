@@ -6,6 +6,8 @@ import { logAction } from '../audit/log.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob } from '../domain/vetContext.js';
+import { sendPushToUser } from '../integrations/push/webPush.js';
+import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 
 const router = Router();
 
@@ -52,6 +54,23 @@ async function startOrRollDispatch(jobId) {
       `UPDATE jobs SET dispatch_state = 'offered', dispatch_offered_vet_id = $1, dispatch_expires_at = $2, updated_at = now() WHERE id = $3`,
       [next.vetId, expiresAt, jobId]
     );
+
+    // Notify the vet on their phone — this is the actual moment a job
+    // offer needs to reach someone in the field, not just sit in a list.
+    const { rows: vetUserRows } = await query(
+      `SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [next.vetId]
+    );
+    if (vetUserRows[0]) {
+      const pushPayload = {
+        title: 'New job offer',
+        body: `${job.pet_name} in ${job.suburb || job.postcode} — respond soon, this offer expires.`,
+        url: `/jobs/${jobId}`,
+      };
+      sendPushToUser(vetUserRows[0].user_id, pushPayload).catch((err) => console.error('Web push failed:', err));
+      sendExpoPushToUser(vetUserRows[0].user_id, pushPayload).catch((err) => console.error('Expo push failed:', err));
+    }
+
     return { state: 'offered', offeredVetId: next.vetId, expiresAt };
   } else {
     await query(
@@ -96,10 +115,20 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 });
 
 // Today / Upcoming / Past / Board (all) — the four admin views from the brief.
+// For vets, results are automatically restricted to their own offers and
+// assignments — a vet has no reason to see other vets' jobs, and the admin
+// board view isn't available to them at all.
 router.get('/', requireAuth, async (req, res) => {
   const { view, search } = req.query;
   const conditions = [];
   const params = [];
+
+  if (req.user.role === 'vet') {
+    const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
+    if (!vetRows[0]) return res.status(403).json({ error: 'Not a vet account' });
+    params.push(vetRows[0].id);
+    conditions.push(`(assigned_vet_id = $${params.length} OR (dispatch_offered_vet_id = $${params.length} AND dispatch_state = 'offered'))`);
+  }
 
   if (view === 'today') {
     conditions.push(`job_date = CURRENT_DATE`);
@@ -108,7 +137,7 @@ router.get('/', requireAuth, async (req, res) => {
   } else if (view === 'past') {
     conditions.push(`(job_date < CURRENT_DATE OR status IN ('completed','cancelled'))`);
   }
-  // 'board' (or no view param) = everything, for the status-board view.
+  // 'board' (or no view param) = everything the conditions above already allow.
 
   if (search) {
     params.push(`%${search}%`);
@@ -123,6 +152,14 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  if (req.user.role === 'vet') {
+    const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
+    const myVetId = vetRows[0]?.id;
+    const job = rows[0];
+    const isMine = job.assigned_vet_id === myVetId || (job.dispatch_offered_vet_id === myVetId && job.dispatch_state === 'offered');
+    if (!isMine) return res.status(403).json({ error: 'Forbidden' });
+  }
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
@@ -285,6 +322,17 @@ router.post('/:id/payment-received', requireAuth, requireRole('admin'), async (r
 
 router.post('/:id/procedure-done', requireAuth, requireRole('vet'), async (req, res) => {
   const { rows } = await query(`UPDATE jobs SET procedure_done = true, procedure_done_at = now(), updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  res.json({ job: rows[0] });
+});
+
+// Vet's private medical notes — never shown to the client automatically.
+router.put('/:id/medical-notes', requireAuth, requireRole('vet'), async (req, res) => {
+  const { notes } = req.body;
+  const { rows } = await query(
+    `UPDATE jobs SET medical_notes = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+    [notes || '', req.params.id]
+  );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
 });

@@ -20,9 +20,19 @@ const createVetSchema = z.object({
   color: z.string().optional(),
 });
 
-// Creates the login user (role='vet', a random unusable password — the
-// vet sets their own via a "set up your account" invite flow, not built
-// yet, see README) and the linked vets row in one transaction.
+// Generates a short, easy-to-read-aloud temporary password — since there's
+// no email delivery system yet, admin shares this with the vet directly
+// (phone/SMS/in person). Returned once in this response only; never
+// retrievable again. The vet should change it after first login.
+function generateTempPassword() {
+  const words = ['maple', 'harbor', 'cedar', 'willow', 'granite', 'amber', 'copper', 'meadow', 'summit', 'quartz'];
+  const word = words[Math.floor(Math.random() * words.length)];
+  const digits = Math.floor(1000 + Math.random() * 9000);
+  return `${word}${digits}`;
+}
+
+// Creates the login user (role='vet', a real temporary password returned
+// once in this response) and the linked vets row in one transaction.
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   const parsed = createVetSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid vet', details: parsed.error.flatten() });
@@ -32,11 +42,12 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const tempPasswordHash = await bcrypt.hash(crypto.randomUUID(), 12);
+    const tempPassword = generateTempPassword();
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
 
     const { rows: userRows } = await client.query(
       `INSERT INTO users (email, password_hash, role, full_name, phone) VALUES ($1,$2,'vet',$3,$4) RETURNING id`,
-      [d.email.toLowerCase(), tempPasswordHash, d.fullName, d.phone]
+      [d.email.toLowerCase(), passwordHash, d.fullName, d.phone]
     );
     const userId = userRows[0].id;
 
@@ -48,7 +59,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 
     await client.query('COMMIT');
     await logAction({ actorUserId: req.user.sub, action: 'vet_created', targetType: 'vet', targetId: vetRows[0].id });
-    res.status(201).json({ vet: vetRows[0] });
+    res.status(201).json({ vet: vetRows[0], tempPassword, loginEmail: d.email.toLowerCase() });
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23505') return res.status(409).json({ error: 'A user with that email already exists' });

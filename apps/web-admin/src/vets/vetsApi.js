@@ -10,8 +10,7 @@ export async function fetchVets() {
 export async function fetchVet(id) {
   const res = await apiFetch(`/vets/${id}`);
   if (!res.ok) throw new Error('Failed to load vet');
-  const data = await res.json();
-  return data.vet;
+  return res.json(); // { vet, bankDetails }
 }
 
 export async function createVet(payload) {
@@ -39,4 +38,23 @@ export async function fetchTerritory(id) {
   if (!res.ok) throw new Error('Failed to load territory');
   const data = await res.json();
   return data.geojson;
+}
+
+export async function fetchNearestVets(postcode) {
+  const res = await apiFetch(`/vets/nearest?postcode=${encodeURIComponent(postcode)}`);
+  if (!res.ok) throw new Error('Failed to check nearest vet');
+  const data = await res.json();
+  return data.ranked;
+}
+
+export async function approveVet(id) {
+  const res = await apiFetch(`/vets/${id}/approve`, { method: 'PUT' });
+  if (!res.ok) throw new Error('Failed to approve vet');
+  return res.json();
+}
+
+export async function deactivateVet(id) {
+  const res = await apiFetch(`/vets/${id}/deactivate`, { method: 'PUT' });
+  if (!res.ok) throw new Error('Failed to deactivate vet');
+  return res.json();
 }

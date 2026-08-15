@@ -5,7 +5,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { draftSmsReply } from '../integrations/ai/draftSmsReply.js';
 import { validateSmsText } from '../integrations/sms/validateSmsText.js';
-import { sendSmsMsg91 } from '../integrations/sms/msg91.js';
+import { sendTemplatedSms } from '../integrations/sms/msg91.js';
 
 const router = Router();
 
@@ -98,7 +98,12 @@ router.post('/:id/approve', requireAuth, requireRole('admin'), async (req, res) 
   let providerResponse;
   try {
     if (message.channel === 'sms') {
-      providerResponse = await sendSmsMsg91(message.to_address, parsed.data.finalText);
+      // "Thank you for trusting goodbye mate" is baked into the MSG91
+      // template itself and appears after our text automatically — don't
+      // duplicate it here.
+      providerResponse = await sendTemplatedSms(message.to_address, 'genericMessage', {
+        message: parsed.data.finalText,
+      });
     } else {
       throw new Error(`Channel '${message.channel}' not yet wired to a provider`);
     }

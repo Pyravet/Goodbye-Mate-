@@ -5,6 +5,10 @@ import crypto from 'node:crypto';
 import { query, pool } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { rankVetsByLocation } from '../domain/dispatch.js';
+import { getVetsWithContextForJob } from '../domain/vetContext.js';
+import { encrypt, decrypt, isEncryptionConfigured, maskTail } from '../security/encryption.js';
+import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 
 const router = Router();
 
@@ -59,6 +63,18 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
 
     await client.query('COMMIT');
     await logAction({ actorUserId: req.user.sub, action: 'vet_created', targetType: 'vet', targetId: vetRows[0].id });
+
+    // Best-effort — email delivery failing shouldn't block vet creation,
+    // since the temp password is also shown once in the admin UI as a
+    // fallback either way.
+    if (isEmailConfigured()) {
+      sendEmail({
+        to: d.email.toLowerCase(),
+        subject: 'Your Goodbye Mate vet account',
+        text: `Hi ${d.fullName},\n\nAn account has been created for you.\n\nEmail: ${d.email.toLowerCase()}\nTemporary password: ${tempPassword}\n\nPlease log in and change your password as soon as possible.\n\nThanks,\nGoodbye Mate`,
+      }).catch((err) => console.error('Vet welcome email failed:', err.message));
+    }
+
     res.status(201).json({ vet: vetRows[0], tempPassword, loginEmail: d.email.toLowerCase() });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -98,6 +114,56 @@ router.get('/matching', requireAuth, requireRole('admin'), async (req, res) => {
   res.json({ vets: rows });
 });
 
+// Quick postcode check — "who's the nearest vet?" — for admin to preview
+// before assigning, without needing a full job or lat/lng from Places.
+// IMPORTANT: must be registered before GET '/:vetId' — otherwise Express
+// matches "/nearest" as vetId="nearest".
+router.get('/nearest', requireAuth, requireRole('admin'), async (req, res) => {
+  const postcode = (req.query.postcode || '').trim();
+  if (!postcode) return res.status(400).json({ error: 'postcode query param is required' });
+
+  const lat = req.query.lat != null ? Number(req.query.lat) : null;
+  const lng = req.query.lng != null ? Number(req.query.lng) : null;
+
+  // getVetsWithContextForJob only reads .lat/.lng off this object — a
+  // real job row isn't needed for a pre-booking location check.
+  const vetsWithContext = await getVetsWithContextForJob({ lat, lng });
+  const ranked = rankVetsByLocation(postcode, vetsWithContext);
+
+  res.json({ postcode, ranked });
+});
+
+// A vet fetching their own profile doesn't know their internal vets.id
+// (only their user id, from the JWT) — this resolves that.
+router.get('/me', requireAuth, async (req, res) => {
+  const { rows } = await query(
+    `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
+     FROM vets v JOIN users u ON u.id = v.user_id WHERE v.user_id = $1`,
+    [req.user.sub]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Vet profile not found for this account' });
+
+  const vet = rows[0];
+  let bankDetails = null;
+  if (isEncryptionConfigured()) {
+    try {
+      bankDetails = {
+        accountName: decrypt(vet.bank_account_name_enc),
+        bsb: vet.bank_bsb_enc ? maskTail(decrypt(vet.bank_bsb_enc), 2) : null,
+        accountNumber: vet.bank_account_number_enc ? maskTail(decrypt(vet.bank_account_number_enc)) : null,
+        hasBankDetails: !!vet.bank_account_number_enc,
+      };
+    } catch {
+      bankDetails = { hasBankDetails: !!vet.bank_account_number_enc, error: 'Could not decrypt' };
+    }
+  }
+  delete vet.bank_account_name_enc;
+  delete vet.bank_bsb_enc;
+  delete vet.bank_account_number_enc;
+
+  res.json({ vet, bankDetails });
+});
+
 router.get('/:vetId', requireAuth, async (req, res) => {
   const { rows } = await query(
     `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
@@ -105,7 +171,29 @@ router.get('/:vetId', requireAuth, async (req, res) => {
     [req.params.vetId]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Vet not found' });
-  res.json({ vet: rows[0] });
+
+  const vet = rows[0];
+  // Only the vet themselves or an admin can see even the masked bank
+  // details — decrypt lazily and never return the raw encrypted columns.
+  const canSeeBankDetails = req.user.role === 'admin' || req.user.sub === vet.user_id;
+  let bankDetails = null;
+  if (canSeeBankDetails && isEncryptionConfigured()) {
+    try {
+      bankDetails = {
+        accountName: decrypt(vet.bank_account_name_enc),
+        bsb: vet.bank_bsb_enc ? maskTail(decrypt(vet.bank_bsb_enc), 2) : null,
+        accountNumber: vet.bank_account_number_enc ? maskTail(decrypt(vet.bank_account_number_enc)) : null,
+        hasBankDetails: !!vet.bank_account_number_enc,
+      };
+    } catch {
+      bankDetails = { hasBankDetails: !!vet.bank_account_number_enc, error: 'Could not decrypt' };
+    }
+  }
+  delete vet.bank_account_name_enc;
+  delete vet.bank_bsb_enc;
+  delete vet.bank_account_number_enc;
+
+  res.json({ vet, bankDetails });
 });
 
 const updateProfileSchema = z.object({
@@ -115,6 +203,16 @@ const updateProfileSchema = z.object({
   isGstRegistered: z.boolean().optional(),
   postcodes: z.array(z.string()).optional(),
   color: z.string().optional(),
+  // Personal details
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  suburb: z.string().optional(),
+  postcode: z.string().optional(),
+  state: z.string().optional(),
+  // Bank details — only written if provided; never returned in plaintext.
+  bankAccountName: z.string().optional(),
+  bankBsb: z.string().optional(),
+  bankAccountNumber: z.string().optional(),
 });
 
 // Vets can edit their own profile (per the brief's "self-service edit of
@@ -130,19 +228,92 @@ router.put('/:vetId/profile', requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid profile', details: parsed.error.flatten() });
   const d = parsed.data;
 
-  const { rows } = await query(
-    `UPDATE vets SET
-       reg_number = COALESCE($1, reg_number),
-       reg_state = COALESCE($2, reg_state),
-       abn = COALESCE($3, abn),
-       is_gst_registered = COALESCE($4, is_gst_registered),
-       postcodes = COALESCE($5, postcodes),
-       color = COALESCE($6, color),
-       updated_at = now()
-     WHERE id = $7 RETURNING *`,
-    [d.regNumber, d.regState, d.abn, d.isGstRegistered, d.postcodes, d.color, req.params.vetId]
-  );
-  res.json({ vet: rows[0] });
+  const wantsBankUpdate = d.bankAccountName || d.bankBsb || d.bankAccountNumber;
+  if (wantsBankUpdate && !isEncryptionConfigured()) {
+    return res.status(503).json({ error: 'Bank detail storage is not configured yet — contact the admin.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (d.phone !== undefined) {
+      await client.query('UPDATE users SET phone = COALESCE($1, phone), updated_at = now() WHERE id = $2', [d.phone, vetRows[0].user_id]);
+    }
+
+    const { rows } = await client.query(
+      `UPDATE vets SET
+         reg_number = COALESCE($1, reg_number),
+         reg_state = COALESCE($2, reg_state),
+         abn = COALESCE($3, abn),
+         is_gst_registered = COALESCE($4, is_gst_registered),
+         postcodes = COALESCE($5, postcodes),
+         color = COALESCE($6, color),
+         address = COALESCE($7, address),
+         suburb = COALESCE($8, suburb),
+         postcode = COALESCE($9, postcode),
+         state = COALESCE($10, state),
+         bank_account_name_enc = COALESCE($11, bank_account_name_enc),
+         bank_bsb_enc = COALESCE($12, bank_bsb_enc),
+         bank_account_number_enc = COALESCE($13, bank_account_number_enc),
+         updated_at = now()
+       WHERE id = $14 RETURNING id`,
+      [
+        d.regNumber, d.regState, d.abn, d.isGstRegistered, d.postcodes, d.color,
+        d.address, d.suburb, d.postcode, d.state,
+        d.bankAccountName ? encrypt(d.bankAccountName) : null,
+        d.bankBsb ? encrypt(d.bankBsb) : null,
+        d.bankAccountNumber ? encrypt(d.bankAccountNumber) : null,
+        req.params.vetId,
+      ]
+    );
+
+    await client.query('COMMIT');
+    await logAction({ actorUserId: req.user.sub, action: 'vet_profile_updated', targetType: 'vet', targetId: req.params.vetId });
+    res.json({ vet: rows[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+});
+
+// Approve a pending self-signup vet (or reactivate a deactivated one) —
+// this is literally the login gate, since login already blocks
+// is_active = false accounts.
+router.put('/:vetId/approve', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
+  if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
+
+  await query('UPDATE users SET is_active = true, updated_at = now() WHERE id = $1', [vetRows[0].user_id]);
+  await logAction({ actorUserId: req.user.sub, action: 'vet_approved', targetType: 'vet', targetId: req.params.vetId });
+
+  if (isEmailConfigured()) {
+    const { rows: userRows } = await query('SELECT email, full_name FROM users WHERE id = $1', [vetRows[0].user_id]);
+    const u = userRows[0];
+    if (u) {
+      sendEmail({
+        to: u.email,
+        subject: 'Your Goodbye Mate account is approved',
+        text: `Hi ${u.full_name},\n\nYour vet account has been approved — you can now log in with the email and password you signed up with.\n\nThanks,\nGoodbye Mate`,
+      }).catch((err) => console.error('Vet approval email failed:', err.message));
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+// Deactivate a vet — e.g. registration lapsed, or they've stopped
+// contracting. Blocks login immediately.
+router.put('/:vetId/deactivate', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
+  if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
+
+  await query('UPDATE users SET is_active = false, updated_at = now() WHERE id = $1', [vetRows[0].user_id]);
+  await query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [vetRows[0].user_id]);
+  await logAction({ actorUserId: req.user.sub, action: 'vet_deactivated', targetType: 'vet', targetId: req.params.vetId });
+  res.json({ ok: true });
 });
 
 // Weekly hour-by-hour availability. Note: this is still ONE recurring

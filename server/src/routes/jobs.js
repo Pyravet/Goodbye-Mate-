@@ -3,11 +3,28 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
-import { billBreakdown, payoutBreakdown, suggestTimeCategory } from '../domain/pricing.js';
+import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob } from '../domain/vetContext.js';
 import { sendPushToUser } from '../integrations/push/webPush.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
+import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
+import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
+import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
+import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
+import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
+import { isTemplateConfigured } from '../integrations/sms/templates.js';
+
+// Shared formatting for the *_day/*_date/*_time SMS template variables.
+function smsDateVars(job) {
+  const d = new Date(`${job.job_date instanceof Date ? job.job_date.toISOString().slice(0, 10) : job.job_date}T${job.job_time}`);
+  return {
+    book_day: d.toLocaleDateString('en-AU', { weekday: 'long' }),
+    book_date: d.toLocaleDateString('en-AU', { day: 'numeric', month: 'long' }),
+    book_time: job.job_time,
+    book_address: job.address,
+  };
+}
 
 const router = Router();
 
@@ -32,6 +49,7 @@ const createJobSchema = z.object({
   date: z.string(), // YYYY-MM-DD
   time: z.string(), // HH:MM
   extraTravelFee: z.number().optional().default(0),
+  isPublicHoliday: z.boolean().optional().default(false),
   notes: z.string().optional(),
 });
 
@@ -92,18 +110,26 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
     `INSERT INTO jobs (
       client_name, client_phone, client_email, address, suburb, postcode, state, lat, lng,
       pet_name, pet_type, pet_breed, pet_weight, pet_age, pet_behaviour,
-      service_id, service_type, job_date, job_time, time_category, extra_travel_fee, notes
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+      service_id, service_type, job_date, job_time, time_category, extra_travel_fee, notes, is_public_holiday
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
     RETURNING *`,
     [
       d.clientName, d.clientPhone, d.clientEmail || null, d.address, d.suburb || null, d.postcode, d.state, d.lat ?? null, d.lng ?? null,
       d.petName, d.petType, d.petBreed || null, d.petWeight || null, d.petAge || null, d.petBehaviour || 'Friendly',
-      d.serviceId, d.serviceType, d.date, d.time, timeCategory, d.extraTravelFee || 0, d.notes || null,
+      d.serviceId, d.serviceType, d.date, d.time, timeCategory, d.extraTravelFee || 0, d.notes || null, d.isPublicHoliday || false,
     ]
   );
   const job = rows[0];
 
   await logAction({ actorUserId: req.user.sub, action: 'job_created', targetType: 'job', targetId: job.id, metadata: { jobNumber: job.job_number } });
+
+  if (isMsg91Configured() && isTemplateConfigured('bookingReceived')) {
+    sendTemplatedSms(job.client_phone, 'bookingReceived', {
+      client_name: job.client_name,
+      pet_name: job.pet_name,
+      ...smsDateVars(job),
+    }).catch((err) => console.error('Booking-received SMS failed:', err.message));
+  }
 
   // Kick off auto-dispatch immediately.
   const dispatch = await startOrRollDispatch(job.id);
@@ -167,6 +193,169 @@ router.get('/:id', requireAuth, async (req, res) => {
   const payout = payoutBreakdown(rows[0], pricing);
 
   res.json({ job: rows[0], bill, payout });
+});
+
+// RCTI PDF — what the vet is owed for this job. Admin-only: this shows
+// the business's payout structure, not something a vet needs to see the
+// internals of via the app (they get paid, not a breakdown tool).
+router.get('/:id/rcti.pdf', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job.assigned_vet_id) return res.status(400).json({ error: 'No vet assigned to this job yet' });
+
+  const { rows: vetRows } = await query(
+    `SELECT v.abn, v.is_gst_registered, v.reg_number, v.reg_state, u.full_name
+     FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+    [job.assigned_vet_id]
+  );
+  const vet = vetRows[0];
+  if (!vet) return res.status(404).json({ error: 'Assigned vet not found' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+  const company = contentRows[0].config.company || {};
+
+  const payout = payoutBreakdown(job, pricing);
+  const gst = vet.is_gst_registered ? extractGst(payout.total, pricing.gstPercent) : null;
+
+  generateRctiPdf({ res, job, vet, payout, gst, company });
+});
+
+// Client invoice/receipt/quote PDF — same document, labelled by intent.
+// ?quote=1 produces a pre-booking quote (no payment status shown, softer
+// wording) — the manual stopgap for "send a quote" until SMS/WhatsApp/
+// Outlook auto-send is wired up with real credentials.
+router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+  const company = contentRows[0].config.company || {};
+
+  const bill = billBreakdown(job, pricing);
+  const asQuote = req.query.quote === '1';
+
+  generateInvoicePdf({ res, job, bill, company, asQuote });
+});
+
+// Charge the client's card via eWay — server never receives raw card
+// digits, only the fields already encrypted in the browser by eCrypt.js.
+const chargeSchema = z.object({
+  encryptedCard: z.object({
+    number: z.string().min(1),
+    expiryMonth: z.string().min(1),
+    expiryYear: z.string().min(1),
+    cvn: z.string().min(1),
+  }),
+});
+
+router.post('/:id/charge', requireAuth, requireRole('admin'), async (req, res) => {
+  if (!isEwayConfigured()) {
+    return res.status(503).json({ error: 'Payment processing is not configured yet.' });
+  }
+
+  const parsed = chargeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid card details', details: parsed.error.flatten() });
+
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.payment_status === 'paid') return res.status(409).json({ error: 'This job is already marked paid.' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+  const bill = billBreakdown(job, pricing);
+
+  const result = await chargeCard({
+    amountDollars: bill.total,
+    invoiceReference: job.job_number,
+    customerName: job.client_name,
+    encryptedCard: parsed.data.encryptedCard,
+  });
+
+  await query(
+    `INSERT INTO payments (job_id, amount, provider, provider_transaction_id, status, response_message, processed_by_user_id)
+     VALUES ($1,$2,'eway',$3,$4,$5,$6)`,
+    [job.id, bill.total, result.transactionId, result.success ? 'succeeded' : 'failed', result.responseMessage, req.user.sub]
+  );
+
+  if (!result.success) {
+    await logAction({ actorUserId: req.user.sub, action: 'payment_failed', targetType: 'job', targetId: job.id, metadata: { responseMessage: result.responseMessage } });
+    return res.status(402).json({ error: 'Payment declined', message: result.responseMessage });
+  }
+
+  const { rows: updated } = await query(
+    `UPDATE jobs SET payment_status = 'paid', payment_reference = $1, updated_at = now() WHERE id = $2 RETURNING *`,
+    [result.transactionId, job.id]
+  );
+  await logAction({ actorUserId: req.user.sub, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: bill.total } });
+
+  res.json({ ok: true, job: updated[0], transactionId: result.transactionId, amount: bill.total });
+});
+
+// Emails a quote, invoice, or RCTI as a PDF attachment — the automated
+// version of the "download and send manually" stopgap.
+router.post('/:id/email-document', requireAuth, requireRole('admin'), async (req, res) => {
+  if (!isEmailConfigured()) return res.status(503).json({ error: 'Email is not configured yet.' });
+
+  const type = req.body?.type; // 'quote' | 'invoice' | 'rcti'
+  if (!['quote', 'invoice', 'rcti'].includes(type)) return res.status(400).json({ error: 'Invalid document type' });
+
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+  const company = contentRows[0].config.company || {};
+
+  try {
+    if (type === 'rcti') {
+      if (!job.assigned_vet_id) return res.status(400).json({ error: 'No vet assigned to this job yet' });
+      const { rows: vetRows } = await query(
+        `SELECT v.abn, v.is_gst_registered, v.reg_number, v.reg_state, u.full_name, u.email
+         FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+        [job.assigned_vet_id]
+      );
+      const vet = vetRows[0];
+      if (!vet) return res.status(404).json({ error: 'Assigned vet not found' });
+      if (!vet.email) return res.status(400).json({ error: 'Vet has no email on file' });
+
+      const payout = payoutBreakdown(job, pricing);
+      const gst = vet.is_gst_registered ? extractGst(payout.total, pricing.gstPercent) : null;
+      const buffer = await generateRctiPdfBuffer({ job, vet, payout, gst, company });
+
+      await sendEmail({
+        to: vet.email,
+        subject: `RCTI for ${job.job_number} — ${job.pet_name}`,
+        text: `Hi ${vet.full_name},\n\nAttached is the RCTI for job ${job.job_number} (${job.pet_name}).\n\nThanks,\n${company.name || 'Goodbye Mate'}`,
+        attachments: [{ filename: rctiFilename(job), content: buffer }],
+      });
+    } else {
+      const asQuote = type === 'quote';
+      if (!job.client_email) return res.status(400).json({ error: 'Client has no email on file for this job' });
+      const bill = billBreakdown(job, pricing);
+      const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote });
+
+      await sendEmail({
+        to: job.client_email,
+        subject: `${asQuote ? 'Your quote' : 'Your invoice'} from ${company.name || 'Goodbye Mate'} — ${job.job_number}`,
+        text: `Hi ${job.client_name},\n\nPlease find attached ${asQuote ? 'your quote' : 'your invoice'} for ${job.pet_name}.\n\nThanks,\n${company.name || 'Goodbye Mate'}`,
+        attachments: [{ filename: invoiceFilename(job, asQuote), content: buffer }],
+      });
+    }
+
+    await logAction({ actorUserId: req.user.sub, action: 'document_emailed', targetType: 'job', targetId: job.id, metadata: { type } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to send email', message: err.message });
+  }
 });
 
 // At-risk alerts: unassigned-soon, unpaid, unsigned consent,
@@ -240,6 +429,31 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), async (req,
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_accepted', targetType: 'job', targetId: req.params.id });
+
+  if (isMsg91Configured()) {
+    const job = rows[0];
+    const { rows: vetUserRows } = await query(
+      `SELECT u.full_name, u.phone FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [vet.id]
+    );
+    const vetUser = vetUserRows[0];
+    const portalLink = `${process.env.VET_PORTAL_URL || 'https://goodbye-mate-vet-goodbye-mate.vercel.app'}/jobs/${job.id}`;
+
+    if (vetUser?.phone && isTemplateConfigured('vetAssignedToVet')) {
+      sendTemplatedSms(vetUser.phone, 'vetAssignedToVet', {
+        vet_name: vetUser.full_name,
+        pet_name: job.pet_name,
+        link: portalLink,
+        ...smsDateVars(job),
+      }).catch((err) => console.error('Vet-assigned SMS (to vet) failed:', err.message));
+    }
+    if (isTemplateConfigured('clientVetAssignedGeneric')) {
+      sendTemplatedSms(job.client_phone, 'clientVetAssignedGeneric', {}).catch(
+        (err) => console.error('Vet-assigned SMS (to client) failed:', err.message)
+      );
+    }
+  }
+
   res.json({ job: rows[0] });
 });
 

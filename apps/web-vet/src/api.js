@@ -51,3 +51,5 @@ export async function apiFetch(path, options = {}) {
 
   return res;
 }
+
+export { API_URL };

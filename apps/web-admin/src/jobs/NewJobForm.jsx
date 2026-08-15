@@ -21,6 +21,7 @@ export default function NewJobForm() {
     petName: '', petType: '', petBreed: '', petWeight: '', petAge: '', petBehaviour: 'Friendly',
     serviceType: 'euthanasia_only',
     date: '', time: '',
+    isPublicHoliday: false,
     notes: '',
   });
 
@@ -107,6 +108,14 @@ export default function NewJobForm() {
               <Field label="Date" required><input type="date" value={form.date} onChange={set('date')} required style={styles.input} /></Field>
               <Field label="Time" required><input type="time" value={form.time} onChange={set('time')} required style={styles.input} /></Field>
             </Row>
+            <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={form.isPublicHoliday}
+                onChange={(e) => setForm((f) => ({ ...f, isPublicHoliday: e.target.checked }))}
+              />
+              <span>This visit falls on a public holiday (adds the public holiday surcharge)</span>
+            </label>
           </Section>
 
           <Section title="Notes">
@@ -147,6 +156,7 @@ const styles = {
   title: { fontSize: 24, marginBottom: 20 },
   form: {},
   input: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
+  checkboxRow: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 4 },
   error: { color: 'var(--gm-brick)', fontSize: 13, marginBottom: 16 },
   actions: { marginTop: 8 },
   submitBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '11px 22px', borderRadius: 'var(--gm-radius-sm)', fontSize: 14, fontWeight: 500 },

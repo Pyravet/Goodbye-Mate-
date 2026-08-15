@@ -13,6 +13,7 @@ import messagesRoutes from './routes/messages.js';
 import settingsRoutes from './routes/settings.js';
 import jobsRoutes from './routes/jobs.js';
 import pushRoutes from './routes/push.js';
+import auditRoutes from './routes/audit.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/messages', messagesRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/audit', auditRoutes);
 
 // Central error handler — never leak stack traces to the client.
 app.use((err, req, res, next) => {

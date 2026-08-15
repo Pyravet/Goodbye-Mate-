@@ -8,6 +8,9 @@ import NewJobForm from './jobs/NewJobForm.jsx';
 import VetsList from './vets/VetsList.jsx';
 import VetDetail from './vets/VetDetail.jsx';
 import NewVetForm from './vets/NewVetForm.jsx';
+import CalendarPage from './calendar/CalendarPage.jsx';
+import SettingsPage from './settings/SettingsPage.jsx';
+import ActivityPage from './activity/ActivityPage.jsx';
 
 export default function App() {
   return (
@@ -21,6 +24,9 @@ export default function App() {
           <Route path="/vets" element={<RequireAuth><VetsList /></RequireAuth>} />
           <Route path="/vets/new" element={<RequireAuth><NewVetForm /></RequireAuth>} />
           <Route path="/vets/:id" element={<RequireAuth><VetDetail /></RequireAuth>} />
+          <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
+          <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+          <Route path="/activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

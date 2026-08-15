@@ -6,15 +6,26 @@ function getService(pricing, serviceId) {
   return pricing.services.find((s) => s.id === serviceId) || pricing.services[0];
 }
 
+// Midnight band: 12am–6am. Computed straight from job_time — no new job
+// field needed, unlike public holiday (which the calendar can't tell us).
+function isMidnightBand(timeStr) {
+  if (!timeStr) return false;
+  const hour = Number(timeStr.split(':')[0]);
+  return hour >= 0 && hour < 6;
+}
+
 export function billBreakdown(job, pricing) {
   const service = getService(pricing, job.service_id);
   const isAfterHours = job.time_category === 'afterhours_weekend';
+  const isMidnight = isMidnightBand(job.job_time);
 
   const lines = [
     { label: service ? service.name : 'Service', amount: service ? service.clientPrice : 0 },
     { label: 'Transfer fee', amount: pricing.transferFee.clientPrice },
   ];
   if (isAfterHours) lines.push({ label: 'After hours / weekend surcharge', amount: pricing.afterHoursSurcharge });
+  if (job.is_public_holiday) lines.push({ label: 'Public holiday surcharge', amount: pricing.publicHolidaySurcharge || 0 });
+  if (isMidnight) lines.push({ label: 'Midnight fee (12am\u20136am)', amount: pricing.midnightFeeSurcharge || 0 });
   if (job.service_type === 'communal_cremation') lines.push({ label: 'Communal cremation', amount: pricing.communalCremationFee });
   if (Number(job.extra_travel_fee) > 0) lines.push({ label: 'Extra travel fee', amount: Number(job.extra_travel_fee) });
 

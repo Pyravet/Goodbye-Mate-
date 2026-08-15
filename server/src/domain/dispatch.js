@@ -76,6 +76,34 @@ export function rankVets(job, vetsWithContext) {
     .sort((a, b) => b.score - a.score);
 }
 
+// Lightweight version of rankVets for the admin "nearest vet" quick-check
+// tool — used before a job exists (or before date/time is chosen), so it
+// only scores territory/postcode proximity, not availability or booking
+// conflicts. Same territory-first, postcode-fallback logic as rankVets.
+export function rankVetsByLocation(postcode, vetsWithContext) {
+  return vetsWithContext
+    .map((v) => {
+      let score = 0;
+      let label = 'Outside territory';
+
+      if (v.territoryContainsPoint === true) {
+        score = 120;
+        label = 'Within drawn territory';
+      } else if (v.territoryContainsPoint === null) {
+        if (v.postcodes?.includes(postcode)) {
+          score = 100;
+          label = 'Exact postcode match';
+        } else if (v.postcodes?.some((p) => p.slice(0, 2) === postcode.slice(0, 2))) {
+          score = 50;
+          label = 'Nearby region';
+        }
+      }
+
+      return { vetId: v.id, name: v.full_name, score, label, activeJobCount: v.activeJobCount || 0 };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
 // Default dispatch offer window. The prototype used 45s for demo
 // visibility — a real value belongs here, in minutes. Override via
 // DISPATCH_TIMEOUT_MINUTES env var if a different window is wanted later.

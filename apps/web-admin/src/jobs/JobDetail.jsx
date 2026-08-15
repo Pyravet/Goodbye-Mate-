@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument } from './jobsApi.js';
+import TakePayment from './TakePayment.jsx';
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -11,6 +12,10 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [completeError, setCompleteError] = useState(null);
+  const [downloadError, setDownloadError] = useState('');
+  const [emailStatus, setEmailStatus] = useState({}); // { quote: 'sending'|'sent'|'error', ... }
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -39,6 +44,43 @@ export default function JobDetail() {
       setCompleteError(err.missing || [err.message]);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onDownloadInvoice = async () => {
+    setDownloadError('');
+    try {
+      await downloadInvoice(id, data.job.job_number);
+    } catch {
+      setDownloadError('Could not generate the invoice — try again.');
+    }
+  };
+
+  const onDownloadQuote = async () => {
+    setDownloadError('');
+    try {
+      await downloadQuote(id, data.job.job_number);
+    } catch {
+      setDownloadError('Could not generate the quote — try again.');
+    }
+  };
+
+  const onDownloadRcti = async () => {
+    setDownloadError('');
+    try {
+      await downloadRcti(id, data.job.job_number);
+    } catch {
+      setDownloadError('Could not generate the RCTI — try again.');
+    }
+  };
+
+  const onEmail = async (type) => {
+    setEmailStatus((s) => ({ ...s, [type]: 'sending' }));
+    try {
+      await emailDocument(id, type);
+      setEmailStatus((s) => ({ ...s, [type]: 'sent' }));
+    } catch (err) {
+      setEmailStatus((s) => ({ ...s, [type]: err.message }));
     }
   };
 
@@ -114,6 +156,42 @@ export default function JobDetail() {
               <div style={{ ...styles.billLine, ...styles.billTotal }}>
                 <span>Total</span><span>${bill.total.toFixed(2)}</span>
               </div>
+
+              {job.payment_status === 'paid' ? (
+                <p style={styles.paidNote}>
+                  Paid{job.payment_reference ? ` — ref ${job.payment_reference}` : ''}.
+                </p>
+              ) : paymentSuccess ? (
+                <p style={styles.paidNote}>Payment received — ref {paymentSuccess.transactionId}.</p>
+              ) : showPayment ? (
+                <TakePayment
+                  jobId={id}
+                  amount={bill.total}
+                  onSuccess={(result) => { setPaymentSuccess(result); setShowPayment(false); load(); }}
+                />
+              ) : (
+                <button onClick={() => setShowPayment(true)} style={styles.takePaymentBtn}>Take payment</button>
+              )}
+            </Card>
+
+            <Card title="Documents">
+              {downloadError && <p style={styles.completeError}>{downloadError}</p>}
+              <div style={styles.docRow}>
+                <DocRow label="Quote" onDownload={onDownloadQuote} onEmail={() => onEmail('quote')} status={emailStatus.quote} disabled={!job.client_email} />
+                <DocRow
+                  label={job.payment_status === 'paid' ? 'Receipt' : 'Invoice'}
+                  onDownload={onDownloadInvoice}
+                  onEmail={() => onEmail('invoice')}
+                  status={emailStatus.invoice}
+                  disabled={!job.client_email}
+                />
+                {job.assigned_vet_id ? (
+                  <DocRow label="RCTI" onDownload={onDownloadRcti} onEmail={() => onEmail('rcti')} status={emailStatus.rcti} />
+                ) : (
+                  <p style={styles.docHint}>RCTI available once a vet is assigned.</p>
+                )}
+                {!job.client_email && <p style={styles.docHint}>Add a client email to enable emailing quotes/invoices.</p>}
+              </div>
             </Card>
           </div>
         </div>
@@ -142,6 +220,18 @@ function TaskRow({ label, done, action }) {
 function ActionBtn({ onClick, busy, children }) {
   return <button onClick={onClick} disabled={busy} style={styles.actionBtn}>{children}</button>;
 }
+function DocRow({ label, onDownload, onEmail, status, disabled }) {
+  return (
+    <div style={styles.docItemRow}>
+      <span style={styles.docLabel}>{label}</span>
+      <button onClick={onDownload} style={styles.docBtn}>Download</button>
+      <button onClick={onEmail} disabled={disabled || status === 'sending'} style={styles.docBtn}>
+        {status === 'sending' ? 'Sending…' : status === 'sent' ? 'Sent ✓' : 'Email'}
+      </button>
+      {status && status !== 'sending' && status !== 'sent' && <span style={styles.docError}>{status}</span>}
+    </div>
+  );
+}
 
 const styles = {
   page: { padding: '32px 40px', maxWidth: 900 },
@@ -163,4 +253,12 @@ const styles = {
   notes: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
   billLine: { display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' },
   billTotal: { borderTop: '1px solid var(--gm-line)', marginTop: 6, paddingTop: 8, fontWeight: 600 },
+  paidNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12, fontWeight: 500 },
+  takePaymentBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500, marginTop: 14 },
+  docRow: { display: 'flex', flexDirection: 'column', gap: 8 },
+  docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },
+  docBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 12px', fontSize: 12, fontWeight: 500 },
+  docError: { fontSize: 11, color: 'var(--gm-brick)' },
+  docHint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic', margin: 0 },
 };

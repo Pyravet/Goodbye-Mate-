@@ -1,37 +1,61 @@
 // MSG91 SMS adapter — https://api.msg91.com/api/v5/flow/
 //
-// MSG91's v5 API is template ("flow") based: you pre-create a message
-// template in the MSG91 dashboard (with a flow_id) and send variables
-// into it, rather than posting arbitrary free text. This is the modern,
-// supported path (their older free-text endpoints are legacy/deprecated).
-//
-// Since our messages are AI-drafted per-enquiry text rather than a fixed
-// template, we'd want ONE simple flow/template in MSG91 shaped like:
-//   "{{message}}"
-// i.e. a template that's just a single variable holding the whole body.
-// Confirm with MSG91 (or their dashboard) that a single-variable
-// passthrough template is acceptable for your account/route — and that
-// the account can send to +61 (Australian) numbers, since MSG91 is
-// primarily built around Indian carriers/DLT compliance.
+// Real templates configured in the MSG91 dashboard (see templates.js) —
+// each is fixed wording with named variable placeholders, not free text.
+// This sends by template key + a { varName: value } object; the values
+// are matched by name, not position, so they must exactly match the
+// variable names configured in the MSG91 template editor.
+
+import { SMS_TEMPLATES, isTemplateConfigured } from './templates.js';
 
 const MSG91_FLOW_URL = 'https://api.msg91.com/api/v5/flow/';
 
-export async function sendSmsMsg91(toE164, text) {
-  const authkey = process.env.MSG91_AUTH_KEY;
-  const flowId = process.env.MSG91_FLOW_ID;
-  const senderId = process.env.MSG91_SENDER_ID;
+export function isMsg91Configured() {
+  return !!process.env.MSG91_AUTH_KEY;
+}
 
-  if (!authkey || !flowId || !senderId) {
-    throw new Error('MSG91 not configured: set MSG91_AUTH_KEY, MSG91_FLOW_ID, MSG91_SENDER_ID');
+// AU numbers are typically stored as entered (04xx xxx xxx or +614xx...).
+// MSG91 wants the country code with no leading '+'.
+export function toMsg91Mobile(rawPhone) {
+  const digits = String(rawPhone).replace(/[^\d+]/g, '');
+  if (digits.startsWith('+')) return digits.slice(1);
+  if (digits.startsWith('0')) return `61${digits.slice(1)}`; // AU trunk prefix -> country code
+  if (digits.startsWith('61')) return digits;
+  return digits; // already looks like it has a country code, or unrecognised — pass through
+}
+
+// templateKey: one of the keys in SMS_TEMPLATES (see templates.js).
+// variables: { varName: value } — must cover every name in that
+// template's `vars` list, matching MSG91's configured variable names.
+export async function sendTemplatedSms(toRawPhone, templateKey, variables) {
+  const authkey = process.env.MSG91_AUTH_KEY;
+  const template = SMS_TEMPLATES[templateKey];
+
+  if (!authkey) {
+    throw new Error('MSG91 not configured: set MSG91_AUTH_KEY');
+  }
+  if (!template) {
+    throw new Error(`Unknown SMS template key: ${templateKey}`);
+  }
+  if (!isTemplateConfigured(templateKey)) {
+    throw new Error(`Template "${templateKey}" has no flowId set yet — see templates.js`);
+  }
+  if (!template.senderId) {
+    throw new Error(`Template "${templateKey}" has no senderId set — see templates.js`);
+  }
+
+  const missing = template.vars.filter((v) => !(v in variables));
+  if (missing.length) {
+    throw new Error(`Missing variables for template "${templateKey}": ${missing.join(', ')}`);
   }
 
   const body = {
-    flow_id: flowId,
-    sender: senderId,
+    flow_id: template.flowId,
+    sender: template.senderId,
     recipients: [
       {
-        mobiles: toE164.replace(/^\+/, ''), // MSG91 expects country code without a leading '+'
-        message: text, // must match the variable name used in the MSG91 template
+        mobiles: toMsg91Mobile(toRawPhone),
+        ...variables,
       },
     ],
   };

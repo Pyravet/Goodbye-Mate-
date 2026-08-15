@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { query } from '../db/pool.js';
+import { query, pool } from '../db/pool.js';
 import { signAccessToken, generateRefreshToken, hashRefreshToken } from '../auth/tokens.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
@@ -156,6 +156,67 @@ router.post('/change-password', requireAuth, async (req, res) => {
   await query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [req.user.sub]);
 
   res.status(204).end();
+});
+
+// Self-service vet signup — public, no auth required. Creates the account
+// with is_active = false: the login route already blocks inactive users,
+// so a pending vet literally cannot log in until an admin approves them.
+// That's also why login gives a deliberately generic error rather than
+// "your account is pending" — this signup response is where a new vet
+// finds out their application needs approval, not a failed login attempt.
+const vetSignupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many signup attempts. Try again later.' },
+});
+
+const vetSignupSchema = z.object({
+  fullName: z.string().min(1),
+  email: z.string().email(),
+  phone: z.string().min(1),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  regNumber: z.string().min(1, 'Registration number is required'),
+  regState: z.string().min(1, 'Registration state is required'),
+});
+
+router.post('/vet-signup', vetSignupLimiter, async (req, res) => {
+  const parsed = vetSignupSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid signup', details: parsed.error.flatten() });
+  const d = parsed.data;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const passwordHash = await bcrypt.hash(d.password, 12);
+    const { rows: userRows } = await client.query(
+      `INSERT INTO users (email, password_hash, role, full_name, phone, is_active)
+       VALUES ($1,$2,'vet',$3,$4,false) RETURNING id`,
+      [d.email.toLowerCase(), passwordHash, d.fullName, d.phone]
+    );
+    const userId = userRows[0].id;
+
+    await client.query(
+      `INSERT INTO vets (user_id, reg_number, reg_state) VALUES ($1,$2,$3)`,
+      [userId, d.regNumber, d.regState]
+    );
+
+    await client.query('COMMIT');
+    await logAction({ actorUserId: null, action: 'vet_signup', targetType: 'user', targetId: userId, metadata: { email: d.email.toLowerCase() } });
+
+    res.status(201).json({
+      ok: true,
+      message: 'Thanks — your application has been received. An admin will review your registration details and activate your account; you\'ll be able to log in once approved.',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ error: 'An account with that email already exists.' });
+    throw err;
+  } finally {
+    client.release();
+  }
 });
 
 export default router;

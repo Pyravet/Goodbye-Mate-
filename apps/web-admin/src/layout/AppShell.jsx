@@ -6,6 +6,7 @@ const navItems = [
   { to: '/', label: 'Jobs', end: true },
   { to: '/vets', label: 'Vets' },
   { to: '/calendar', label: 'Calendar' },
+  { to: '/activity', label: 'Activity' },
   { to: '/settings', label: 'Settings' },
 ];
 

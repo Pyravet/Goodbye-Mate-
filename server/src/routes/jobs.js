@@ -5,7 +5,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
-import { getVetsWithContextForJob } from '../domain/vetContext.js';
+import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser } from '../integrations/push/webPush.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
@@ -14,6 +14,7 @@ import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
 import { isTemplateConfigured } from '../integrations/sms/templates.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 // Shared formatting for the *_day/*_date/*_time SMS template variables.
 function smsDateVars(job) {
@@ -99,7 +100,7 @@ async function startOrRollDispatch(jobId) {
   }
 }
 
-router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = createJobSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid job', details: parsed.error.flatten() });
   const d = parsed.data;
@@ -138,21 +139,21 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   const bill = billBreakdown(job, pricingRows[0].config);
 
   res.status(201).json({ job, dispatch, bill });
-});
+}));
 
 // Today / Upcoming / Past / Board (all) — the four admin views from the brief.
 // For vets, results are automatically restricted to their own offers and
 // assignments — a vet has no reason to see other vets' jobs, and the admin
 // board view isn't available to them at all.
-router.get('/', requireAuth, async (req, res) => {
+router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const { view, search } = req.query;
   const conditions = [];
   const params = [];
 
   if (req.user.role === 'vet') {
-    const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
-    if (!vetRows[0]) return res.status(403).json({ error: 'Not a vet account' });
-    params.push(vetRows[0].id);
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
+    params.push(myVetId);
     conditions.push(`(assigned_vet_id = $${params.length} OR (dispatch_offered_vet_id = $${params.length} AND dispatch_state = 'offered'))`);
   }
 
@@ -173,15 +174,14 @@ router.get('/', requireAuth, async (req, res) => {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await query(`SELECT * FROM jobs ${where} ORDER BY job_date, job_time`, params);
   res.json({ jobs: rows });
-});
+}));
 
-router.get('/:id', requireAuth, async (req, res) => {
+router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
 
   if (req.user.role === 'vet') {
-    const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
-    const myVetId = vetRows[0]?.id;
+    const myVetId = await getVetIdForUser(req.user.sub);
     const job = rows[0];
     const isMine = job.assigned_vet_id === myVetId || (job.dispatch_offered_vet_id === myVetId && job.dispatch_state === 'offered');
     if (!isMine) return res.status(403).json({ error: 'Forbidden' });
@@ -193,12 +193,12 @@ router.get('/:id', requireAuth, async (req, res) => {
   const payout = payoutBreakdown(rows[0], pricing);
 
   res.json({ job: rows[0], bill, payout });
-});
+}));
 
 // RCTI PDF — what the vet is owed for this job. Admin-only: this shows
 // the business's payout structure, not something a vet needs to see the
 // internals of via the app (they get paid, not a breakdown tool).
-router.get('/:id/rcti.pdf', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/:id/rcti.pdf', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   const job = rows[0];
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -221,13 +221,13 @@ router.get('/:id/rcti.pdf', requireAuth, requireRole('admin'), async (req, res) 
   const gst = vet.is_gst_registered ? extractGst(payout.total, pricing.gstPercent) : null;
 
   generateRctiPdf({ res, job, vet, payout, gst, company });
-});
+}));
 
 // Client invoice/receipt/quote PDF — same document, labelled by intent.
 // ?quote=1 produces a pre-booking quote (no payment status shown, softer
 // wording) — the manual stopgap for "send a quote" until SMS/WhatsApp/
 // Outlook auto-send is wired up with real credentials.
-router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   const job = rows[0];
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -241,7 +241,7 @@ router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), async (req, re
   const asQuote = req.query.quote === '1';
 
   generateInvoicePdf({ res, job, bill, company, asQuote });
-});
+}));
 
 // Charge the client's card via eWay — server never receives raw card
 // digits, only the fields already encrypted in the browser by eCrypt.js.
@@ -254,7 +254,7 @@ const chargeSchema = z.object({
   }),
 });
 
-router.post('/:id/charge', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isEwayConfigured()) {
     return res.status(503).json({ error: 'Payment processing is not configured yet.' });
   }
@@ -296,11 +296,11 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), async (req, res) =
   await logAction({ actorUserId: req.user.sub, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: bill.total } });
 
   res.json({ ok: true, job: updated[0], transactionId: result.transactionId, amount: bill.total });
-});
+}));
 
 // Emails a quote, invoice, or RCTI as a PDF attachment — the automated
 // version of the "download and send manually" stopgap.
-router.post('/:id/email-document', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/email-document', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isEmailConfigured()) return res.status(503).json({ error: 'Email is not configured yet.' });
 
   const type = req.body?.type; // 'quote' | 'invoice' | 'rcti'
@@ -356,12 +356,38 @@ router.post('/:id/email-document', requireAuth, requireRole('admin'), async (req
   } catch (err) {
     res.status(502).json({ error: 'Failed to send email', message: err.message });
   }
-});
+}));
+
+// Text the quote total to the client via SMS — same passthrough template
+// used for AI-drafted messages, since this is also free text (not one of
+// the fixed structured templates like bookingReceived).
+router.post('/:id/sms-quote', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isMsg91Configured()) return res.status(503).json({ error: 'SMS is not configured yet.' });
+  if (!isTemplateConfigured('genericMessage')) return res.status(503).json({ error: 'No SMS passthrough template configured yet.' });
+
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const bill = billBreakdown(job, pricingRows[0].config);
+
+  const message = `Hi ${job.client_name}, your quote for ${job.pet_name} is $${bill.total.toFixed(2)}. We've also sent a detailed quote to your email if provided.`;
+
+  try {
+    await sendTemplatedSms(job.client_phone, 'genericMessage', { message });
+    await logAction({ actorUserId: req.user.sub, action: 'document_texted', targetType: 'job', targetId: job.id, metadata: { type: 'quote' } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to send SMS', message: err.message });
+  }
+}));
 
 // At-risk alerts: unassigned-soon, unpaid, unsigned consent,
 // cremation-not-booked-after-completion. Computed on demand rather than
 // stored — matches the prototype's computeAlerts exactly.
-router.get('/alerts/list', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/alerts/list', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows: jobs } = await query(
     `SELECT * FROM jobs WHERE status NOT IN ('completed', 'cancelled') OR (status = 'completed' AND service_type != 'euthanasia_only' AND NOT cremation_booked)`
   );
@@ -393,11 +419,11 @@ router.get('/alerts/list', requireAuth, requireRole('admin'), async (req, res) =
 
   alerts.sort((a, b) => (a.severity === 'high' ? -1 : 1) - (b.severity === 'high' ? -1 : 1));
   res.json({ alerts });
-});
+}));
 
 // Manual assignment — either from the ranked list or the "assign any
 // other vet" escape hatch for vets travelling outside their territory.
-router.post('/:id/assign', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { vetId } = req.body;
   if (!vetId) return res.status(400).json({ error: 'vetId required' });
 
@@ -412,19 +438,18 @@ router.post('/:id/assign', requireAuth, requireRole('admin'), async (req, res) =
 
   await logAction({ actorUserId: req.user.sub, action: 'job_manually_assigned', targetType: 'job', targetId: req.params.id, metadata: { vetId } });
   res.json({ job: rows[0] });
-});
+}));
 
 // Vet accepts an offer made to them.
-router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), async (req, res) => {
-  const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
-  const vet = vetRows[0];
-  if (!vet) return res.status(403).json({ error: 'Not a vet account' });
+router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+  const vetId = await getVetIdForUser(req.user.sub);
+  if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
 
   const { rows } = await query(
     `UPDATE jobs SET assigned_vet_id = $1, status = 'assigned', dispatch_state = 'accepted', dispatch_expires_at = NULL, updated_at = now()
      WHERE id = $2 AND dispatch_offered_vet_id = $1 AND dispatch_state = 'offered'
      RETURNING *`,
-    [vet.id, req.params.id]
+    [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
 
@@ -434,7 +459,7 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), async (req,
     const job = rows[0];
     const { rows: vetUserRows } = await query(
       `SELECT u.full_name, u.phone FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
-      [vet.id]
+      [vetId]
     );
     const vetUser = vetUserRows[0];
     const portalLink = `${process.env.VET_PORTAL_URL || 'https://goodbye-mate-vet-goodbye-mate.vercel.app'}/jobs/${job.id}`;
@@ -455,31 +480,30 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), async (req,
   }
 
   res.json({ job: rows[0] });
-});
+}));
 
 // Vet declines — rolls to the next best match immediately.
-router.post('/:id/dispatch/decline', requireAuth, requireRole('vet'), async (req, res) => {
-  const { rows: vetRows } = await query('SELECT id FROM vets WHERE user_id = $1', [req.user.sub]);
-  const vet = vetRows[0];
-  if (!vet) return res.status(403).json({ error: 'Not a vet account' });
+router.post('/:id/dispatch/decline', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+  const vetId = await getVetIdForUser(req.user.sub);
+  if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
 
   const { rows } = await query(
     `UPDATE jobs SET dispatch_declined_vet_ids = array_append(dispatch_declined_vet_ids, $1), updated_at = now()
      WHERE id = $2 AND dispatch_offered_vet_id = $1 AND dispatch_state = 'offered'
      RETURNING id`,
-    [vet.id, req.params.id]
+    [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_declined', targetType: 'job', targetId: req.params.id });
   const dispatch = await startOrRollDispatch(req.params.id);
   res.json({ dispatch });
-});
+}));
 
 // One-tap status advance (available -> assigned -> in_route -> started -> completed),
 // plus cancellation as a side-door from any state.
 const STATUS_FLOW = ['available', 'assigned', 'in_route', 'started', 'completed'];
-router.post('/:id/status', requireAuth, async (req, res) => {
+router.post('/:id/status', requireAuth, asyncHandler(async (req, res) => {
   const { status } = req.body;
   if (status === 'cancelled') {
     const { rows } = await query(`UPDATE jobs SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
@@ -494,11 +518,11 @@ router.post('/:id/status', requireAuth, async (req, res) => {
 
   await logAction({ actorUserId: req.user.sub, action: 'job_status_changed', targetType: 'job', targetId: req.params.id, metadata: { status } });
   res.json({ job: rows[0] });
-});
+}));
 
 // Task-gated completion — every condition below must hold before a job
 // can move to 'completed'. This is the brief's explicit business rule.
-router.post('/:id/complete', requireAuth, async (req, res) => {
+router.post('/:id/complete', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   const job = rows[0];
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -517,31 +541,31 @@ router.post('/:id/complete', requireAuth, async (req, res) => {
   const { rows: updated } = await query(`UPDATE jobs SET status = 'completed', updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   await logAction({ actorUserId: req.user.sub, action: 'job_completed', targetType: 'job', targetId: req.params.id });
   res.json({ job: updated[0] });
-});
+}));
 
 // Task-gate field updates — separate small endpoints rather than one
 // giant PATCH, so each action logs clearly in the audit trail.
-router.post('/:id/consent-signed', requireAuth, async (req, res) => {
+router.post('/:id/consent-signed', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query(`UPDATE jobs SET consent_signed = true, updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
-});
+}));
 
-router.post('/:id/payment-received', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/payment-received', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query(`UPDATE jobs SET payment_status = 'paid', updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   await logAction({ actorUserId: req.user.sub, action: 'payment_recorded', targetType: 'job', targetId: req.params.id });
   res.json({ job: rows[0] });
-});
+}));
 
-router.post('/:id/procedure-done', requireAuth, requireRole('vet'), async (req, res) => {
+router.post('/:id/procedure-done', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const { rows } = await query(`UPDATE jobs SET procedure_done = true, procedure_done_at = now(), updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
-});
+}));
 
 // Vet's private medical notes — never shown to the client automatically.
-router.put('/:id/medical-notes', requireAuth, requireRole('vet'), async (req, res) => {
+router.put('/:id/medical-notes', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const { notes } = req.body;
   const { rows } = await query(
     `UPDATE jobs SET medical_notes = $1, updated_at = now() WHERE id = $2 RETURNING *`,
@@ -549,9 +573,9 @@ router.put('/:id/medical-notes', requireAuth, requireRole('vet'), async (req, re
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
-});
+}));
 
-router.post('/:id/cremation-booked', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/cremation-booked', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { bookingRef } = req.body;
   const { rows } = await query(
     `UPDATE jobs SET cremation_booked = true, cremation_booking_ref = $1, updated_at = now() WHERE id = $2 RETURNING *`,
@@ -560,24 +584,24 @@ router.post('/:id/cremation-booked', requireAuth, requireRole('admin'), async (r
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   await logAction({ actorUserId: req.user.sub, action: 'cremation_booked', targetType: 'job', targetId: req.params.id });
   res.json({ job: rows[0] });
-});
+}));
 
-router.post('/:id/ashes-returned', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/ashes-returned', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query(`UPDATE jobs SET ashes_returned = true, updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
-});
+}));
 
 // Per-job internal thread between admin and the assigned vet.
-router.get('/:id/internal-messages', requireAuth, async (req, res) => {
+router.get('/:id/internal-messages', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query(
     `SELECT m.*, u.full_name AS sender_name FROM job_internal_messages m JOIN users u ON u.id = m.sender_user_id WHERE m.job_id = $1 ORDER BY m.created_at`,
     [req.params.id]
   );
   res.json({ messages: rows });
-});
+}));
 
-router.post('/:id/internal-messages', requireAuth, async (req, res) => {
+router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res) => {
   const { body } = req.body;
   if (!body || !body.trim()) return res.status(400).json({ error: 'Message body required' });
 
@@ -586,7 +610,7 @@ router.post('/:id/internal-messages', requireAuth, async (req, res) => {
     [req.params.id, req.user.sub, body.trim()]
   );
   res.status(201).json({ message: rows[0] });
-});
+}));
 
 export { startOrRollDispatch };
 export default router;

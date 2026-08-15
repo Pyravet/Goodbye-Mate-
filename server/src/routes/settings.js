@@ -3,15 +3,16 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
 
-router.get('/pricing', requireAuth, async (req, res) => {
+router.get('/pricing', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   res.json({ pricing: rows[0].config });
-});
+}));
 
-router.put('/pricing', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/pricing', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const config = req.body;
   if (!config || typeof config !== 'object') return res.status(400).json({ error: 'Invalid pricing config' });
 
@@ -21,14 +22,14 @@ router.put('/pricing', requireAuth, requireRole('admin'), async (req, res) => {
   );
   await logAction({ actorUserId: req.user.sub, action: 'pricing_updated', targetType: 'settings' });
   res.json({ ok: true });
-});
+}));
 
-router.get('/content', requireAuth, async (req, res) => {
+router.get('/content', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT config FROM content_settings WHERE id = true');
   res.json({ content: rows[0].config });
-});
+}));
 
-router.put('/content', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/content', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const config = req.body;
   if (!config || typeof config !== 'object') return res.status(400).json({ error: 'Invalid content config' });
 
@@ -38,16 +39,16 @@ router.put('/content', requireAuth, requireRole('admin'), async (req, res) => {
   );
   await logAction({ actorUserId: req.user.sub, action: 'content_updated', targetType: 'settings' });
   res.json({ ok: true });
-});
+}));
 
-router.get('/templates', requireAuth, async (req, res) => {
+router.get('/templates', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT id, label, text FROM message_templates ORDER BY id');
   res.json({ templates: rows });
-});
+}));
 
 const templateSchema = z.object({ label: z.string().min(1), text: z.string().min(1) });
 
-router.put('/templates/:id', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/templates/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = templateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid template', details: parsed.error.flatten() });
 
@@ -59,6 +60,6 @@ router.put('/templates/:id', requireAuth, requireRole('admin'), async (req, res)
 
   await logAction({ actorUserId: req.user.sub, action: 'template_updated', targetType: 'message_template', targetId: req.params.id });
   res.json({ ok: true });
-});
+}));
 
 export default router;

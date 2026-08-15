@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import TerritoryMap from '../maps/TerritoryMap.jsx';
 import WeeklyAvailabilityGrid from './WeeklyAvailabilityGrid.jsx';

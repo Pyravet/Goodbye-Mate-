@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import AddressAutocomplete from '../maps/AddressAutocomplete.jsx';
 import { apiFetch } from '../api.js';

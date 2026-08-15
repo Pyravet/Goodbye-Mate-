@@ -6,6 +6,7 @@ import { query, pool } from '../db/pool.js';
 import { signAccessToken, generateRefreshToken, hashRefreshToken } from '../auth/tokens.js';
 import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
 
@@ -16,6 +17,16 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again later.' },
+});
+
+// Same idea as loginLimiter — an authenticated user could otherwise
+// brute-force their own current-password check with no throttle at all.
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts. Try again later.' },
 });
 
 const loginSchema = z.object({
@@ -33,7 +44,7 @@ function setRefreshCookie(res, rawToken, expiresAt) {
   });
 }
 
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid email or password format' });
@@ -77,9 +88,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     refreshToken: raw,
     user: { id: user.id, email: user.email, role: user.role, fullName: user.full_name },
   });
-});
+}));
 
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', asyncHandler(async (req, res) => {
   const raw = req.cookies?.refresh_token || req.body?.refreshToken;
   if (!raw) return res.status(401).json({ error: 'No refresh token' });
 
@@ -111,9 +122,9 @@ router.post('/refresh', async (req, res) => {
 
   const accessToken = signAccessToken({ id: tokenRow.user_id, role: tokenRow.role, email: tokenRow.email });
   res.json({ accessToken, refreshToken: newRaw });
-});
+}));
 
-router.post('/logout', async (req, res) => {
+router.post('/logout', asyncHandler(async (req, res) => {
   const raw = req.cookies?.refresh_token || req.body?.refreshToken;
   if (raw) {
     const hash = hashRefreshToken(raw);
@@ -121,23 +132,23 @@ router.post('/logout', async (req, res) => {
   }
   res.clearCookie('refresh_token', { path: '/api/auth' });
   res.status(204).end();
-});
+}));
 
-router.get('/me', requireAuth, async (req, res) => {
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query(
     'SELECT id, email, role, full_name, phone FROM users WHERE id = $1',
     [req.user.sub]
   );
   if (!rows[0]) return res.status(404).json({ error: 'User not found' });
   res.json({ user: rows[0] });
-});
+}));
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8, 'New password must be at least 8 characters'),
 });
 
-router.post('/change-password', requireAuth, async (req, res) => {
+router.post('/change-password', requireAuth, changePasswordLimiter, asyncHandler(async (req, res) => {
   const parsed = changePasswordSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
 
@@ -156,7 +167,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
   await query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [req.user.sub]);
 
   res.status(204).end();
-});
+}));
 
 // Self-service vet signup — public, no auth required. Creates the account
 // with is_active = false: the login route already blocks inactive users,
@@ -181,7 +192,7 @@ const vetSignupSchema = z.object({
   regState: z.string().min(1, 'Registration state is required'),
 });
 
-router.post('/vet-signup', vetSignupLimiter, async (req, res) => {
+router.post('/vet-signup', vetSignupLimiter, asyncHandler(async (req, res) => {
   const parsed = vetSignupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid signup', details: parsed.error.flatten() });
   const d = parsed.data;
@@ -217,6 +228,6 @@ router.post('/vet-signup', vetSignupLimiter, async (req, res) => {
   } finally {
     client.release();
   }
-});
+}));
 
 export default router;

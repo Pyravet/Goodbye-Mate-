@@ -9,6 +9,7 @@ import { rankVetsByLocation } from '../domain/dispatch.js';
 import { getVetsWithContextForJob } from '../domain/vetContext.js';
 import { encrypt, decrypt, isEncryptionConfigured, maskTail } from '../security/encryption.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
 
@@ -37,7 +38,7 @@ function generateTempPassword() {
 
 // Creates the login user (role='vet', a real temporary password returned
 // once in this response) and the linked vets row in one transaction.
-router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = createVetSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid vet', details: parsed.error.flatten() });
   const d = parsed.data;
@@ -83,19 +84,19 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   } finally {
     client.release();
   }
-});
+}));
 
-router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query(
     `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
      FROM vets v JOIN users u ON u.id = v.user_id ORDER BY u.full_name`
   );
   res.json({ vets: rows });
-});
+}));
 
 // IMPORTANT: this must be registered before GET '/:vetId' — otherwise
 // Express matches "/matching" as vetId="matching".
-router.get('/matching', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/matching', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const lng = Number(req.query.lng);
   const lat = Number(req.query.lat);
   if (Number.isNaN(lng) || Number.isNaN(lat)) {
@@ -112,13 +113,13 @@ router.get('/matching', requireAuth, requireRole('admin'), async (req, res) => {
   );
 
   res.json({ vets: rows });
-});
+}));
 
 // Quick postcode check — "who's the nearest vet?" — for admin to preview
 // before assigning, without needing a full job or lat/lng from Places.
 // IMPORTANT: must be registered before GET '/:vetId' — otherwise Express
 // matches "/nearest" as vetId="nearest".
-router.get('/nearest', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/nearest', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const postcode = (req.query.postcode || '').trim();
   if (!postcode) return res.status(400).json({ error: 'postcode query param is required' });
 
@@ -131,11 +132,11 @@ router.get('/nearest', requireAuth, requireRole('admin'), async (req, res) => {
   const ranked = rankVetsByLocation(postcode, vetsWithContext);
 
   res.json({ postcode, ranked });
-});
+}));
 
 // A vet fetching their own profile doesn't know their internal vets.id
 // (only their user id, from the JWT) — this resolves that.
-router.get('/me', requireAuth, async (req, res) => {
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query(
     `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
      FROM vets v JOIN users u ON u.id = v.user_id WHERE v.user_id = $1`,
@@ -162,9 +163,9 @@ router.get('/me', requireAuth, async (req, res) => {
   delete vet.bank_account_number_enc;
 
   res.json({ vet, bankDetails });
-});
+}));
 
-router.get('/:vetId', requireAuth, async (req, res) => {
+router.get('/:vetId', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query(
     `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
      FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
@@ -194,7 +195,7 @@ router.get('/:vetId', requireAuth, async (req, res) => {
   delete vet.bank_account_number_enc;
 
   res.json({ vet, bankDetails });
-});
+}));
 
 const updateProfileSchema = z.object({
   regNumber: z.string().optional(),
@@ -217,7 +218,7 @@ const updateProfileSchema = z.object({
 
 // Vets can edit their own profile (per the brief's "self-service edit of
 // all their own details"); admins can edit anyone's.
-router.put('/:vetId/profile', requireAuth, async (req, res) => {
+router.put('/:vetId/profile', requireAuth, asyncHandler(async (req, res) => {
   const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
   if (req.user.role !== 'admin' && req.user.sub !== vetRows[0].user_id) {
@@ -277,12 +278,12 @@ router.put('/:vetId/profile', requireAuth, async (req, res) => {
   } finally {
     client.release();
   }
-});
+}));
 
 // Approve a pending self-signup vet (or reactivate a deactivated one) —
 // this is literally the login gate, since login already blocks
 // is_active = false accounts.
-router.put('/:vetId/approve', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/:vetId/approve', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
 
@@ -302,11 +303,11 @@ router.put('/:vetId/approve', requireAuth, requireRole('admin'), async (req, res
   }
 
   res.json({ ok: true });
-});
+}));
 
 // Deactivate a vet — e.g. registration lapsed, or they've stopped
 // contracting. Blocks login immediately.
-router.put('/:vetId/deactivate', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/:vetId/deactivate', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
 
@@ -314,14 +315,14 @@ router.put('/:vetId/deactivate', requireAuth, requireRole('admin'), async (req, 
   await query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [vetRows[0].user_id]);
   await logAction({ actorUserId: req.user.sub, action: 'vet_deactivated', targetType: 'vet', targetId: req.params.vetId });
   res.json({ ok: true });
-});
+}));
 
 // Weekly hour-by-hour availability. Note: this is still ONE recurring
 // weekly pattern (matches the prototype), not true per-specific-week
 // schedules — that upgrade is still open, see README.
 const weeklyHoursSchema = z.record(z.record(z.boolean())); // { "mon": { "8": true, ... }, ... }
 
-router.put('/:vetId/weekly-hours', requireAuth, async (req, res) => {
+router.put('/:vetId/weekly-hours', requireAuth, asyncHandler(async (req, res) => {
   const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
   if (req.user.role !== 'admin' && req.user.sub !== vetRows[0].user_id) {
@@ -336,10 +337,10 @@ router.put('/:vetId/weekly-hours', requireAuth, async (req, res) => {
     [JSON.stringify(parsed.data), req.params.vetId]
   );
   res.json({ vet: rows[0] });
-});
+}));
 
 // One-off date overrides — blocked/available for a specific calendar date.
-router.put('/:vetId/date-overrides/:date', requireAuth, async (req, res) => {
+router.put('/:vetId/date-overrides/:date', requireAuth, asyncHandler(async (req, res) => {
   const { available } = req.body; // boolean, or null to clear the override
   const { rows: vetRows } = await query('SELECT user_id, date_overrides FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
@@ -356,15 +357,15 @@ router.put('/:vetId/date-overrides/:date', requireAuth, async (req, res) => {
     [JSON.stringify(overrides), req.params.vetId]
   );
   res.json({ vet: rows[0] });
-});
+}));
 
 // Note templates — a vet's personal reusable medical-note snippets.
-router.get('/:vetId/note-templates', requireAuth, async (req, res) => {
+router.get('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM vet_note_templates WHERE vet_id = $1 ORDER BY created_at', [req.params.vetId]);
   res.json({ templates: rows });
-});
+}));
 
-router.post('/:vetId/note-templates', requireAuth, async (req, res) => {
+router.post('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) => {
   const { label, text } = req.body;
   if (!label || !text) return res.status(400).json({ error: 'label and text required' });
 
@@ -373,7 +374,7 @@ router.post('/:vetId/note-templates', requireAuth, async (req, res) => {
     [req.params.vetId, label, text]
   );
   res.status(201).json({ template: rows[0] });
-});
+}));
 
 // GeoJSON polygon coming from the frontend's drawing tool.
 const territorySchema = z.object({
@@ -384,7 +385,7 @@ const territorySchema = z.object({
 // Save/replace a vet's territory. Admin-only — territory assignment is
 // an admin decision, even though the vet whose territory it is might
 // eventually get a read-only view of their own.
-router.put('/:vetId/territory', requireAuth, requireRole('admin'), async (req, res) => {
+router.put('/:vetId/territory', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { vetId } = req.params;
   const parsed = territorySchema.safeParse(req.body.geojson);
   if (!parsed.success) {
@@ -413,9 +414,9 @@ router.put('/:vetId/territory', requireAuth, requireRole('admin'), async (req, r
   });
 
   res.json({ ok: true });
-});
+}));
 
-router.get('/:vetId/territory', requireAuth, async (req, res) => {
+router.get('/:vetId/territory', requireAuth, asyncHandler(async (req, res) => {
   const { vetId } = req.params;
   const { rows } = await query(
     `SELECT ST_AsGeoJSON(territory) AS geojson FROM vets WHERE id = $1`,
@@ -423,6 +424,6 @@ router.get('/:vetId/territory', requireAuth, async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ error: 'Vet not found' });
   res.json({ geojson: rows[0].geojson ? JSON.parse(rows[0].geojson) : null });
-});
+}));
 
 export default router;

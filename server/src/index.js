@@ -15,8 +15,19 @@ import jobsRoutes from './routes/jobs.js';
 import pushRoutes from './routes/push.js';
 import auditRoutes from './routes/audit.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
+import { seedTestVet } from './db/seed-test-vet.js';
 
 const app = express();
+
+// Safety net: if something still slips through an unwrapped promise
+// somewhere, log it instead of letting Node silently kill the process
+// (or hang forever) on an unhandled rejection.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
 
 app.set('trust proxy', 1); // needed for correct req.ip behind Vercel/hosting proxies
 
@@ -57,4 +68,5 @@ const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`API listening on :${port}`);
   startDispatchWorker();
+  seedTestVet().catch((err) => console.error('Test vet seed error:', err.message));
 });

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router';
 import { AuthProvider } from './AuthContext.jsx';
 import RequireAuth from './RequireAuth.jsx';
 import Login from './pages/Login.jsx';

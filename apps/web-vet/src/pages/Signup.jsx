@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { API_URL } from '../api.js';
 import { LOGO_DATA_URI } from '../assets.js';
 

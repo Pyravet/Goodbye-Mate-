@@ -6,6 +6,7 @@ import { logAction } from '../audit/log.js';
 import { draftSmsReply } from '../integrations/ai/draftSmsReply.js';
 import { validateSmsText } from '../integrations/sms/validateSmsText.js';
 import { sendTemplatedSms } from '../integrations/sms/msg91.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ function extractJson(raw) {
 
 // Step 1: create a message and have Claude draft it. Every quote/reply
 // goes through this — same approval gate for every channel, per your call.
-router.post('/draft', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/draft', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = draftSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request', details: parsed.error.flatten() });
@@ -68,7 +69,7 @@ router.post('/draft', requireAuth, requireRole('admin'), async (req, res) => {
   await query(`UPDATE messages SET draft_text = $1, status = 'pending_approval', updated_at = now() WHERE id = $2`, [v.text, messageId]);
 
   res.json({ id: messageId, draftText: v.text, status: 'pending_approval' });
-});
+}));
 
 // Step 2: admin reviews/edits the draft, then approves — this call both
 // records the (possibly edited) final text and sends it in one step.
@@ -76,7 +77,7 @@ const approveSchema = z.object({
   finalText: z.string().min(1).max(320),
 });
 
-router.post('/:id/approve', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/approve', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { id } = req.params;
   const parsed = approveSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -125,17 +126,17 @@ router.post('/:id/approve', requireAuth, requireRole('admin'), async (req, res) 
   await logAction({ actorUserId: req.user.sub, action: 'message_approved_and_sent', targetType: 'message', targetId: id });
 
   res.json({ id, status: 'sent', providerResponse });
-});
+}));
 
-router.get('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM messages WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Message not found' });
   res.json({ message: rows[0] });
-});
+}));
 
-router.get('/', requireAuth, requireRole('admin'), async (req, res) => {
+router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM messages ORDER BY created_at DESC LIMIT 100');
   res.json({ messages: rows });
-});
+}));
 
 export default router;

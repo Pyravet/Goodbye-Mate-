@@ -1,5 +1,12 @@
 import { query } from '../db/pool.js';
 
+// Small helper to cut down repeated `SELECT id FROM vets WHERE user_id = $1`
+// lookups scattered across jobs.js — same query, same intent, every time.
+export async function getVetIdForUser(userId) {
+  const { rows } = await query('SELECT id FROM vets WHERE user_id = $1', [userId]);
+  return rows[0]?.id || null;
+}
+
 // Gathers everything rankVets() needs, for every active vet, in a small
 // number of queries. Kept separate from dispatch.js so the scoring logic
 // stays pure/DB-free and testable.

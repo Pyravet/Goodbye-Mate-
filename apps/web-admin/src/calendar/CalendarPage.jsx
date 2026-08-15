@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJobs } from '../jobs/jobsApi.js';
 

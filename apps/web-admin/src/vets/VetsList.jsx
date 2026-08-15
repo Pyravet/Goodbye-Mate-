@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import NearestVetCheck from './NearestVetCheck.jsx';
 import { fetchVets, approveVet } from './vetsApi.js';

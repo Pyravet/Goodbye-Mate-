@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes } from './jobsApi.js';
 

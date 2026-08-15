@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
 

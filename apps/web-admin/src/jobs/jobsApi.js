@@ -77,6 +77,29 @@ export async function emailDocument(jobId, type) {
   return data;
 }
 
+export async function smsQuote(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/sms-quote`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send SMS');
+  return data;
+}
+
+// Sends the quote through every configured channel at once. Runs both
+// independently so one failing (e.g. no phone on file) doesn't block the
+// other — callers get back which channels actually succeeded.
+export async function sendQuoteEverywhere(jobId, { hasEmail, hasPhone }) {
+  const results = { email: null, sms: null };
+  if (hasEmail) {
+    try { await emailDocument(jobId, 'quote'); results.email = 'sent'; }
+    catch (err) { results.email = err.message; }
+  }
+  if (hasPhone) {
+    try { await smsQuote(jobId); results.sms = 'sent'; }
+    catch (err) { results.sms = err.message; }
+  }
+  return results;
+}
+
 export async function chargeJob(id, encryptedCard) {
   const res = await apiFetch(`/jobs/${id}/charge`, { method: 'POST', body: JSON.stringify({ encryptedCard }) });
   const data = await res.json();

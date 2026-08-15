@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere } from './jobsApi.js';
 import TakePayment from './TakePayment.jsx';
 
 export default function JobDetail() {
@@ -14,6 +14,8 @@ export default function JobDetail() {
   const [completeError, setCompleteError] = useState(null);
   const [downloadError, setDownloadError] = useState('');
   const [emailStatus, setEmailStatus] = useState({}); // { quote: 'sending'|'sent'|'error', ... }
+  const [sendQuoteStatus, setSendQuoteStatus] = useState('idle'); // idle | sending | done
+  const [sendQuoteResult, setSendQuoteResult] = useState(null); // { email, sms }
   const [showPayment, setShowPayment] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(null);
 
@@ -82,6 +84,17 @@ export default function JobDetail() {
     } catch (err) {
       setEmailStatus((s) => ({ ...s, [type]: err.message }));
     }
+  };
+
+  const onSendQuoteEverywhere = async () => {
+    setSendQuoteStatus('sending');
+    setSendQuoteResult(null);
+    const result = await sendQuoteEverywhere(id, {
+      hasEmail: !!data.job.client_email,
+      hasPhone: !!data.job.client_phone,
+    });
+    setSendQuoteResult(result);
+    setSendQuoteStatus('done');
   };
 
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
@@ -176,6 +189,33 @@ export default function JobDetail() {
 
             <Card title="Documents">
               {downloadError && <p style={styles.completeError}>{downloadError}</p>}
+
+              {(job.client_email || job.client_phone) && (
+                <div style={styles.sendEverywhereRow}>
+                  <button
+                    onClick={onSendQuoteEverywhere}
+                    disabled={sendQuoteStatus === 'sending'}
+                    style={styles.sendEverywhereBtn}
+                  >
+                    {sendQuoteStatus === 'sending' ? 'Sending…' : 'Send quote to client (email + SMS)'}
+                  </button>
+                  {sendQuoteStatus === 'done' && sendQuoteResult && (
+                    <div style={styles.sendEverywhereResult}>
+                      {sendQuoteResult.email && (
+                        <span className={`gm-badge ${sendQuoteResult.email === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>
+                          Email: {sendQuoteResult.email === 'sent' ? 'sent' : sendQuoteResult.email}
+                        </span>
+                      )}
+                      {sendQuoteResult.sms && (
+                        <span className={`gm-badge ${sendQuoteResult.sms === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>
+                          SMS: {sendQuoteResult.sms === 'sent' ? 'sent' : sendQuoteResult.sms}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={styles.docRow}>
                 <DocRow label="Quote" onDownload={onDownloadQuote} onEmail={() => onEmail('quote')} status={emailStatus.quote} disabled={!job.client_email} />
                 <DocRow
@@ -256,6 +296,9 @@ const styles = {
   paidNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12, fontWeight: 500 },
   takePaymentBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500, marginTop: 14 },
   docRow: { display: 'flex', flexDirection: 'column', gap: 8 },
+  sendEverywhereRow: { marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--gm-line)' },
+  sendEverywhereBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
+  sendEverywhereResult: { display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
   docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },
   docBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 12px', fontSize: 12, fontWeight: 500 },

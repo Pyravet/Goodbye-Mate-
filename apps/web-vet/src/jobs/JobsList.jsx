@@ -78,7 +78,7 @@ export default function JobsList() {
             </Section>
 
             {completed.length > 0 && (
-              <Section title="Completed">
+              <Section title="Completed" action={<Link to="/jobs/past" style={styles.seeAllLink}>See all →</Link>}>
                 {completed.slice(0, 10).map((job) => <JobRow key={job.id} job={job} muted />)}
               </Section>
             )}
@@ -89,10 +89,13 @@ export default function JobsList() {
   );
 }
 
-function Section({ title, children }) {
+function Section({ title, children, action }) {
   return (
     <div style={{ marginBottom: 24 }}>
-      <h3 style={styles.sectionTitle}>{title}</h3>
+      <div style={styles.sectionHeader}>
+        <h3 style={styles.sectionTitle}>{title}</h3>
+        {action}
+      </div>
       {children}
     </div>
   );
@@ -115,7 +118,9 @@ function JobRow({ job, muted }) {
 const styles = {
   page: { padding: '20px 16px' },
   title: { fontSize: 22, marginBottom: 16 },
-  sectionTitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', marginBottom: 8, fontFamily: 'var(--gm-font-body)', fontWeight: 600 },
+  sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  sectionTitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', fontFamily: 'var(--gm-font-body)', fontWeight: 600, marginBottom: 0 },
+  seeAllLink: { fontSize: 12, fontWeight: 500, color: 'var(--gm-forest)', textDecoration: 'none' },
   empty: { color: 'var(--gm-ink-soft)', fontSize: 13 },
   link: { textDecoration: 'none', color: 'inherit', display: 'block' },
   card: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', marginBottom: 8 },

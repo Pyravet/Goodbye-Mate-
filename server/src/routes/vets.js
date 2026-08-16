@@ -445,11 +445,18 @@ const territorySchema = z.object({
   coordinates: z.array(z.array(z.tuple([z.number(), z.number()]))).min(1),
 });
 
-// Save/replace a vet's territory. Admin-only — territory assignment is
-// an admin decision, even though the vet whose territory it is might
-// eventually get a read-only view of their own.
-router.put('/:vetId/territory', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+// Save/replace a vet's territory. Admin can set any vet's; a vet can draw
+// and save their own (matches the same "admin OR the vet themself" pattern
+// used for weekly-hours/date-overrides/profile).
+router.put('/:vetId/territory', requireAuth, asyncHandler(async (req, res) => {
   const { vetId } = req.params;
+
+  if (req.user.role !== 'admin') {
+    const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [vetId]);
+    if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
+    if (req.user.sub !== vetRows[0].user_id) return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const parsed = territorySchema.safeParse(req.body.geojson);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid territory GeoJSON', details: parsed.error.flatten() });
@@ -481,6 +488,13 @@ router.put('/:vetId/territory', requireAuth, requireRole('admin'), asyncHandler(
 
 router.get('/:vetId/territory', requireAuth, asyncHandler(async (req, res) => {
   const { vetId } = req.params;
+
+  if (req.user.role !== 'admin') {
+    const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [vetId]);
+    if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
+    if (req.user.sub !== vetRows[0].user_id) return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const { rows } = await query(
     `SELECT ST_AsGeoJSON(territory) AS geojson FROM vets WHERE id = $1`,
     [vetId]

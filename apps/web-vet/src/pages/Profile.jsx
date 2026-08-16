@@ -3,6 +3,7 @@ import AppShell from '../layout/AppShell.jsx';
 import { useAuth } from '../AuthContext.jsx';
 import { apiFetch } from '../api.js';
 import { enablePushNotifications } from '../push.js';
+import TerritoryMap from '../vets/TerritoryMap.jsx';
 
 const AU_STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
 
@@ -65,6 +66,7 @@ export default function Profile() {
             <PersonalDetailsCard vetId={vet.id} initial={vet} onSaved={load} />
             <RegistrationCard vetId={vet.id} initial={vet} onSaved={load} />
             <TerritoryCard vetId={vet.id} initial={vet} onSaved={load} />
+            <TerritoryMapCard vetId={vet.id} />
             <BankDetailsCard vetId={vet.id} bankDetails={bankDetails} onSaved={load} />
           </>
         )}
@@ -195,6 +197,15 @@ function RegistrationCard({ vetId, initial, onSaved }) {
   );
 }
 
+function TerritoryMapCard({ vetId }) {
+  return (
+    <div className="gm-card" style={styles.card}>
+      <h3 style={styles.cardTitle}>Territory map</h3>
+      <TerritoryMap vetId={vetId} />
+    </div>
+  );
+}
+
 function TerritoryCard({ vetId, initial, onSaved }) {
   const [postcodesInput, setPostcodesInput] = useState((initial.postcodes || []).join(', '));
   const [status, setStatus] = useState('idle');
@@ -209,9 +220,9 @@ function TerritoryCard({ vetId, initial, onSaved }) {
 
   return (
     <div className="gm-card" style={styles.card}>
-      <h3 style={styles.cardTitle}>Territory</h3>
+      <h3 style={styles.cardTitle}>Territory postcodes</h3>
       <p style={styles.cardBody}>
-        Postcodes you cover, as a quick fallback list. For an exact coverage area drawn on a map, ask admin to set your territory in the admin dashboard.
+        A quick fallback list. For your exact coverage area, use the map below instead — it's what dispatch uses first when it's set.
       </p>
       <label style={styles.label}>
         Postcodes (comma-separated)

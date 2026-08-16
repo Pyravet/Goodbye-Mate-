@@ -29,3 +29,19 @@ export async function fetchEarnings(vetId) {
   if (!res.ok) throw new Error('Failed to load earnings');
   return res.json();
 }
+
+export async function fetchTerritory(vetId) {
+  const res = await apiFetch(`/vets/${vetId}/territory`);
+  if (!res.ok) throw new Error('Failed to load territory');
+  const data = await res.json();
+  return data.geojson;
+}
+
+export async function saveTerritory(vetId, geojson) {
+  const res = await apiFetch(`/vets/${vetId}/territory`, {
+    method: 'PUT',
+    body: JSON.stringify({ geojson }),
+  });
+  if (!res.ok) throw new Error('Failed to save territory');
+  return res.json();
+}

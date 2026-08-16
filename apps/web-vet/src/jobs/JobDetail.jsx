@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
-import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes } from './jobsApi.js';
+import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes, notifyEnRoute } from './jobsApi.js';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -14,6 +14,9 @@ export default function JobDetail() {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState('');
   const [notesSaved, setNotesSaved] = useState(true);
+  const [enRouteState, setEnRouteState] = useState('idle'); // idle | locating | sending | done | error
+  const [enRouteError, setEnRouteError] = useState('');
+  const [enRouteResult, setEnRouteResult] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -25,6 +28,37 @@ export default function JobDetail() {
   const onAccept = async () => { setBusy(true); try { await acceptOffer(id); load(); } finally { setBusy(false); } };
   const onDecline = async () => { setBusy(true); try { await declineOffer(id); navigate('/'); } finally { setBusy(false); } };
   const onProcedureDone = async () => { setBusy(true); try { await markProcedureDone(id); load(); } finally { setBusy(false); } };
+  const onNotifyEnRoute = () => {
+    if (!('geolocation' in navigator)) {
+      setEnRouteState('error');
+      setEnRouteError("This device can't share its location.");
+      return;
+    }
+    setEnRouteState('locating');
+    setEnRouteError('');
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        setEnRouteState('sending');
+        try {
+          const result = await notifyEnRoute(id, {
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+          setEnRouteResult(result);
+          setEnRouteState('done');
+        } catch (err) {
+          setEnRouteState('error');
+          setEnRouteError(err.message);
+        }
+      },
+      () => {
+        setEnRouteState('error');
+        setEnRouteError('Location permission was denied — enable it to send an ETA.');
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
+
   const onSaveNotes = async () => {
     setBusy(true);
     try { await saveMedicalNotes(id, notes); setNotesSaved(true); } finally { setBusy(false); }
@@ -69,6 +103,29 @@ export default function JobDetail() {
             Get directions →
           </a>
         </Card>
+
+        {!isOffer && !job.procedure_done && (
+          <Card title="On the way">
+            {enRouteState === 'done' && enRouteResult ? (
+              <>
+                <p style={styles.doneNote}>
+                  {enRouteResult.smsSent ? 'Client texted' : 'Client not texted (SMS unavailable)'} — ETA {enRouteResult.etaMinutes} min ({enRouteResult.distanceText}).
+                </p>
+                <button onClick={onNotifyEnRoute} disabled={enRouteState === 'locating' || enRouteState === 'sending'} style={styles.enRouteBtnSecondary}>
+                  Send updated ETA
+                </button>
+              </>
+            ) : (
+              <>
+                <p style={styles.subline2}>Let the client know you're on the way, with a live ETA based on your current location.</p>
+                <button onClick={onNotifyEnRoute} disabled={enRouteState === 'locating' || enRouteState === 'sending'} style={styles.enRouteBtn}>
+                  {enRouteState === 'locating' ? 'Finding your location…' : enRouteState === 'sending' ? 'Sending…' : "I'm on the way — notify client"}
+                </button>
+              </>
+            )}
+            {enRouteState === 'error' && <p style={styles.errorNote}>{enRouteError}</p>}
+          </Card>
+        )}
 
         <Card title="Pet">
           <p style={styles.plain}>{job.pet_type}{job.pet_breed ? `, ${job.pet_breed}` : ''}</p>
@@ -135,6 +192,9 @@ const styles = {
   callLink: { display: 'inline-block', marginTop: 6, color: 'var(--gm-forest)', fontSize: 15, fontWeight: 500, textDecoration: 'none' },
   directionsLink: { display: 'inline-block', marginTop: 10, color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none' },
   doneNote: { fontSize: 14, color: 'var(--gm-forest-dark)' },
+  enRouteBtn: { width: '100%', padding: '12px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
+  enRouteBtnSecondary: { width: '100%', padding: '10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', background: '#fff', color: 'var(--gm-ink)', fontSize: 13, fontWeight: 500, marginTop: 4 },
+  errorNote: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   doneBtn: { width: '100%', padding: '12px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
   textarea: { width: '100%', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 15, resize: 'vertical', fontFamily: 'inherit' },
   saveBtn: { marginTop: 10, padding: '10px 16px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },

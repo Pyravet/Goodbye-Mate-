@@ -28,6 +28,13 @@ export async function declineOffer(id) {
   return data;
 }
 
+export async function notifyEnRoute(id, { lat, lng }) {
+  const res = await apiFetch(`/jobs/${id}/en-route`, { method: 'POST', body: JSON.stringify({ lat, lng }) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to notify client');
+  return data; // { job, etaMinutes, distanceText, smsSent }
+}
+
 export async function markProcedureDone(id) {
   const res = await apiFetch(`/jobs/${id}/procedure-done`, { method: 'POST' });
   if (!res.ok) throw new Error('Failed to update');

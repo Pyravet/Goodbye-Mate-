@@ -39,3 +39,31 @@ export async function sendPushToUser(userId, payload) {
 export function isPushConfigured() {
   return configured;
 }
+
+// Broadcasts a push to every user with the 'admin' role who has an active
+// push subscription — used for popup notifications admin should never
+// miss (e.g. a vet marking themselves en route to a job).
+export async function sendPushToAdmins(payload) {
+  if (!configured) return;
+
+  const { rows } = await query(
+    `SELECT DISTINCT ps.id, ps.subscription
+     FROM push_subscriptions ps
+     JOIN users u ON u.id = ps.user_id
+     WHERE u.role = 'admin'`
+  );
+
+  await Promise.all(
+    rows.map(async (row) => {
+      try {
+        await webpush.sendNotification(row.subscription, JSON.stringify(payload));
+      } catch (err) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await query('DELETE FROM push_subscriptions WHERE id = $1', [row.id]);
+        } else {
+          console.error('Admin push send failed:', err.message);
+        }
+      }
+    })
+  );
+}

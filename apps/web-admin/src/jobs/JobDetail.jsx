@@ -161,6 +161,12 @@ export default function JobDetail() {
                 {job.dispatch_state === 'unassigned' && 'No vet available — needs manual assignment.'}
                 {job.dispatch_state === 'none' && 'Not yet dispatched.'}
               </p>
+              {job.en_route_at && (
+                <p style={styles.enRouteNote}>
+                  🚗 Vet notified the client they're on the way at {new Date(job.en_route_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
+                  {' '}— ETA was {job.en_route_eta_minutes} min ({job.en_route_distance_text}).
+                </p>
+              )}
             </Card>
 
             <Card title="Billing">
@@ -299,6 +305,7 @@ const styles = {
   completeError: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   completedNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12 },
   plain: { fontSize: 14, margin: 0 },
+  enRouteNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 10, lineHeight: 1.5 },
   notes: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
   billLine: { display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' },
   billTotal: { borderTop: '1px solid var(--gm-line)', marginTop: 6, paddingTop: 8, fontWeight: 600 },

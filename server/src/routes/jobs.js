@@ -6,7 +6,8 @@ import { logAction } from '../audit/log.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
-import { sendPushToUser } from '../integrations/push/webPush.js';
+import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
+import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
 import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
@@ -566,6 +567,80 @@ router.post('/:id/procedure-done', requireAuth, requireRole('vet'), asyncHandler
   const { rows } = await query(`UPDATE jobs SET procedure_done = true, procedure_done_at = now(), updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   res.json({ job: rows[0] });
+}));
+
+// Vet taps "I'm on the way" from the job detail screen. Computes a
+// driving ETA from the vet's current browser-reported location to the
+// job address, texts the client, and pops a notification to admin —
+// all in one action so the vet doesn't need to juggle three steps.
+const enRouteSchema = z.object({
+  lat: z.number(),
+  lng: z.number(),
+});
+
+router.post('/:id/en-route', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+  const parsed = enRouteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Current location (lat/lng) is required', details: parsed.error.flatten() });
+  }
+  const { lat, lng } = parsed.data;
+
+  const vetId = await getVetIdForUser(req.user.sub);
+  if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
+
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1 AND assigned_vet_id = $2', [req.params.id, vetId]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found, or not assigned to you' });
+  if (job.lat == null || job.lng == null) {
+    return res.status(422).json({ error: 'This job has no address coordinates on file, so an ETA can\'t be calculated.' });
+  }
+
+  const { etaMinutes, distanceText } = await getDrivingEta({
+    originLat: lat,
+    originLng: lng,
+    destLat: job.lat,
+    destLng: job.lng,
+  });
+
+  const { rows: updatedRows } = await query(
+    `UPDATE jobs SET en_route_at = now(), en_route_eta_minutes = $1, en_route_distance_text = $2, updated_at = now()
+     WHERE id = $3 RETURNING *`,
+    [etaMinutes, distanceText, req.params.id]
+  );
+
+  const { rows: vetUserRows } = await query(
+    `SELECT u.full_name FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+    [vetId]
+  );
+  const vetName = vetUserRows[0]?.full_name || 'Your vet';
+
+  let smsSent = false;
+  if (isMsg91Configured() && isTemplateConfigured('genericMessage') && job.client_phone) {
+    try {
+      await sendTemplatedSms(job.client_phone, 'genericMessage', {
+        message: `Hi ${job.client_name}, ${vetName} is on the way to see ${job.pet_name} and expects to arrive in about ${etaMinutes} minute${etaMinutes === 1 ? '' : 's'}.`,
+      });
+      smsSent = true;
+    } catch (err) {
+      console.error('En-route SMS to client failed:', err.message);
+    }
+  }
+
+  sendPushToAdmins({
+    title: 'Vet en route',
+    body: `${vetName} is on the way to ${job.pet_name} (${job.job_number}) — ETA ${etaMinutes} min.`,
+    url: `/jobs/${job.id}`,
+  }).catch((err) => console.error('Admin en-route push failed:', err.message));
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'vet_en_route',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { etaMinutes, distanceText, smsSent },
+  });
+
+  res.json({ job: updatedRows[0], etaMinutes, distanceText, smsSent });
 }));
 
 // Vet's private medical notes — never shown to the client automatically.

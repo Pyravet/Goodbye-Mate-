@@ -110,3 +110,19 @@ export async function chargeJob(id, encryptedCard) {
   }
   return data;
 }
+
+// Internal admin<->vet thread for a job (separate from client-facing
+// email/SMS messages).
+export async function fetchInternalMessages(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/internal-messages`);
+  if (!res.ok) throw new Error('Failed to load messages');
+  const data = await res.json();
+  return data.messages;
+}
+
+export async function sendInternalMessage(jobId, body) {
+  const res = await apiFetch(`/jobs/${jobId}/internal-messages`, { method: 'POST', body: JSON.stringify({ body }) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send message');
+  return data.message;
+}

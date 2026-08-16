@@ -4,10 +4,13 @@ import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
 import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere } from './jobsApi.js';
 import TakePayment from './TakePayment.jsx';
+import MessageThread from './MessageThread.jsx';
+import { useAuth } from '../AuthContext.jsx';
 
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -233,6 +236,12 @@ export default function JobDetail() {
                 {!job.client_email && <p style={styles.docHint}>Add a client email to enable emailing quotes/invoices.</p>}
               </div>
             </Card>
+
+            {job.assigned_vet_id && (
+              <Card title="Messages">
+                <MessageThread jobId={id} currentUserId={user?.id} />
+              </Card>
+            )}
           </div>
         </div>
       </div>

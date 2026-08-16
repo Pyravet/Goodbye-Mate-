@@ -2,10 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes } from './jobsApi.js';
+import MessageThread from './MessageThread.jsx';
+import { useAuth } from '../AuthContext.jsx';
 
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -94,6 +97,12 @@ export default function JobDetail() {
             <button onClick={onSaveNotes} disabled={busy || notesSaved} style={styles.saveBtn}>
               {notesSaved ? 'Saved' : busy ? 'Saving…' : 'Save notes'}
             </button>
+          </Card>
+        )}
+
+        {!isOffer && (
+          <Card title="Messages">
+            <MessageThread jobId={id} currentUserId={user?.id} />
           </Card>
         )}
       </div>

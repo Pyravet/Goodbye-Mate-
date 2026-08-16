@@ -598,6 +598,14 @@ router.post('/:id/ashes-returned', requireAuth, requireRole('admin'), asyncHandl
 
 // Per-job internal thread between admin and the assigned vet.
 router.get('/:id/internal-messages', requireAuth, asyncHandler(async (req, res) => {
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    const { rows: jobRows } = await query('SELECT assigned_vet_id, dispatch_offered_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+    const job = jobRows[0];
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const isMine = job.assigned_vet_id === myVetId || job.dispatch_offered_vet_id === myVetId;
+    if (!isMine) return res.status(403).json({ error: 'Forbidden' });
+  }
   const { rows } = await query(
     `SELECT m.*, u.full_name AS sender_name FROM job_internal_messages m JOIN users u ON u.id = m.sender_user_id WHERE m.job_id = $1 ORDER BY m.created_at`,
     [req.params.id]
@@ -609,11 +617,24 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
   const { body } = req.body;
   if (!body || !body.trim()) return res.status(400).json({ error: 'Message body required' });
 
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    const { rows: jobRows } = await query('SELECT assigned_vet_id, dispatch_offered_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+    const job = jobRows[0];
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const isMine = job.assigned_vet_id === myVetId || job.dispatch_offered_vet_id === myVetId;
+    if (!isMine) return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const { rows } = await query(
     `INSERT INTO job_internal_messages (job_id, sender_user_id, body) VALUES ($1, $2, $3) RETURNING *`,
     [req.params.id, req.user.sub, body.trim()]
   );
-  res.status(201).json({ message: rows[0] });
+  const { rows: withSender } = await query(
+    `SELECT m.*, u.full_name AS sender_name FROM job_internal_messages m JOIN users u ON u.id = m.sender_user_id WHERE m.id = $1`,
+    [rows[0].id]
+  );
+  res.status(201).json({ message: withSender[0] });
 }));
 
 export { startOrRollDispatch };

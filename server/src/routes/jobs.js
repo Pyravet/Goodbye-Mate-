@@ -195,14 +195,18 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   res.json({ job: rows[0], bill, payout });
 }));
 
-// RCTI PDF — what the vet is owed for this job. Admin-only: this shows
-// the business's payout structure, not something a vet needs to see the
-// internals of via the app (they get paid, not a breakdown tool).
-router.get('/:id/rcti.pdf', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+// RCTI PDF — what the vet is owed for this job. Admin can view any job's
+// RCTI; a vet can view their own once assigned.
+router.get('/:id/rcti.pdf', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   const job = rows[0];
   if (!job) return res.status(404).json({ error: 'Job not found' });
   if (!job.assigned_vet_id) return res.status(400).json({ error: 'No vet assigned to this job yet' });
+
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (job.assigned_vet_id !== myVetId) return res.status(403).json({ error: 'Forbidden' });
+  }
 
   const { rows: vetRows } = await query(
     `SELECT v.abn, v.is_gst_registered, v.reg_number, v.reg_state, u.full_name

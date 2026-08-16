@@ -10,6 +10,7 @@ import { getVetsWithContextForJob } from '../domain/vetContext.js';
 import { encrypt, decrypt, isEncryptionConfigured, maskTail } from '../security/encryption.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { payoutBreakdown, extractGst } from '../domain/pricing.js';
 
 const router = Router();
 
@@ -163,6 +164,68 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   delete vet.bank_account_number_enc;
 
   res.json({ vet, bankDetails });
+}));
+
+// Payout summary for a vet: today/week/month/all-time totals from completed
+// jobs, plus a week-by-week breakdown for history.
+router.get('/:vetId/earnings', requireAuth, asyncHandler(async (req, res) => {
+  const { rows: vetRows } = await query('SELECT user_id, is_gst_registered FROM vets WHERE id = $1', [req.params.vetId]);
+  if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
+  if (req.user.role !== 'admin' && req.user.sub !== vetRows[0].user_id) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+
+  const { rows: jobs } = await query(
+    `SELECT * FROM jobs WHERE assigned_vet_id = $1 AND status = 'completed' ORDER BY job_date DESC`,
+    [req.params.vetId]
+  );
+  const { rows: upcomingRows } = await query(
+    `SELECT * FROM jobs WHERE assigned_vet_id = $1 AND status NOT IN ('completed','cancelled')`,
+    [req.params.vetId]
+  );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const startOfWeek = (dateStr) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() - d.getDay());
+    return d.toISOString().slice(0, 10);
+  };
+  const startOfMonth = today.slice(0, 7) + '-01';
+  const thisWeekStart = startOfWeek(today);
+
+  let todayTotal = 0, weekTotal = 0, monthTotal = 0, allTimeTotal = 0;
+  const byWeek = {};
+
+  for (const job of jobs) {
+    const jobDate = typeof job.job_date === 'string' ? job.job_date.slice(0, 10) : new Date(job.job_date).toISOString().slice(0, 10);
+    const payout = payoutBreakdown(job, pricing);
+    allTimeTotal += payout.total;
+    if (jobDate === today) todayTotal += payout.total;
+    if (jobDate >= thisWeekStart) weekTotal += payout.total;
+    if (jobDate >= startOfMonth) monthTotal += payout.total;
+
+    const weekKey = startOfWeek(jobDate);
+    if (!byWeek[weekKey]) byWeek[weekKey] = { weekStart: weekKey, total: 0, jobCount: 0, jobs: [] };
+    byWeek[weekKey].total += payout.total;
+    byWeek[weekKey].jobCount += 1;
+    byWeek[weekKey].jobs.push({ id: job.id, jobNumber: job.job_number, petName: job.pet_name, jobDate, payout: payout.total });
+  }
+
+  const upcomingTotal = upcomingRows.reduce((sum, job) => sum + payoutBreakdown(job, pricing).total, 0);
+
+  const weeklyHistory = Object.values(byWeek).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+
+  res.json({
+    today: todayTotal,
+    thisWeek: weekTotal,
+    thisMonth: monthTotal,
+    allTime: allTimeTotal,
+    upcoming: upcomingTotal,
+    weeklyHistory,
+  });
 }));
 
 router.get('/:vetId', requireAuth, asyncHandler(async (req, res) => {

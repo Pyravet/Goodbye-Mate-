@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchContent, saveContent } from './settingsApi.js';
+import { fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
 
 const TEXT_FIELDS = [
   { key: 'consentTemplate', label: 'Consent form text' },
@@ -67,7 +67,77 @@ export default function ContentTab() {
         <p style={styles.hint}>Use placeholders like {'{petName}'}, {'{date}'}, {'{time}'}, {'{vetName}'}, {'{crematorium}'} — these get filled in automatically.</p>
       </Card>
 
+      <Card title="Brochure PDFs">
+        <p style={{ ...styles.hint, marginBottom: 14 }}>
+          Optional — attach an actual PDF brochure for each cremation option. If uploaded, clients see a
+          download link on their journey page alongside the text above.
+        </p>
+        <BrochureUploader kind="private_cremation" label="Private cremation brochure" />
+        <BrochureUploader kind="communal_cremation" label="Communal cremation brochure" />
+      </Card>
+
       <button onClick={onSave} disabled={saving} style={styles.saveBtn}>{saving ? 'Saving…' : saved ? 'Saved' : 'Save content'}</button>
+    </div>
+  );
+}
+
+function BrochureUploader({ kind, label }) {
+  const [doc, setDoc] = useState(undefined); // undefined = loading, null = none, object = present
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = () => {
+    fetchBrochurePdf(kind).then(setDoc).catch(() => setDoc(null));
+  };
+  useEffect(load, [kind]);
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same filename later
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      setError('Please choose a PDF file.');
+      return;
+    }
+    setError('');
+    setBusy(true);
+    try {
+      await uploadBrochurePdf(kind, file);
+      load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRemove = async () => {
+    setBusy(true);
+    try {
+      await removeBrochurePdf(kind);
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={styles.brochureRow}>
+      <div style={styles.brochureLabel}>{label}</div>
+      {doc === undefined ? (
+        <span style={styles.hint}>Loading…</span>
+      ) : doc ? (
+        <div style={styles.brochureCurrent}>
+          <span className="gm-badge gm-badge--forest">📄 {doc.filename}</span>
+          <button onClick={onRemove} disabled={busy} style={styles.brochureRemoveBtn}>Remove</button>
+        </div>
+      ) : (
+        <label style={styles.brochureUploadBtn}>
+          {busy ? 'Uploading…' : 'Upload PDF'}
+          <input type="file" accept="application/pdf" onChange={onFileChange} disabled={busy} style={{ display: 'none' }} />
+        </label>
+      )}
+      {error && <p style={{ ...styles.hint, color: 'var(--gm-brick)' }}>{error}</p>}
     </div>
   );
 }
@@ -93,4 +163,9 @@ const styles = {
   input: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff', fontFamily: 'inherit' },
   hint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic' },
   saveBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
+  brochureRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--gm-line-soft)' },
+  brochureLabel: { fontSize: 13, fontWeight: 500 },
+  brochureCurrent: { display: 'flex', alignItems: 'center', gap: 10 },
+  brochureRemoveBtn: { background: 'none', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '4px 10px', fontSize: 11, color: 'var(--gm-brick)' },
+  brochureUploadBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '6px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer' },
 };

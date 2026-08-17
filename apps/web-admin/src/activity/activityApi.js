@@ -13,3 +13,10 @@ export async function fetchMessages() {
   const data = await res.json();
   return data.messages;
 }
+
+export async function fetchInternalInbox() {
+  const res = await apiFetch('/jobs/messages/inbox');
+  if (!res.ok) throw new Error('Failed to load messages');
+  const data = await res.json();
+  return data.threads;
+}

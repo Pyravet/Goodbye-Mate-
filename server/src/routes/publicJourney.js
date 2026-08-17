@@ -59,6 +59,14 @@ router.get('/:token', asyncHandler(async (req, res) => {
   else if (job.service_type === 'communal_cremation') brochure = fillPlaceholders(content.communalCremationBrochure, job);
   else brochure = fillPlaceholders(content.noCremationNote, job);
 
+  let brochurePdf = null;
+  if (job.service_type !== 'euthanasia_only') {
+    const { rows: docRows } = await query('SELECT filename FROM content_documents WHERE kind = $1', [job.service_type]);
+    if (docRows[0]) brochurePdf = { filename: docRows[0].filename };
+  }
+
+  const { rows: reviewRows } = await query('SELECT rating FROM job_reviews WHERE job_id = $1', [job.id]);
+
   res.json({
     job: {
       petName: job.pet_name,
@@ -73,12 +81,14 @@ router.get('/:token', asyncHandler(async (req, res) => {
       procedureDone: job.procedure_done,
       cremationBooked: job.cremation_booked,
       ashesReturned: job.ashes_returned,
+      reviewRating: reviewRows[0]?.rating ?? null,
     },
     bill: { total: bill.total, lines: bill.lines },
     content: {
       educationalIntro: fillPlaceholders(content.educationalIntro, job),
       consentTemplate: fillPlaceholders(content.consentTemplate, job),
       brochure,
+      brochurePdf,
     },
     company: content.company,
     eway: { configured: isEwayConfigured() },
@@ -151,6 +161,47 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
   await logAction({ actorUserId: null, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: bill.total, source: 'client_journey' } });
 
   res.json({ ok: true, transactionId: result.transactionId });
+}));
+
+const reviewSchema = z.object({
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(2000).optional(),
+});
+
+router.post('/:token/review', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (!job.procedure_done) return res.status(400).json({ error: 'Reviews open up after the visit.' });
+
+  const parsed = reviewSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid rating' });
+
+  await query(
+    `INSERT INTO job_reviews (job_id, rating, comment) VALUES ($1, $2, $3)
+     ON CONFLICT (job_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment, created_at = now()`,
+    [job.id, parsed.data.rating, parsed.data.comment || null]
+  );
+  await logAction({ actorUserId: null, action: 'client_review_submitted', targetType: 'job', targetId: job.id, metadata: { rating: parsed.data.rating } });
+
+  res.json({ ok: true });
+}));
+
+// Serves the uploaded brochure PDF for this job's cremation type, if one
+// has been uploaded. Deliberately routed through the job token (not a
+// generic /content/brochure/:kind endpoint) so a client only ever reaches
+// the document relevant to their own booking.
+router.get('/:token/brochure.pdf', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (job.service_type === 'euthanasia_only') return res.status(404).json({ error: 'No brochure for this service type.' });
+
+  const { rows } = await query('SELECT filename, mime_type, data FROM content_documents WHERE kind = $1', [job.service_type]);
+  const doc = rows[0];
+  if (!doc) return res.status(404).json({ error: 'No brochure has been uploaded yet.' });
+
+  res.setHeader('Content-Type', doc.mime_type);
+  res.setHeader('Content-Disposition', `inline; filename="${doc.filename.replace(/"/g, '')}"`);
+  res.send(doc.data);
 }));
 
 export default router;

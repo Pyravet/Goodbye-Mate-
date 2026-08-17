@@ -33,4 +33,15 @@ export async function submitPayment(token, encryptedCard) {
   return data;
 }
 
+export async function submitReview(token, { rating, comment }) {
+  const res = await fetch(`${API_URL}/public/journey/${token}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating, comment }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not save your rating — try again.');
+  return data;
+}
+
 export { API_URL };

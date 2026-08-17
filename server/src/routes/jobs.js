@@ -517,6 +517,24 @@ router.get('/alerts/list', requireAuth, requireRole('admin'), asyncHandler(async
   res.json({ alerts });
 }));
 
+// Consolidated inbox: the latest internal message per job that has any,
+// most recent first, so admin doesn't have to open every job to check
+// for a new vet message. Vets get the equivalent via the unread dot on
+// their own job list — this is admin's version of that at a glance.
+router.get('/messages/inbox', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query(`
+    SELECT DISTINCT ON (j.id)
+      j.id AS job_id, j.job_number, j.pet_name, j.client_name, j.admin_unread_messages,
+      m.body AS last_message, m.created_at AS last_message_at, u.full_name AS last_sender_name
+    FROM jobs j
+    JOIN job_internal_messages m ON m.job_id = j.id
+    JOIN users u ON u.id = m.sender_user_id
+    ORDER BY j.id, m.created_at DESC
+  `);
+  rows.sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
+  res.json({ threads: rows });
+}));
+
 // Manual assignment — either from the ranked list or the "assign any
 // other vet" escape hatch for vets travelling outside their territory.
 router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {

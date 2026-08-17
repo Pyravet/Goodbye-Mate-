@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
-import { fetchJourney, submitConsent, submitPayment } from './api.js';
+import { fetchJourney, submitConsent, submitPayment, submitReview, API_URL } from './api.js';
 
 const SERVICE_LABELS = {
   euthanasia_only: 'Euthanasia visit',
@@ -54,6 +54,7 @@ export default function JourneyPage() {
 
   const { job, bill, content, company, eway } = data;
   const hasAftercare = job.serviceType !== 'euthanasia_only';
+  const [reviewRating, setReviewRatingLocal] = useState(job.reviewRating);
 
   const steps = [
     { key: 'welcome', label: 'About your visit', done: welcomeAck || job.consentSigned },
@@ -61,6 +62,7 @@ export default function JourneyPage() {
     { key: 'payment', label: 'Payment', done: job.paymentStatus === 'paid' || paymentSkipped },
   ];
   if (hasAftercare) steps.push({ key: 'aftercare', label: 'Aftercare', done: aftercareAck });
+  if (job.procedureDone) steps.push({ key: 'review', label: 'How did we do?', done: reviewRating != null });
 
   const activeIndex = steps.findIndex((s) => !s.done);
   const active = activeIndex === -1 ? steps.length - 1 : activeIndex;
@@ -102,7 +104,10 @@ export default function JourneyPage() {
               <PaymentSection token={token} bill={bill} job={job} eway={eway} isActive={isActive} onPaid={onPaid} onSkip={() => setPaymentSkipped(true)} />
             )}
             {s.key === 'aftercare' && (
-              <AftercareSection content={content} isActive={isActive} onContinue={() => setAftercareAck(true)} />
+              <AftercareSection token={token} content={content} isActive={isActive} onContinue={() => setAftercareAck(true)} />
+            )}
+            {s.key === 'review' && (
+              <ReviewSection token={token} isActive={isActive} rating={reviewRating} onRated={setReviewRatingLocal} />
             )}
           </section>
         );
@@ -271,13 +276,116 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
   );
 }
 
-function AftercareSection({ content, isActive, onContinue }) {
+function AftercareSection({ token, content, isActive, onContinue }) {
   if (!isActive) return <SectionHeader label="Aftercare" done />;
   return (
     <>
       <SectionHeader label="Aftercare" done={false} />
       <p style={styles.bodyText}>{content.brochure}</p>
+      {content.brochurePdf && (
+        <a
+          href={`${API_URL}/public/journey/${token}/brochure.pdf`}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.pdfLink}
+        >
+          📄 View brochure (PDF)
+        </a>
+      )}
       <button onClick={onContinue} style={styles.primaryBtn}>Got it</button>
+    </>
+  );
+}
+
+const GOOGLE_REVIEW_URL = 'https://search.google.com/local/writereview?placeid=ChIJ33JNf7ZBKmkRJpZ0x7dhYAI&source=g.page.m.kd._&utm_source=gbp&laa=lu-desktop-review-solicitation';
+
+function ReviewSection({ token, isActive, rating, onRated }) {
+  const [hoverStar, setHoverStar] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [submittedLowRating, setSubmittedLowRating] = useState(false);
+
+  if (rating != null && !isActive) return <SectionHeader label="How did we do?" done />;
+
+  const submit = async (value, withComment) => {
+    setError('');
+    setSubmitting(true);
+    try {
+      await submitReview(token, { rating: value, comment: withComment ? comment.trim() : undefined });
+      onRated(value);
+      if (value === 5) {
+        window.open(GOOGLE_REVIEW_URL, '_blank', 'noopener');
+      } else {
+        setSubmittedLowRating(true);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const onStarClick = (value) => {
+    if (submitting || rating != null) return;
+    if (value === 5) {
+      submit(5, false);
+    } else {
+      // For anything under 5, save the rating immediately so it's never
+      // lost, then let them optionally add a comment before "done".
+      submit(value, false);
+    }
+  };
+
+  if (rating != null) {
+    return (
+      <>
+        <SectionHeader label="How did we do?" done />
+        <p style={styles.bodyText}>
+          {rating === 5
+            ? 'Thank you — we really appreciate you taking the time to leave a review.'
+            : 'Thank you for letting us know. If there\u2019s anything more you\u2019d like to share, we\u2019re listening.'}
+        </p>
+        {rating < 5 && !submittedLowRating && (
+          <>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={3}
+              placeholder="Optional — tell us more"
+              style={styles.input}
+            />
+            <button onClick={() => submit(rating, true)} disabled={submitting} style={styles.primaryBtn}>
+              {submitting ? 'Sending…' : 'Send feedback'}
+            </button>
+          </>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <SectionHeader label="How did we do?" done={false} />
+      <p style={styles.bodyText}>Tap a star to let us know how your visit went.</p>
+      {error && <p style={styles.errorText}>{error}</p>}
+      <div style={styles.starRow}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={submitting}
+            onClick={() => onStarClick(n)}
+            onMouseEnter={() => setHoverStar(n)}
+            onMouseLeave={() => setHoverStar(0)}
+            style={styles.starBtn}
+            aria-label={`${n} star${n === 1 ? '' : 's'}`}
+          >
+            {n <= hoverStar ? '★' : '☆'}
+          </button>
+        ))}
+      </div>
+      <p style={styles.starHint}>Five stars will also take you to leave us a Google review.</p>
     </>
   );
 }
@@ -314,4 +422,8 @@ const styles = {
   billTotal: { borderTop: '1px solid var(--gm-line)', marginTop: 6, paddingTop: 8, fontWeight: 600, fontSize: 14 },
   doneBanner: { textAlign: 'center', padding: '20px 16px', marginTop: 8 },
   doneBannerText: { fontSize: 14, color: 'var(--gm-forest-dark)', lineHeight: 1.6 },
+  pdfLink: { display: 'inline-block', marginBottom: 16, color: 'var(--gm-forest)', fontWeight: 500, fontSize: 14, textDecoration: 'none' },
+  starRow: { display: 'flex', gap: 6, marginBottom: 10 },
+  starBtn: { background: 'none', border: 'none', fontSize: 36, lineHeight: 1, color: 'var(--gm-honey)', padding: 2, cursor: 'pointer' },
+  starHint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic' },
 };

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
@@ -12,10 +13,29 @@ const navItems = [
 
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div style={styles.wrap}>
-      <aside style={styles.sidebar}>
+    <div className="gm-shell" style={styles.wrap}>
+      {/* Mobile-only top bar: hamburger + logo. Hidden on desktop via CSS
+          (see .gm-topbar in theme.css) since the sidebar is always visible
+          there and this would just be redundant chrome. */}
+      <header className="gm-topbar">
+        <button
+          className="gm-hamburger"
+          onClick={() => setDrawerOpen(true)}
+          aria-label="Open menu"
+        >
+          <span /><span /><span />
+        </button>
+        <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-topbar-logo" />
+      </header>
+
+      {drawerOpen && (
+        <div className="gm-drawer-overlay" onClick={() => setDrawerOpen(false)} />
+      )}
+
+      <aside className={`gm-sidebar${drawerOpen ? ' gm-sidebar--open' : ''}`} style={styles.sidebar}>
         <div style={styles.brand}>
           <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.brandLogo} />
         </div>
@@ -25,6 +45,7 @@ export default function AppShell({ children }) {
               key={item.to}
               to={item.to}
               end={item.end}
+              onClick={() => setDrawerOpen(false)}
               style={({ isActive }) => ({
                 ...styles.navLink,
                 ...(isActive ? styles.navLinkActive : {}),
@@ -39,7 +60,7 @@ export default function AppShell({ children }) {
           <button onClick={logout} style={styles.logoutBtn}>Log out</button>
         </div>
       </aside>
-      <main style={styles.main}>{children}</main>
+      <main className="gm-main-content" style={styles.main}>{children}</main>
     </div>
   );
 }
@@ -95,3 +116,4 @@ const styles = {
   },
   main: { flex: 1, minWidth: 0, background: 'var(--gm-paper)' },
 };
+

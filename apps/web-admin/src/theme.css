@@ -87,3 +87,76 @@ button {
 .gm-badge--honey { background: var(--gm-honey-soft); color: #7A5A22; }
 .gm-badge--brick { background: var(--gm-brick-soft); color: var(--gm-brick); }
 .gm-badge--forest { background: #E3E9E1; color: var(--gm-forest-dark); }
+
+/* --- Mobile responsiveness for the admin app ---
+   Desktop keeps the always-visible sidebar exactly as before. Below
+   768px, the sidebar becomes an off-canvas drawer opened by a hamburger
+   button in a mobile-only top bar. */
+.gm-topbar { display: none; }
+
+@media (max-width: 768px) {
+  .gm-shell { flex-direction: column; }
+
+  .gm-topbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    background: var(--gm-forest);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .gm-topbar-logo { height: 24px; width: auto; }
+  .gm-hamburger {
+    background: none;
+    border: none;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .gm-hamburger span {
+    display: block;
+    width: 20px;
+    height: 2px;
+    background: #fff;
+    border-radius: 1px;
+  }
+
+  .gm-drawer-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 30;
+  }
+  .gm-sidebar {
+    position: fixed !important;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.2);
+  }
+  .gm-sidebar--open { transform: translateX(0); }
+
+  /* Safety net: most admin pages hard-code desktop padding/grid via
+     inline styles (e.g. padding: '32px 40px', a 2-column grid for job
+     detail). Rather than touch every page file individually, collapse
+     the common patterns here so the app is at least fully usable on a
+     phone — full per-page layout polish can follow later if needed. */
+  .gm-main-content > div {
+    padding: 16px !important;
+    max-width: 100% !important;
+  }
+  .gm-main-content div[style*="grid-template-columns"] {
+    display: block !important;
+  }
+  .gm-main-content div[style*="display: flex"][style*="gap: 12px"] {
+    flex-wrap: wrap !important;
+  }
+}
+

@@ -2,14 +2,16 @@ import { useState } from 'react';
 import AppShell from '../layout/AppShell.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import MessagesTab from './MessagesTab.jsx';
+import InboxTab from './InboxTab.jsx';
 
 const TABS = [
+  { key: 'inbox', label: 'Vet messages' },
   { key: 'audit', label: 'Audit log' },
-  { key: 'messages', label: 'Messages' },
+  { key: 'messages', label: 'Client messages' },
 ];
 
 export default function ActivityPage() {
-  const [tab, setTab] = useState('audit');
+  const [tab, setTab] = useState('inbox');
 
   return (
     <AppShell>
@@ -28,6 +30,7 @@ export default function ActivityPage() {
           ))}
         </div>
 
+        {tab === 'inbox' && <InboxTab />}
         {tab === 'audit' && <AuditLogTab />}
         {tab === 'messages' && <MessagesTab />}
       </div>

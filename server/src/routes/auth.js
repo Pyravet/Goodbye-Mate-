@@ -7,6 +7,8 @@ import { signAccessToken, generateRefreshToken, hashRefreshToken } from '../auth
 import { requireAuth } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { sendPushToAdmins } from '../integrations/push/webPush.js';
+import { sendSlackMessage } from '../integrations/slack/webhook.js';
 
 const router = Router();
 
@@ -209,13 +211,22 @@ router.post('/vet-signup', vetSignupLimiter, asyncHandler(async (req, res) => {
     );
     const userId = userRows[0].id;
 
-    await client.query(
-      `INSERT INTO vets (user_id, reg_number, reg_state) VALUES ($1,$2,$3)`,
+    const { rows: vetRows } = await client.query(
+      `INSERT INTO vets (user_id, reg_number, reg_state) VALUES ($1,$2,$3) RETURNING id`,
       [userId, d.regNumber, d.regState]
     );
+    const vetId = vetRows[0].id;
 
     await client.query('COMMIT');
     await logAction({ actorUserId: null, action: 'vet_signup', targetType: 'user', targetId: userId, metadata: { email: d.email.toLowerCase() } });
+
+    sendPushToAdmins({
+      title: 'New vet application',
+      body: `${d.fullName} applied — reg. ${d.regNumber} (${d.regState})`,
+      url: `/vets/${vetId}`,
+    }).catch((err) => console.error('Admin push for vet signup failed:', err.message));
+    sendSlackMessage(`🐾 New vet application: *${d.fullName}* (${d.email}) — reg. ${d.regNumber} (${d.regState}). Review in the admin app.`)
+      .catch((err) => console.error('Slack notify for vet signup failed:', err.message));
 
     res.status(201).json({
       ok: true,

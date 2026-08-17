@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
@@ -8,6 +9,7 @@ import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
+import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
 import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
@@ -30,6 +32,18 @@ function smsDateVars(job) {
 }
 
 const router = Router();
+
+// Every route below sends an outbound message (SMS, WhatsApp, email, or a
+// push) that costs money or could be used to spam a client if abused —
+// e.g. by rapidly re-triggering "send quote" or "I'm on the way". This is
+// deliberately tighter than the blanket /api limit in index.js.
+const outboundMessageLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many messages sent in a short period. Try again shortly.' },
+});
 
 const createJobSchema = z.object({
   clientName: z.string().min(1),
@@ -306,7 +320,7 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async
 
 // Emails a quote, invoice, or RCTI as a PDF attachment — the automated
 // version of the "download and send manually" stopgap.
-router.post('/:id/email-document', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isEmailConfigured()) return res.status(503).json({ error: 'Email is not configured yet.' });
 
   const type = req.body?.type; // 'quote' | 'invoice' | 'rcti'
@@ -367,7 +381,7 @@ router.post('/:id/email-document', requireAuth, requireRole('admin'), asyncHandl
 // Text the quote total to the client via SMS — same passthrough template
 // used for AI-drafted messages, since this is also free text (not one of
 // the fixed structured templates like bookingReceived).
-router.post('/:id/sms-quote', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+router.post('/:id/sms-quote', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isMsg91Configured()) return res.status(503).json({ error: 'SMS is not configured yet.' });
   if (!isTemplateConfigured('genericMessage')) return res.status(503).json({ error: 'No SMS passthrough template configured yet.' });
 
@@ -390,7 +404,7 @@ router.post('/:id/sms-quote', requireAuth, requireRole('admin'), asyncHandler(as
   }
 }));
 
-router.post('/:id/whatsapp-quote', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+router.post('/:id/whatsapp-quote', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   if (!isWhatsappConfigured()) return res.status(503).json({ error: 'WhatsApp is not configured yet.' });
 
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
@@ -599,7 +613,7 @@ const enRouteSchema = z.object({
   lng: z.number(),
 });
 
-router.post('/:id/en-route', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const parsed = enRouteSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Current location (lat/lng) is required', details: parsed.error.flatten() });
@@ -652,6 +666,8 @@ router.post('/:id/en-route', requireAuth, requireRole('vet'), asyncHandler(async
     body: `${vetName} is on the way to ${job.pet_name} (${job.job_number}) — ETA ${etaMinutes} min.`,
     url: `/jobs/${job.id}`,
   }).catch((err) => console.error('Admin en-route push failed:', err.message));
+  sendSlackMessage(`🚗 *${vetName}* is on the way to see *${job.pet_name}* (${job.job_number}) — ETA ${etaMinutes} min.`)
+    .catch((err) => console.error('Slack notify for en-route failed:', err.message));
 
   await logAction({
     actorUserId: req.user.sub,

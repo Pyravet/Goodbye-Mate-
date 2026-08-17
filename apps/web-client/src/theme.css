@@ -1,0 +1,89 @@
+/* Goodbye Mate — design tokens.
+   This is software used on someone's hardest day, and by vets working in
+   the field. Calm, warm, legible — not clinical, not cheerful, not a
+   generic SaaS dashboard. */
+
+:root {
+  /* Color */
+  --gm-paper: #FAF7F1;        /* page background — warm, soft, not stark white */
+  --gm-surface: #FFFFFF;      /* card/panel background */
+  --gm-ink: #2A2620;          /* primary text */
+  --gm-ink-soft: #6B6559;     /* secondary text */
+  --gm-forest: #33453A;       /* primary brand — deep, calm green */
+  --gm-forest-dark: #23301F;  /* hover/active state of primary */
+  --gm-honey: #BE8A3C;        /* accent — warmth, used sparingly */
+  --gm-honey-soft: #F3E6CB;   /* accent background tint */
+  --gm-brick: #9C4A3C;        /* alerts/urgent — muted, not alarm-red */
+  --gm-brick-soft: #F3DFD9;
+  --gm-line: #E7E0D3;         /* hairline borders */
+  --gm-line-soft: #F0EBE0;
+
+  /* Type */
+  --gm-font-display: 'Fraunces', Georgia, serif;
+  --gm-font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Layout */
+  --gm-radius: 10px;
+  --gm-radius-sm: 6px;
+  --gm-sidebar-w: 220px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--gm-paper);
+  color: var(--gm-ink);
+  font-family: var(--gm-font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--gm-font-display);
+  font-weight: 600;
+  color: var(--gm-forest-dark);
+  margin: 0;
+}
+
+button, input, select, textarea { font-family: inherit; font-size: inherit; }
+
+button {
+  cursor: pointer;
+}
+
+/* Visible keyboard focus everywhere — this is used under real pressure,
+   sometimes one-handed on a phone in a driveway. Never remove this. */
+:focus-visible {
+  outline: 2px solid var(--gm-honey);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.gm-card {
+  background: var(--gm-surface);
+  border: 1px solid var(--gm-line);
+  border-radius: var(--gm-radius);
+}
+
+.gm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.gm-badge--honey { background: var(--gm-honey-soft); color: #7A5A22; }
+.gm-badge--brick { background: var(--gm-brick-soft); color: var(--gm-brick); }
+.gm-badge--forest { background: #E3E9E1; color: var(--gm-forest-dark); }

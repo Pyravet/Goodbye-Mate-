@@ -39,6 +39,7 @@ export default function JobCard({ job, showDate }) {
             {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
               <span className="gm-badge gm-badge--honey">{job.pet_behaviour}</span>
             )}
+            {job.admin_unread_messages && <span style={styles.unreadDot} title="New message" />}
           </div>
           <div style={styles.clientLine}>{job.client_name} · {job.suburb || job.postcode}</div>
         </div>
@@ -68,6 +69,7 @@ const styles = {
   date: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 2 },
   mainCol: { flex: 1, minWidth: 0 },
   petRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  unreadDot: { width: 8, height: 8, borderRadius: '50%', background: 'var(--gm-brick)', flexShrink: 0 },
   petName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600 },
   clientLine: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 2 },
   statusCol: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 },

@@ -110,7 +110,10 @@ function JobRow({ job, muted }) {
       <div className="gm-card" style={{ ...styles.card, opacity: muted ? 0.6 : 1 }}>
         <div style={styles.timeCol}>{formatTime(job.job_time)}</div>
         <div style={{ flex: 1 }}>
-          <div style={styles.petName}>{job.pet_name}</div>
+          <div style={styles.petRow}>
+            <span style={styles.petName}>{job.pet_name}</span>
+            {job.vet_unread_messages && <span style={styles.unreadDot} title="New message" />}
+          </div>
           <div style={styles.subline}>{job.client_name} · {job.suburb || job.postcode}</div>
         </div>
       </div>
@@ -129,6 +132,8 @@ const styles = {
   link: { textDecoration: 'none', color: 'inherit', display: 'block' },
   card: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', marginBottom: 8 },
   timeCol: { fontFamily: 'var(--gm-font-display)', fontSize: 15, fontWeight: 600, color: 'var(--gm-forest-dark)', width: 60, flexShrink: 0 },
+  petRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  unreadDot: { width: 8, height: 8, borderRadius: '50%', background: 'var(--gm-brick)', flexShrink: 0 },
   petName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600 },
   subline: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 2 },
   offerCard: { padding: '14px 14px 12px', marginBottom: 10, borderColor: 'var(--gm-honey)', borderWidth: 2 },

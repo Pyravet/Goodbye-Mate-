@@ -84,6 +84,13 @@ export async function smsQuote(jobId) {
   return data;
 }
 
+export async function sendJourneyLink(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/send-journey-link`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send journey link');
+  return data; // { ok, link, email, sms }
+}
+
 export async function whatsappQuote(jobId) {
   const res = await apiFetch(`/jobs/${jobId}/whatsapp-quote`, { method: 'POST' });
   const data = await res.json();

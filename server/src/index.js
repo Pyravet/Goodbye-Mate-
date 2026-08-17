@@ -14,6 +14,7 @@ import settingsRoutes from './routes/settings.js';
 import jobsRoutes from './routes/jobs.js';
 import pushRoutes from './routes/push.js';
 import auditRoutes from './routes/audit.js';
+import publicJourneyRoutes from './routes/publicJourney.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
 
@@ -57,6 +58,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/public/journey', publicJourneyRoutes);
 
 // Central error handler — never leak stack traces to the client.
 app.use((err, req, res, next) => {

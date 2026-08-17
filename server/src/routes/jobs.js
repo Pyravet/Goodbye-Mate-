@@ -148,6 +148,8 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
     }).catch((err) => console.error('Booking-received SMS failed:', err.message));
   }
 
+  sendJourneyLink(job).catch((err) => console.error('Journey link send failed:', err.message));
+
   // Kick off auto-dispatch immediately.
   const dispatch = await startOrRollDispatch(job.id);
 
@@ -265,6 +267,50 @@ router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(a
 
 // Charge the client's card via eWay — server never receives raw card
 // digits, only the fields already encrypted in the browser by eCrypt.js.
+// Builds the client-facing journey link. CLIENT_APP_URL should point at
+// the deployed web-client app (care.goodbyemate.com.au once that's the
+// custom domain); falls back to a placeholder so this never throws if
+// the env var isn't set yet.
+function journeyLink(job) {
+  const base = process.env.CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
+  return `${base.replace(/\/$/, '')}/${job.client_token}`;
+}
+
+async function sendJourneyLink(job) {
+  const link = journeyLink(job);
+  const results = { email: null, sms: null };
+
+  if (job.client_email && isEmailConfigured()) {
+    try {
+      await sendEmail({
+        to: job.client_email,
+        subject: `Your visit with Goodbye Mate — ${job.pet_name}`,
+        html: `<p>Hi ${job.client_name},</p><p>Here's your booking journey for ${job.pet_name} — process info, consent form, and payment, all in one place:</p><p><a href="${link}">${link}</a></p>`,
+      });
+      results.email = 'sent';
+    } catch (err) {
+      results.email = err.message;
+    }
+  }
+
+  if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+    try {
+      await sendTemplatedSms(job.client_phone, 'genericMessage', {
+        message: `Hi ${job.client_name}, here's your Goodbye Mate booking journey for ${job.pet_name}: ${link}`,
+      });
+      results.sms = 'sent';
+    } catch (err) {
+      results.sms = err.message;
+    }
+  }
+
+  if (results.email === 'sent' || results.sms === 'sent') {
+    await query(`UPDATE jobs SET journey_link_sent_at = now() WHERE id = $1`, [job.id]);
+  }
+
+  return results;
+}
+
 const chargeSchema = z.object({
   encryptedCard: z.object({
     number: z.string().min(1),
@@ -402,6 +448,16 @@ router.post('/:id/sms-quote', outboundMessageLimiter, requireAuth, requireRole('
   } catch (err) {
     res.status(502).json({ error: 'Failed to send SMS', message: err.message });
   }
+}));
+
+router.post('/:id/send-journey-link', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const results = await sendJourneyLink(job);
+  await logAction({ actorUserId: req.user.sub, action: 'journey_link_sent', targetType: 'job', targetId: job.id, metadata: results });
+  res.json({ ok: true, link: journeyLink(job), ...results });
 }));
 
 router.post('/:id/whatsapp-quote', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
@@ -710,18 +766,27 @@ router.post('/:id/ashes-returned', requireAuth, requireRole('admin'), asyncHandl
 
 // Per-job internal thread between admin and the assigned vet.
 router.get('/:id/internal-messages', requireAuth, asyncHandler(async (req, res) => {
+  const { rows: jobRows } = await query('SELECT assigned_vet_id, dispatch_offered_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
   if (req.user.role === 'vet') {
     const myVetId = await getVetIdForUser(req.user.sub);
-    const { rows: jobRows } = await query('SELECT assigned_vet_id, dispatch_offered_vet_id FROM jobs WHERE id = $1', [req.params.id]);
-    const job = jobRows[0];
-    if (!job) return res.status(404).json({ error: 'Job not found' });
     const isMine = job.assigned_vet_id === myVetId || job.dispatch_offered_vet_id === myVetId;
     if (!isMine) return res.status(403).json({ error: 'Forbidden' });
   }
+
   const { rows } = await query(
     `SELECT m.*, u.full_name AS sender_name FROM job_internal_messages m JOIN users u ON u.id = m.sender_user_id WHERE m.job_id = $1 ORDER BY m.created_at`,
     [req.params.id]
   );
+
+  // Reading the thread clears this side's unread flag — the other party's
+  // job-list "new message" indicator goes away only once they actually
+  // open the thread, not just when a reply is sent.
+  const unreadColumn = req.user.role === 'admin' ? 'admin_unread_messages' : 'vet_unread_messages';
+  await query(`UPDATE jobs SET ${unreadColumn} = false WHERE id = $1`, [req.params.id]);
+
   res.json({ messages: rows });
 }));
 
@@ -729,11 +794,12 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
   const { body } = req.body;
   if (!body || !body.trim()) return res.status(400).json({ error: 'Message body required' });
 
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
   if (req.user.role === 'vet') {
     const myVetId = await getVetIdForUser(req.user.sub);
-    const { rows: jobRows } = await query('SELECT assigned_vet_id, dispatch_offered_vet_id FROM jobs WHERE id = $1', [req.params.id]);
-    const job = jobRows[0];
-    if (!job) return res.status(404).json({ error: 'Job not found' });
     const isMine = job.assigned_vet_id === myVetId || job.dispatch_offered_vet_id === myVetId;
     if (!isMine) return res.status(403).json({ error: 'Forbidden' });
   }
@@ -746,6 +812,28 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
     `SELECT m.*, u.full_name AS sender_name FROM job_internal_messages m JOIN users u ON u.id = m.sender_user_id WHERE m.id = $1`,
     [rows[0].id]
   );
+
+  // Flag it unread for whichever side didn't send it, and push-notify them.
+  if (req.user.role === 'admin') {
+    await query(`UPDATE jobs SET vet_unread_messages = true WHERE id = $1`, [job.id]);
+    if (job.assigned_vet_id) {
+      const { rows: vetUserRows } = await query('SELECT user_id FROM vets WHERE id = $1', [job.assigned_vet_id]);
+      const vetUserId = vetUserRows[0]?.user_id;
+      if (vetUserId) {
+        sendPushToUser(vetUserId, { title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
+          .catch((err) => console.error('Vet message push failed:', err.message));
+        sendExpoPushToUser(vetUserId, { title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
+          .catch((err) => console.error('Vet message Expo push failed:', err.message));
+      }
+    }
+  } else {
+    await query(`UPDATE jobs SET admin_unread_messages = true WHERE id = $1`, [job.id]);
+    sendPushToAdmins({ title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
+      .catch((err) => console.error('Admin message push failed:', err.message));
+    sendSlackMessage(`💬 New message on *${job.pet_name}* (${job.job_number}) from the vet: "${body.trim().slice(0, 200)}"`)
+      .catch((err) => console.error('Slack notify for message failed:', err.message));
+  }
+
   res.status(201).json({ message: withSender[0] });
 }));
 

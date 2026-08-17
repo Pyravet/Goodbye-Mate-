@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink } from './jobsApi.js';
 import TakePayment from './TakePayment.jsx';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
@@ -21,6 +21,9 @@ export default function JobDetail() {
   const [sendQuoteResult, setSendQuoteResult] = useState(null); // { email, sms }
   const [showPayment, setShowPayment] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState(null);
+  const [journeyStatus, setJourneyStatus] = useState('idle'); // idle | sending | done
+  const [journeyResult, setJourneyResult] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -100,10 +103,34 @@ export default function JobDetail() {
     setSendQuoteStatus('done');
   };
 
+  const onSendJourneyLink = async () => {
+    setJourneyStatus('sending');
+    try {
+      const result = await sendJourneyLink(id);
+      setJourneyResult(result);
+    } catch (err) {
+      setJourneyResult({ error: err.message });
+    } finally {
+      setJourneyStatus('done');
+    }
+  };
+
+  const onCopyLink = async (link) => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      /* clipboard access denied — silently ignore, the link is visible to copy manually */
+    }
+  };
+
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
 
   const { job, bill } = data;
+  const clientAppBase = import.meta.env.VITE_CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
+  const journeyLink = `${clientAppBase.replace(/\/$/, '')}/${job.client_token}`;
   const isCommunalOrPrivate = job.service_type !== 'euthanasia_only';
 
   return (
@@ -166,6 +193,34 @@ export default function JobDetail() {
                   🚗 Vet notified the client they're on the way at {new Date(job.en_route_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
                   {' '}— ETA was {job.en_route_eta_minutes} min ({job.en_route_distance_text}).
                 </p>
+              )}
+            </Card>
+
+            <Card title="Client journey">
+              <div style={styles.journeyStatusRow}>
+                <StatusChip done={job.consent_signed} label="Consent" />
+                <StatusChip done={job.payment_status === 'paid'} label="Payment" />
+              </div>
+              <div style={styles.journeyLinkRow}>
+                <input readOnly value={journeyLink} style={styles.journeyLinkInput} onFocus={(e) => e.target.select()} />
+                <button onClick={() => onCopyLink(journeyLink)} style={styles.journeyCopyBtn}>{linkCopied ? 'Copied' : 'Copy'}</button>
+              </div>
+              <button onClick={onSendJourneyLink} disabled={journeyStatus === 'sending'} style={styles.journeySendBtn}>
+                {journeyStatus === 'sending' ? 'Sending…' : job.journey_link_sent_at ? 'Resend link (email + SMS)' : 'Send link (email + SMS)'}
+              </button>
+              {job.journey_link_sent_at && (
+                <p style={styles.journeySentNote}>Last sent {new Date(job.journey_link_sent_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.</p>
+              )}
+              {journeyStatus === 'done' && journeyResult && (
+                <div style={styles.sendEverywhereResult}>
+                  {journeyResult.error && <span className="gm-badge gm-badge--brick">{journeyResult.error}</span>}
+                  {journeyResult.email && (
+                    <span className={`gm-badge ${journeyResult.email === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>Email: {journeyResult.email}</span>
+                  )}
+                  {journeyResult.sms && (
+                    <span className={`gm-badge ${journeyResult.sms === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>SMS: {journeyResult.sms}</span>
+                  )}
+                </div>
               )}
             </Card>
 
@@ -268,6 +323,9 @@ function Card({ title, children }) {
     </div>
   );
 }
+function StatusChip({ label, done }) {
+  return <span className={`gm-badge ${done ? 'gm-badge--forest' : 'gm-badge--brick'}`}>{done ? '✓' : '○'} {label}</span>;
+}
 function TaskRow({ label, done, action }) {
   return (
     <div style={styles.taskRow}>
@@ -320,6 +378,12 @@ const styles = {
   sendEverywhereRow: { marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--gm-line)' },
   sendEverywhereBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   sendEverywhereResult: { display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' },
+  journeyStatusRow: { display: 'flex', gap: 8, marginBottom: 12 },
+  journeyLinkRow: { display: 'flex', gap: 6, marginBottom: 10 },
+  journeyLinkInput: { flex: 1, padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 12, background: 'var(--gm-line-soft)', color: 'var(--gm-ink-soft)' },
+  journeyCopyBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '8px 12px', fontSize: 12, fontWeight: 500, flexShrink: 0 },
+  journeySendBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
+  journeySentNote: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
   docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },
   docBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 12px', fontSize: 12, fontWeight: 500 },

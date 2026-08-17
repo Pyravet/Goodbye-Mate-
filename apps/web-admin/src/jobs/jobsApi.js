@@ -84,11 +84,19 @@ export async function smsQuote(jobId) {
   return data;
 }
 
-// Sends the quote through every configured channel at once. Runs both
-// independently so one failing (e.g. no phone on file) doesn't block the
-// other — callers get back which channels actually succeeded.
+export async function whatsappQuote(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/whatsapp-quote`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send WhatsApp message');
+  return data;
+}
+
+// Sends the quote through every configured channel at once. Runs each
+// independently so one failing (e.g. no phone on file, or WhatsApp not
+// yet configured) doesn't block the others — callers get back which
+// channels actually succeeded.
 export async function sendQuoteEverywhere(jobId, { hasEmail, hasPhone }) {
-  const results = { email: null, sms: null };
+  const results = { email: null, sms: null, whatsapp: null };
   if (hasEmail) {
     try { await emailDocument(jobId, 'quote'); results.email = 'sent'; }
     catch (err) { results.email = err.message; }
@@ -96,6 +104,8 @@ export async function sendQuoteEverywhere(jobId, { hasEmail, hasPhone }) {
   if (hasPhone) {
     try { await smsQuote(jobId); results.sms = 'sent'; }
     catch (err) { results.sms = err.message; }
+    try { await whatsappQuote(jobId); results.whatsapp = 'sent'; }
+    catch (err) { results.whatsapp = err.message; }
   }
   return results;
 }

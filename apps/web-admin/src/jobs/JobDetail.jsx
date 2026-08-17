@@ -206,7 +206,7 @@ export default function JobDetail() {
                     disabled={sendQuoteStatus === 'sending'}
                     style={styles.sendEverywhereBtn}
                   >
-                    {sendQuoteStatus === 'sending' ? 'Sending…' : 'Send quote to client (email + SMS)'}
+                    {sendQuoteStatus === 'sending' ? 'Sending…' : 'Send quote to client (email, SMS + WhatsApp)'}
                   </button>
                   {sendQuoteStatus === 'done' && sendQuoteResult && (
                     <div style={styles.sendEverywhereResult}>
@@ -218,6 +218,11 @@ export default function JobDetail() {
                       {sendQuoteResult.sms && (
                         <span className={`gm-badge ${sendQuoteResult.sms === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>
                           SMS: {sendQuoteResult.sms === 'sent' ? 'sent' : sendQuoteResult.sms}
+                        </span>
+                      )}
+                      {sendQuoteResult.whatsapp && !/not configured/i.test(sendQuoteResult.whatsapp) && (
+                        <span className={`gm-badge ${sendQuoteResult.whatsapp === 'sent' ? 'gm-badge--forest' : 'gm-badge--brick'}`}>
+                          WhatsApp: {sendQuoteResult.whatsapp === 'sent' ? 'sent' : sendQuoteResult.whatsapp}
                         </span>
                       )}
                     </div>

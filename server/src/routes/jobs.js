@@ -15,6 +15,7 @@ import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
 import { isTemplateConfigured } from '../integrations/sms/templates.js';
+import { sendWhatsappTemplate, isWhatsappConfigured } from '../integrations/whatsapp/msg91Whatsapp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 // Shared formatting for the *_day/*_date/*_time SMS template variables.
@@ -386,6 +387,26 @@ router.post('/:id/sms-quote', requireAuth, requireRole('admin'), asyncHandler(as
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: 'Failed to send SMS', message: err.message });
+  }
+}));
+
+router.post('/:id/whatsapp-quote', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!isWhatsappConfigured()) return res.status(503).json({ error: 'WhatsApp is not configured yet.' });
+
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const bill = billBreakdown(job, pricingRows[0].config);
+
+  try {
+    await sendWhatsappTemplate(job.client_phone, [job.client_name, job.pet_name, `$${bill.total.toFixed(2)}`]);
+    await logAction({ actorUserId: req.user.sub, action: 'document_whatsapped', targetType: 'job', targetId: job.id, metadata: { type: 'quote' } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: 'Failed to send WhatsApp message', message: err.message });
   }
 }));
 

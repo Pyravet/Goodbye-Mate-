@@ -36,13 +36,27 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+// Cross-site cookie: the frontend (Vercel) and API (Railway) are on
+// different domains, so the browser only ever sends this cookie if it's
+// SameSite=None + Secure. SameSite=Lax (the old setting) is NEVER sent on
+// a cross-site fetch()/XHR — only on top-level navigation — so silent
+// refresh-on-reload was failing every single time in production,
+// appearing to the user as "logged out on refresh". Secure=None requires
+// HTTPS, which is fine in production; in local dev (http://localhost)
+// browsers reject Secure cookies, so fall back to Lax there since
+// frontend and backend are effectively same-site on localhost anyway.
+const isProd = process.env.NODE_ENV === 'production';
+const REFRESH_COOKIE_OPTIONS_BASE = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? 'none' : 'lax',
+  path: '/api/auth', // only sent to auth endpoints
+};
+
 function setRefreshCookie(res, rawToken, expiresAt) {
   res.cookie('refresh_token', rawToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    ...REFRESH_COOKIE_OPTIONS_BASE,
     expires: expiresAt,
-    path: '/api/auth', // only sent to auth endpoints
   });
 }
 
@@ -132,7 +146,7 @@ router.post('/logout', asyncHandler(async (req, res) => {
     const hash = hashRefreshToken(raw);
     await query('UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1', [hash]);
   }
-  res.clearCookie('refresh_token', { path: '/api/auth' });
+  res.clearCookie('refresh_token', REFRESH_COOKIE_OPTIONS_BASE);
   res.status(204).end();
 }));
 

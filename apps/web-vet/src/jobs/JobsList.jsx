@@ -46,7 +46,10 @@ export default function JobsList() {
   return (
     <AppShell>
       <div style={styles.page}>
-        <h1 style={styles.title}>Your jobs</h1>
+        <div style={styles.headerRow}>
+          <h1 style={styles.title}>Your jobs</h1>
+          <Link to="/jobs/past" style={styles.pastLink}>Past jobs →</Link>
+        </div>
 
         {loading ? (
           <p style={styles.empty}>Loading…</p>
@@ -78,7 +81,7 @@ export default function JobsList() {
             </Section>
 
             {completed.length > 0 && (
-              <Section title="Completed" action={<Link to="/jobs/past" style={styles.seeAllLink}>See all →</Link>}>
+              <Section title="Recently completed">
                 {completed.slice(0, 10).map((job) => <JobRow key={job.id} job={job} muted />)}
               </Section>
             )}
@@ -117,10 +120,11 @@ function JobRow({ job, muted }) {
 
 const styles = {
   page: { padding: '20px 16px' },
-  title: { fontSize: 22, marginBottom: 16 },
+  title: { fontSize: 22 },
+  headerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  pastLink: { fontSize: 13, fontWeight: 500, color: 'var(--gm-forest)', textDecoration: 'none' },
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   sectionTitle: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', fontFamily: 'var(--gm-font-body)', fontWeight: 600, marginBottom: 0 },
-  seeAllLink: { fontSize: 12, fontWeight: 500, color: 'var(--gm-forest)', textDecoration: 'none' },
   empty: { color: 'var(--gm-ink-soft)', fontSize: 13 },
   link: { textDecoration: 'none', color: 'inherit', display: 'block' },
   card: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', marginBottom: 8 },

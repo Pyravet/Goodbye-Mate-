@@ -28,57 +28,70 @@ export default function TerritoryMap({ vetId }) {
 
   useEffect(() => {
     if (status !== 'ready' || initialGeoJSON === undefined || !mapDivRef.current || mapRef.current) return;
-
-    const map = new window.google.maps.Map(mapDivRef.current, {
-      center: DEFAULT_CENTER,
-      zoom: DEFAULT_ZOOM,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-    });
-    mapRef.current = map;
-
-    if (initialGeoJSON) {
-      const paths = initialGeoJSON.coordinates[0].map(([lng, lat]) => ({ lat, lng }));
-      const polygon = new window.google.maps.Polygon({
-        paths,
-        editable: true,
-        fillColor: '#33453A',
-        fillOpacity: 0.18,
-        strokeColor: '#33453A',
-        strokeWeight: 2,
-      });
-      polygon.setMap(map);
-      currentPolygonRef.current = polygon;
-
-      const bounds = new window.google.maps.LatLngBounds();
-      paths.forEach((p) => bounds.extend(p));
-      map.fitBounds(bounds);
+    if (!window.google?.maps?.drawing) {
+      // Script loaded but the drawing library didn't come with it (e.g.
+      // a key restriction blocked part of the request) — don't attempt
+      // to construct anything that would throw.
+      return;
     }
 
-    const drawingManager = new window.google.maps.drawing.DrawingManager({
-      drawingMode: initialGeoJSON ? null : window.google.maps.drawing.OverlayType.POLYGON,
-      drawingControl: true,
-      drawingControlOptions: {
-        position: window.google.maps.ControlPosition.TOP_CENTER,
-        drawingModes: [window.google.maps.drawing.OverlayType.POLYGON],
-      },
-      polygonOptions: {
-        fillColor: '#33453A',
-        fillOpacity: 0.18,
-        strokeColor: '#33453A',
-        strokeWeight: 2,
-        editable: true,
-      },
-    });
-    drawingManager.setMap(map);
-    drawingManagerRef.current = drawingManager;
+    try {
+      const map = new window.google.maps.Map(mapDivRef.current, {
+        center: DEFAULT_CENTER,
+        zoom: DEFAULT_ZOOM,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+      });
+      mapRef.current = map;
 
-    window.google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
-      if (currentPolygonRef.current) currentPolygonRef.current.setMap(null);
-      currentPolygonRef.current = polygon;
-      drawingManager.setDrawingMode(null);
-    });
+      if (initialGeoJSON) {
+        const paths = initialGeoJSON.coordinates[0].map(([lng, lat]) => ({ lat, lng }));
+        const polygon = new window.google.maps.Polygon({
+          paths,
+          editable: true,
+          fillColor: '#33453A',
+          fillOpacity: 0.18,
+          strokeColor: '#33453A',
+          strokeWeight: 2,
+        });
+        polygon.setMap(map);
+        currentPolygonRef.current = polygon;
+
+        const bounds = new window.google.maps.LatLngBounds();
+        paths.forEach((p) => bounds.extend(p));
+        map.fitBounds(bounds);
+      }
+
+      const drawingManager = new window.google.maps.drawing.DrawingManager({
+        drawingMode: initialGeoJSON ? null : window.google.maps.drawing.OverlayType.POLYGON,
+        drawingControl: true,
+        drawingControlOptions: {
+          position: window.google.maps.ControlPosition.TOP_CENTER,
+          drawingModes: [window.google.maps.drawing.OverlayType.POLYGON],
+        },
+        polygonOptions: {
+          fillColor: '#33453A',
+          fillOpacity: 0.18,
+          strokeColor: '#33453A',
+          strokeWeight: 2,
+          editable: true,
+        },
+      });
+      drawingManager.setMap(map);
+      drawingManagerRef.current = drawingManager;
+
+      window.google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
+        if (currentPolygonRef.current) currentPolygonRef.current.setMap(null);
+        currentPolygonRef.current = polygon;
+        drawingManager.setDrawingMode(null);
+      });
+    } catch (err) {
+      // A broken/misconfigured Maps key can throw synchronously inside
+      // these constructors — catching here means a bad key degrades to
+      // an empty map area instead of taking down the whole app.
+      console.error('Territory map failed to initialize:', err);
+    }
   }, [status, initialGeoJSON]);
 
   const handleSave = async () => {
@@ -101,7 +114,9 @@ export default function TerritoryMap({ vetId }) {
       currentPolygonRef.current.setMap(null);
       currentPolygonRef.current = null;
     }
-    drawingManagerRef.current?.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
+    if (window.google?.maps?.drawing) {
+      drawingManagerRef.current?.setDrawingMode(window.google.maps.drawing.OverlayType.POLYGON);
+    }
     setSaveState('idle');
   };
 

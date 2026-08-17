@@ -7,7 +7,6 @@ import rateLimit from 'express-rate-limit';
 
 import authRoutes from './routes/auth.js';
 import healthRoutes from './routes/health.js';
-import exampleProtectedRoutes from './routes/example-protected.js';
 import vetsRoutes from './routes/vets.js';
 import messagesRoutes from './routes/messages.js';
 import settingsRoutes from './routes/settings.js';
@@ -51,7 +50,6 @@ app.use('/api', rateLimit({
 
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api', exampleProtectedRoutes);
 app.use('/api/vets', vetsRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/settings', settingsRoutes);

@@ -4,11 +4,17 @@
   "version": "0.1.0",
   "workspaces": [
     "server",
-    "apps/web-admin"
+    "apps/web-admin",
+    "apps/web-vet",
+    "apps/web-client",
+    "apps/vet-native",
+    "packages/web-shared"
   ],
   "scripts": {
     "dev:server": "npm run dev --workspace=server",
     "dev:admin": "npm run dev --workspace=apps/web-admin",
+    "dev:vet": "npm run dev --workspace=apps/web-vet",
+    "dev:client": "npm run dev --workspace=apps/web-client",
     "migrate": "npm run migrate --workspace=server"
   }
 }

@@ -1,11 +1,3 @@
-import { Navigate } from 'react-router';
-import { useAuth } from './AuthContext.jsx';
-
-export default function RequireAuth({ children }) {
-  const { user, loading } = useAuth();
-
-  if (loading) return null; // could show a spinner
-  if (!user) return <Navigate to="/login" replace />;
-
-  return children;
-}
+// Re-exported from the shared package — see api.js in this directory
+// for why. Real implementation: packages/web-shared/src/RequireAuth.jsx
+export { default } from '@goodbye-mate/web-shared/src/RequireAuth.jsx';

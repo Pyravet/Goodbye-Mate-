@@ -1,165 +1,106 @@
 # Goodbye Mate — Ops Platform
 
-## Phase 2 status (this checkpoint) — core domain
+At-home pet euthanasia operations platform: admin dispatch/booking
+dashboard, a field app for subcontracted vets, and a public client-facing
+booking journey (consent, payment, aftercare), backed by a single Node/
+Express/Postgres API.
 
-Jobs, pricing, and dispatch — ported field-for-field from the prototype's
-validated business logic, now running against the real database with real
-server-side scheduling (no more client-side timers).
+## What's here
 
-**Implemented:**
-- **Pricing** (`domain/pricing.js`): client bill breakdown, vet payout
-  breakdown, GST extraction from a GST-inclusive total — same formulas as
-  the prototype. Editable via `/api/settings/pricing`.
-- **Jobs** (`routes/jobs.js`): full CRUD, human-readable job numbers
-  (`GM-0001`, via a real Postgres sequence), Today/Upcoming/Past/Board
-  views with search, task-gated completion (vet assigned + consent signed
-  + payment received + procedure done + cremation booked if applicable —
-  all required before a job can be marked complete, matching the brief
-  exactly), at-risk alerts computed on demand, per-job internal
-  admin↔vet messaging thread.
-- **Dispatch** (`domain/dispatch.js` + `domain/vetContext.js`): vet
-  ranking by territory match + availability + workload + time-conflict,
-  auto-offer with real server-side timeout rollover (a background worker
-  checking every 30s — replaces the prototype's client-side timer, which
-  only ran while an admin had the tab open). Territory matching now
-  prefers the real polygon from Phase 1's maps work (point-in-polygon)
-  when a vet has one drawn and the job has real coordinates, falling back
-  to postcode-prefix matching otherwise.
-- **Vets**: full profile (registration, ABN/GST, postcodes, weekly
-  hour-by-hour availability, one-off date overrides, personal note
-  templates), vet creation also provisions their login user.
-- **Settings**: pricing, client-journey content, and message templates,
-  all admin-editable and matching the prototype's defaults exactly.
+```
+apps/
+  web-admin/    Admin dashboard (jobs, vets, calendar, settings, activity)
+  web-vet/      Vet PWA (job offers, calendar, earnings, profile)
+  web-client/   Public client journey — no login, reached via a per-job link
+  vet-native/   React Native/Expo version of the vet app
+packages/
+  web-shared/   Auth context, API client, push helpers, error boundary,
+                and base theme shared by the three React web apps
+server/
+  src/routes/       HTTP endpoints, one file per resource
+  src/domain/       Business logic (pricing, dispatch ranking) — no HTTP,
+                     no DB calls; pure functions, directly unit-testable
+  src/integrations/ Third-party services (email, SMS, WhatsApp, Slack,
+                     payments, maps, push, AI drafting)
+  src/db/           Migrations (numbered, sequential) + connection pool
+  src/pdf/          RCTI/invoice/quote PDF generation
+  src/workers/      Background jobs (dispatch offer timeout rollover)
+  src/security/     Encryption helpers for sensitive fields (bank details)
+docs/
+  deployment.md     Hosting architecture, env vars, CORS, custom domain
+```
 
-**Not yet built:** the actual admin/vet UI screens for any of this (jobs
-board, vet management, calendar, settings pages) — Phase 1's admin app is
-still just a login + placeholder dashboard. This phase was backend-first
-so the business logic is correct before UI is built on top of it. Also
-still open: RCTI/invoice/receipt PDF generation, the Enquiries/quotations
-inbox, WhatsApp/Slack/Outlook integrations, vet account setup/invite flow
-(vets are created with an unusable random password right now — no
-"set your password" email flow exists yet), and public holidays in the
-weekday/after-hours time-category logic (currently just weekday vs
-weekend/evening, matching the prototype — AU public holidays per state
-aren't modeled).
+## What's implemented
 
-### A note on the dispatch worker
-`workers/dispatchWorker.js` runs an in-process `setInterval` — correct for
-a single API instance, but if this ever scales to multiple instances it
-needs to move to a proper scheduler (dedicated worker process or a
-Postgres-backed queue) so rollover doesn't fire redundantly from every
-instance. Fine to leave as-is until that's actually a consideration.
-
-
-
-Real auth, real Postgres, deploy-ready skeleton. Nothing job/vet/pricing-related
-yet — that's Phase 2, built on top of this foundation.
-
-**Implemented:**
-- Postgres schema: `users`, `refresh_tokens`, `audit_log`, migration runner
-- Auth: bcrypt password hashing, short-lived JWT access tokens + rotating
-  httpOnly refresh-token cookies, role-based middleware (`admin` / `vet`)
-- Security baseline: helmet, CORS locked to the admin app's origin, rate
-  limiting (global + stricter on `/auth/login`), generic auth error messages
-  (no user enumeration), audit log table with a `logAction` helper wired
-  into login attempts
-- Minimal admin web app: login page, protected dashboard placeholder,
-  auto-refresh-and-retry on the API client so a session survives an
-  access-token expiry without booting the user out
-
-**Also implemented (Maps, kicked off early once a Google API key was provided):**
-- `vets` table with a real PostGIS `GEOGRAPHY(POLYGON)` territory column
-  (not a postcode list) + spatial index
-- Admin API: save/get a vet's territory as GeoJSON, and a `/vets/matching`
-  lookup (which vets' territories contain a given lng/lat) — this is the
-  query Phase 2's dispatch logic will call once jobs exist
-- Frontend: `AddressAutocomplete` (real Google Places autocomplete,
-  restricted to Australia) and `TerritoryMap` (draw a polygon per vet with
-  Google's Drawing library, save/clear/redraw) — not yet wired into a page,
-  ready to drop into the vet management screen in Phase 2
-
-**Not yet built:** jobs, pricing, dispatch, calendar, payments, PDFs,
-notification channels, enquiries/quotes, AI features, vet portal. See
-`goodbye_mate_handoff_brief.md` for the full feature set.
-
-### A note on PostGIS
-Both Neon and Supabase support the PostGIS extension, but on Neon you may
-need to enable it per-project in their dashboard before `npm run migrate`
-will succeed on migration 002. If it fails with a "extension postgis is
-not available" error, that's what to check first.
+- **Jobs**: full booking CRUD, human-readable job numbers (`GM-0001`),
+  task-gated completion (vet assigned + consent + payment + procedure +
+  cremation-if-applicable, all required before a job can close), at-risk
+  alerts, per-job admin↔vet messaging with a consolidated inbox view
+- **Dispatch**: territory-ranked auto-offer to vets with real
+  server-side timeout rollover (a background worker, not a client-side
+  timer), territory matching via drawn polygons (point-in-polygon) with
+  postcode-prefix fallback
+- **Vets**: profile, ABN/GST, weekly + one-off availability, territory
+  drawing, bank details (encrypted at rest)
+- **Client journey**: public per-job link (consent form, eWay payment,
+  cremation brochure with optional admin-uploaded PDF, post-visit star
+  rating with a Google review handoff on 5 stars)
+- **Payments & documents**: eWay client-side-encrypted card capture,
+  RCTI/invoice/quote PDF generation and emailing
+- **Notifications**: web push + Expo push for vets (job offers, new
+  messages), web push + Slack for admin (en-route updates, new vet
+  signups, new messages), SMS/WhatsApp via MSG91 (config-gated)
+- **Settings**: pricing, client-facing content/brochures, message
+  templates — all admin-editable
 
 ## Local setup
 
 ### 1. Database
-Create a Postgres database (local, or a free Neon/Supabase project — either
-works for dev).
-
 ```bash
 cd server
 cp .env.example .env
-# edit .env: set DATABASE_URL, and generate real secrets:
-#   openssl rand -base64 48   (run twice, for JWT_ACCESS_SECRET and JWT_REFRESH_SECRET)
+# fill in DATABASE_URL and generate real secrets:
+#   openssl rand -base64 48   (for JWT_ACCESS_SECRET and JWT_REFRESH_SECRET)
 ```
 
 ### 2. Install & migrate
-From the repo root:
-
+From the repo root (this installs all workspaces — server, all four
+`apps/*`, and `packages/web-shared` — in one pass):
 ```bash
 npm install
 npm run migrate
 ```
 
-### 3. Create the first admin user
-
+### 3. Create an admin user
 ```bash
 cd server
 node src/db/seed-admin.js "you@goodbyemate.com.au" "some-temp-password" "Your Name"
 ```
 
-### 4. Run both apps
-
+### 4. Run the apps
 ```bash
-# from repo root, two terminals
+# from repo root, separate terminals
 npm run dev:server   # http://localhost:4000
 npm run dev:admin    # http://localhost:5173
+npm run dev:vet       # http://localhost:5174
+npm run dev:client   # http://localhost:5175
 ```
 
-Log in at `localhost:5173` with the admin credentials from step 3.
+## Deployment
 
-## Deployment (target shape, once you're ready)
+See [`docs/deployment.md`](docs/deployment.md) — all four web
+units are git-linked to auto-deploy from `main`.
 
-- **API**: Vercel (serverless functions) or a small always-on host (Railway/
-  Render) — Express with long-lived DB connections works better on an
-  always-on host than serverless; worth deciding once traffic patterns are
-  known. Set all vars from `server/.env.example` in the hosting dashboard.
-- **DB**: Neon or Supabase Postgres. Run `npm run migrate` against the prod
-  `DATABASE_URL` after provisioning.
-- **Admin app**: Vercel static/SPA deploy from `apps/web-admin`, `VITE_API_URL`
-  pointed at the deployed API.
-- **DNS**: CNAME `ops.goodbyemate.com.au` → the hosting provider's target once
-  the API + admin app are both live.
+## Security notes
 
-## Security notes for this phase
+- Refresh tokens: stored hashed (SHA-256), rotate on every use
+- Passwords: bcrypt, cost factor 12
+- Login rate-limited separately from the general API limit
+- Bank details encrypted at rest; only masked digits ever shown again
+- Consent/payment routes on the public client journey are rate-limited
+  and gated by an unguessable per-job token (not by login)
 
-- Refresh tokens are stored hashed (SHA-256) in `refresh_tokens`, never in
-  plaintext — a DB leak alone doesn't hand out valid sessions.
-- Refresh tokens rotate on every use (old one revoked, new one issued) —
-  limits the blast radius if one is ever stolen.
-- Passwords are bcrypt-hashed with a cost factor of 12.
-- Login is rate-limited (10 attempts / 15 min / IP) separately from the
-  general API rate limit.
-- `audit_log` currently records login success/failure; Phase 2 will extend
-  this to job changes, payment events, and bank-detail edits — the pattern
-  (`logAction`) is already in place to build on.
-
-**Google Maps API key**: restrict it in Google Cloud Console to your actual
-domains (HTTP referrer restriction) and to only the APIs you need (Maps
-JavaScript, Places, Geocoding) before it's used anywhere public. Never commit
-a real key into the repo — it only ever belongs in your local `.env` /
-`.env.local` files and your hosting provider's environment variable settings.
-
-Still outstanding for a full security pass (tracked for the dedicated
-hardening phase, not blocking Phase 1): 2FA for admin accounts, dependency
-vulnerability scanning in CI, backup/restore policy, and a review of the
-Australian Privacy Principles obligations once client health-adjacent data
-(pet medical notes) and payment data are flowing through the system.
+Still outstanding: 2FA for admin accounts, dependency vulnerability
+scanning in CI, a documented backup/restore policy, and a full review of
+Australian Privacy Principles obligations for the health-adjacent pet
+medical notes and payment data flowing through the system.

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGoogleMaps } from './useGoogleMaps.js';
 
 // Real Google Places autocomplete on a plain text input. Calls onSelect
@@ -9,10 +9,17 @@ import { useGoogleMaps } from './useGoogleMaps.js';
 // `PlaceAutocompleteElement`. This uses the classic widget because it's
 // stable and simpler to wire to a plain input; worth revisiting once the
 // newer element is out of preview if Google deprecates the old one.
+//
+// Falls back to a plain manual-entry text input if Maps fails to load or
+// isn't configured — booking a job should never be blocked by a Maps
+// outage. A manually-typed address has no lat/lng, which is fine: the
+// backend dispatch matching already falls back to postcode-based
+// territory matching when lat/lng is missing (see jobs.js line ~703).
 export default function AddressAutocomplete({ value, onChange, onSelect, placeholder = 'Start typing an address…' }) {
   const inputRef = useRef(null);
   const autocompleteRef = useRef(null);
   const status = useGoogleMaps();
+  const [manualMode, setManualMode] = useState(false);
 
   useEffect(() => {
     if (status !== 'ready' || !inputRef.current || autocompleteRef.current) return;
@@ -36,11 +43,45 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
     });
   }, [status, onSelect]);
 
-  if (status === 'missing-key') {
-    return <p style={{ color: '#b91c1c', fontSize: 13 }}>Google Maps API key not configured (VITE_GOOGLE_MAPS_API_KEY).</p>;
+  const onManualChange = (e) => {
+    const text = e.target.value;
+    onChange(text);
+    // No lat/lng/placeId from manual entry — dispatch falls back to
+    // postcode matching for this job, same as if Maps were never
+    // configured at all.
+    onSelect({ formattedAddress: text, lat: null, lng: null, placeId: null });
+  };
+
+  const mapsUnavailable = status === 'missing-key' || status === 'error';
+
+  if (mapsUnavailable && !manualMode) {
+    return (
+      <div>
+        <p style={styles.warning}>
+          {status === 'missing-key' ? "Maps isn't configured right now." : 'Maps failed to load.'}{' '}
+          You can still type the address in manually below.
+        </p>
+        <button type="button" onClick={() => setManualMode(true)} style={styles.manualBtn}>
+          Enter address manually
+        </button>
+      </div>
+    );
   }
-  if (status === 'error') {
-    return <p style={{ color: '#b91c1c', fontSize: 13 }}>Failed to load Google Maps. Check the API key is valid and unrestricted for this domain.</p>;
+
+  if (mapsUnavailable && manualMode) {
+    return (
+      <div>
+        <input
+          type="text"
+          value={value}
+          onChange={onManualChange}
+          placeholder="Full street address, suburb, state, postcode…"
+          style={styles.input}
+          autoFocus
+        />
+        <p style={styles.hint}>Typed manually — double-check it's correct, since there's no autocomplete to catch typos right now.</p>
+      </div>
+    );
   }
 
   return (
@@ -51,7 +92,14 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
       onChange={(e) => onChange(e.target.value)}
       placeholder={status === 'loading' ? 'Loading maps…' : placeholder}
       disabled={status === 'loading'}
-      style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #ccc', fontSize: 14 }}
+      style={styles.input}
     />
   );
 }
+
+const styles = {
+  input: { width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #ccc', fontSize: 14 },
+  warning: { color: '#9C4A3C', fontSize: 13, marginBottom: 6 },
+  manualBtn: { background: '#F0EBE0', border: '1px solid #E7E0D3', borderRadius: 6, padding: '6px 12px', fontSize: 13, fontWeight: 500, cursor: 'pointer' },
+  hint: { fontSize: 11, color: '#6B6559', marginTop: 4, fontStyle: 'italic' },
+};

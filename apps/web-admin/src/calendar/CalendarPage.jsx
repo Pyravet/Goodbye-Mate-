@@ -100,12 +100,12 @@ function MonthView({ anchor, jobsByDate }) {
       </div>
       <div style={styles.monthGrid}>
         {cells.map((date, i) => {
-          if (!date) return <div key={i} style={styles.emptyCell} />;
+          if (!date) return <div key={i} className="gm-cal-day" style={styles.emptyCell} />;
           const key = toDateKey(date);
           const dayJobs = jobsByDate[key] || [];
           const isToday = key === today;
           return (
-            <div key={i} style={{ ...styles.dayCell, ...(isToday ? styles.dayCellToday : {}) }}>
+            <div key={i} className="gm-cal-day" style={{ ...styles.dayCell, ...(isToday ? styles.dayCellToday : {}) }}>
               <div style={styles.dayNumber}>{date.getDate()}</div>
               <div style={styles.dayJobs}>
                 {dayJobs.slice(0, 3).map((j) => (
@@ -136,7 +136,7 @@ function WeekView({ anchor, jobsByDate }) {
   const today = toDateKey(new Date());
 
   return (
-    <div style={styles.weekWrap}>
+    <div className="gm-cal-weekscroll" style={styles.weekWrap}>
       <div style={styles.weekHeaderRow}>
         <div style={styles.weekHourGutter} />
         {days.map((d) => {

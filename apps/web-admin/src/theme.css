@@ -107,8 +107,35 @@
     padding: 16px !important;
     max-width: 100% !important;
   }
-  .gm-main div[style*="grid-template-columns"] { display: block !important; }
+  /* Collapse desktop multi-column *layout* grids to a single column.
+     Deliberately scoped to 2-3 column layouts only: a blanket rule here
+     also flattened the calendar's repeat(7, 1fr) day grid into a single
+     vertical list of weekday names, which is exactly what it must not do. */
+  .gm-main div[style*="grid-template-columns: 1fr 1fr"],
+  .gm-main div[style*="grid-template-columns: 2fr 1fr"],
+  .gm-main div[style*="grid-template-columns: 1fr 2fr"],
+  .gm-main div[style*="grid-template-columns: repeat(2"],
+  .gm-main div[style*="grid-template-columns: repeat(3"] {
+    display: block !important;
+  }
   .gm-main table { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Calendar keeps its 7-column grid on mobile — just tighter, so a full
+     month fits the screen width. */
+  .gm-main div[style*="repeat(7, 1fr)"] {
+    gap: 2px !important;
+    font-size: 11px;
+  }
+  .gm-cal-day { min-height: 44px !important; padding: 2px !important; }
+  /* Inside the tighter mobile day cells, show a compact dot-per-job
+     indicator rather than truncated pet names that just render as "…". */
+  .gm-cal-day a { font-size: 9px !important; gap: 2px !important; }
+  .gm-cal-day > div:first-child { font-size: 10px !important; margin-bottom: 1px !important; }
+
+  /* Week view has a fixed 56px time gutter + 7 columns, which can't fit a
+     phone — let it scroll sideways rather than squash unreadably. */
+  .gm-cal-weekscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .gm-cal-weekscroll > div { min-width: 640px; }
 
   /* Page headers ("Jobs" + "New booking" button) were overlapping on
      narrow screens — stack them instead. */

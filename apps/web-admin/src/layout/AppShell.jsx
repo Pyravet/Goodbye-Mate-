@@ -1,119 +1,72 @@
-import { useState } from 'react';
 import { NavLink } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
 
+// Nav items are shared between the desktop sidebar and the mobile bottom
+// tab bar. `short` is used on mobile where horizontal space is tight.
 const navItems = [
-  { to: '/', label: 'Jobs', end: true },
-  { to: '/vets', label: 'Vets' },
-  { to: '/calendar', label: 'Calendar' },
-  { to: '/activity', label: 'Activity' },
-  { to: '/settings', label: 'Settings' },
+  { to: '/', label: 'Jobs', short: 'Jobs', end: true },
+  { to: '/vets', label: 'Vets', short: 'Vets' },
+  { to: '/calendar', label: 'Calendar', short: 'Cal' },
+  { to: '/activity', label: 'Activity', short: 'Inbox' },
+  { to: '/settings', label: 'Settings', short: 'More' },
 ];
 
+// Layout is driven entirely by CSS classes rather than inline style
+// objects. The previous version used inline styles for the sidebar, which
+// always beat media queries on specificity — that's why the mobile
+// breakpoint appeared to do nothing and the sidebar kept eating half the
+// phone screen. Desktop keeps the sidebar; below 768px it's replaced by a
+// bottom tab bar matching the vet app's pattern.
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="gm-shell" style={styles.wrap}>
-      {/* Mobile-only top bar: hamburger + logo. Hidden on desktop via CSS
-          (see .gm-topbar in theme.css) since the sidebar is always visible
-          there and this would just be redundant chrome. */}
-      <header className="gm-topbar">
-        <button
-          className="gm-hamburger"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Open menu"
-        >
-          <span /><span /><span />
-        </button>
-        <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-topbar-logo" />
-      </header>
-
-      {drawerOpen && (
-        <div className="gm-drawer-overlay" onClick={() => setDrawerOpen(false)} />
-      )}
-
-      <aside className={`gm-sidebar${drawerOpen ? ' gm-sidebar--open' : ''}`} style={styles.sidebar}>
-        <div style={styles.brand}>
-          <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.brandLogo} />
+    <div className="gm-shell">
+      <aside className="gm-sidebar">
+        <div className="gm-sidebar-brand">
+          <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-sidebar-logo" />
         </div>
-        <nav style={styles.nav}>
+        <nav className="gm-sidebar-nav">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
-              onClick={() => setDrawerOpen(false)}
-              style={({ isActive }) => ({
-                ...styles.navLink,
-                ...(isActive ? styles.navLinkActive : {}),
-              })}
+              className={({ isActive }) => `gm-sidebar-link${isActive ? ' is-active' : ''}`}
             >
               {item.label}
             </NavLink>
           ))}
         </nav>
-        <div style={styles.sidebarFooter}>
-          <div style={styles.userName}>{user?.fullName}</div>
-          <button onClick={logout} style={styles.logoutBtn}>Log out</button>
+        <div className="gm-sidebar-footer">
+          <div className="gm-sidebar-user">{user?.fullName}</div>
+          <button onClick={logout} className="gm-sidebar-logout">Log out</button>
         </div>
       </aside>
-      <main className="gm-main-content" style={styles.main}>{children}</main>
+
+      {/* Mobile-only header: brand + log out, since those live in the
+          sidebar on desktop and would otherwise be unreachable on a phone. */}
+      <header className="gm-mobile-header">
+        <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-mobile-logo" />
+        <button onClick={logout} className="gm-mobile-logout">Log out</button>
+      </header>
+
+      <main className="gm-main">{children}</main>
+
+      {/* Mobile-only bottom tab bar, mirroring the vet app. */}
+      <nav className="gm-tabbar">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) => `gm-tab${isActive ? ' is-active' : ''}`}
+          >
+            {item.short}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }
-
-const styles = {
-  wrap: { display: 'flex', minHeight: '100vh' },
-  sidebar: {
-    width: 'var(--gm-sidebar-w)',
-    flexShrink: 0,
-    background: 'var(--gm-forest)',
-    color: '#F3F0E7',
-    display: 'flex',
-    flexDirection: 'column',
-    padding: '24px 16px',
-  },
-  brand: {
-    padding: '0 8px 24px',
-  },
-  brandLogo: {
-    width: '100%',
-    height: 'auto',
-    display: 'block',
-  },
-  nav: { display: 'flex', flexDirection: 'column', gap: 2, flex: 1 },
-  navLink: {
-    display: 'block',
-    padding: '9px 12px',
-    borderRadius: 'var(--gm-radius-sm)',
-    color: '#D9D3C4',
-    textDecoration: 'none',
-    fontSize: 14,
-    fontWeight: 500,
-  },
-  navLinkActive: {
-    background: 'rgba(255,255,255,0.12)',
-    color: '#fff',
-  },
-  sidebarFooter: {
-    borderTop: '1px solid rgba(255,255,255,0.15)',
-    paddingTop: 14,
-    marginTop: 14,
-  },
-  userName: { fontSize: 13, color: '#D9D3C4', padding: '0 8px 8px' },
-  logoutBtn: {
-    background: 'none',
-    border: 'none',
-    color: '#D9D3C4',
-    fontSize: 13,
-    padding: '0 8px',
-    textAlign: 'left',
-    cursor: 'pointer',
-    textDecoration: 'underline',
-  },
-  main: { flex: 1, minWidth: 0, background: 'var(--gm-paper)' },
-};
-

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJobs } from '../jobs/jobsApi.js';
+import { formatHourCompact as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
 const STATUS_COLOR = {
   available: 'var(--gm-brick)',
@@ -12,12 +13,6 @@ const STATUS_COLOR = {
   cancelled: '#C9C2B4',
 };
 
-function formatTime(t) {
-  const [h, m] = t.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}${m ? ':' + String(m).padStart(2, '0') : ''}${period}`;
-}
 
 function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

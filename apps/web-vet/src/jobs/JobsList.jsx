@@ -2,13 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchMyJobs, acceptOffer, declineOffer } from './jobsApi.js';
+import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
-function formatTime(t) {
-  const [h, m] = t.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, '0')}${period}`;
-}
 
 export default function JobsList() {
   const [jobs, setJobs] = useState([]);

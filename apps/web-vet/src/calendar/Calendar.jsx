@@ -4,15 +4,10 @@ import AppShell from '../layout/AppShell.jsx';
 import { fetchMyJobs } from '../jobs/jobsApi.js';
 import { fetchMe, setDateOverride } from '../vets/vetsApi.js';
 import WeeklyAvailability from '../vets/WeeklyAvailability.jsx';
+import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
 function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function formatTime(t) {
-  const [h, m] = t.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, '0')}${period}`;
 }
 
 export default function Calendar() {

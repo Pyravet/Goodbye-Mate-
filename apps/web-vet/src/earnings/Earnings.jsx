@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchMe, fetchEarnings } from '../vets/vetsApi.js';
 import { apiFetch } from '../api.js';
+import { formatMoney } from '@goodbye-mate/web-shared/src/format.js';
 
-function formatMoney(n) {
-  return `$${(n || 0).toFixed(2)}`;
-}
 function formatWeekLabel(weekStart) {
   const d = new Date(weekStart + 'T00:00:00');
   const end = new Date(d);

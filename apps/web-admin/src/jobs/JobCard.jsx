@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
 const STATUS_LABELS = {
   available: 'Needs a vet',
@@ -18,12 +19,6 @@ const STATUS_BADGE_CLASS = {
   cancelled: 'gm-badge--brick',
 };
 
-function formatTime(t) {
-  const [h, m] = t.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, '0')}${period}`;
-}
 
 export default function JobCard({ job, showDate }) {
   return (

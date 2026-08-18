@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import { fetchJourney, submitConsent, submitPayment, submitReview, API_URL } from './api.js';
 import SignaturePad from './SignaturePad.jsx';
+import { formatTime, formatMoney } from '@goodbye-mate/web-shared/src/format.js';
 
 const SERVICE_LABELS = {
   euthanasia_only: 'Euthanasia visit',
@@ -12,16 +13,6 @@ const SERVICE_LABELS = {
 function formatDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
-}
-function formatTime(t) {
-  if (!t) return '';
-  const [h, m] = t.split(':').map(Number);
-  const period = h >= 12 ? 'pm' : 'am';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, '0')}${period}`;
-}
-function formatMoney(n) {
-  return `$${(n || 0).toFixed(2)}`;
 }
 
 export default function JourneyPage() {

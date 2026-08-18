@@ -11,3 +11,4 @@ export {
 // theme.css is imported directly by path (side-effect CSS import), e.g.:
 //   import '@goodbye-mate/web-shared/src/theme.css';
 // since CSS can't be re-exported through a JS barrel file.
+export { formatTime, formatHourCompact, formatMoney } from './format.js';

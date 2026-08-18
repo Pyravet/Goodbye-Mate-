@@ -34,11 +34,30 @@ export default function JobDetail() {
 
   useEffect(() => { load(); }, [load]);
 
+  const [actionError, setActionError] = useState('');
+
+  /**
+   * Run a checklist action and reload the job.
+   *
+   * apiFetch RESOLVES on a failed HTTP status rather than throwing, so
+   * the previous version silently swallowed every 4xx/5xx: the page just
+   * reloaded unchanged and the user had no idea the click had failed.
+   * That is exactly how the "Mark done" 403 stayed invisible. Now a
+   * failure surfaces the server's message.
+   */
   const doAction = async (path, options) => {
     setBusy(true);
+    setActionError('');
     try {
-      await apiFetch(path, options);
+      const res = await apiFetch(path, options);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActionError(body.error || `That didn't work (HTTP ${res.status}).`);
+        return;
+      }
       load();
+    } catch (err) {
+      setActionError(err.message || 'Something went wrong.');
     } finally {
       setBusy(false);
     }
@@ -153,6 +172,7 @@ export default function JobDetail() {
         <div style={styles.grid}>
           <div>
             <Card title="Task checklist">
+              {actionError && <p style={styles.assignError}>{actionError}</p>}
               <TaskRow label="Vet assigned" done={!!job.assigned_vet_id} />
               <TaskRow label="Consent signed" done={job.consent_signed}
                 action={!job.consent_signed && <ActionBtn onClick={() => doAction(`/jobs/${id}/consent-signed`, { method: 'POST' })} busy={busy}>Mark signed</ActionBtn>} />

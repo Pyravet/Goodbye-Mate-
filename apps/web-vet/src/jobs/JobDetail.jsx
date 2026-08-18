@@ -88,6 +88,21 @@ export default function JobDetail() {
           </div>
         )}
 
+        {job.admin_notes && (
+          <div className="gm-card" style={styles.adminNoteCard}>
+            <h3 style={styles.adminNoteTitle}>📌 Note from admin</h3>
+            <p style={styles.adminNoteBody}>{job.admin_notes}</p>
+          </div>
+        )}
+
+        {job.status === 'cancelled' && (
+          <div className="gm-card" style={styles.cancelledCard}>
+            <h3 style={styles.cancelledTitle}>This job was cancelled</h3>
+            {job.cancellation_reason && <p style={styles.adminNoteBody}>{job.cancellation_reason}</p>}
+            <p style={styles.cancelledHint}>You don't need to attend. Contact admin if this looks wrong.</p>
+          </div>
+        )}
+
         <Card title="Client">
           <p style={styles.plain}>{job.client_name}</p>
           <a href={`tel:${job.client_phone}`} style={styles.callLink}>{job.client_phone}</a>
@@ -178,6 +193,12 @@ function Card({ title, children }) {
 
 const styles = {
   page: { padding: '20px 16px 32px' },
+  adminNoteCard: { padding: 16, marginTop: 16, borderColor: 'var(--gm-honey)', borderWidth: 2, background: 'var(--gm-honey-soft)' },
+  adminNoteTitle: { fontSize: 13, fontWeight: 600, color: '#7A5A22', marginBottom: 6 },
+  adminNoteBody: { fontSize: 14, lineHeight: 1.5, margin: 0, color: 'var(--gm-ink)' },
+  cancelledCard: { padding: 16, marginTop: 16, borderColor: 'var(--gm-brick)', borderWidth: 2, background: 'var(--gm-brick-soft)' },
+  cancelledTitle: { fontSize: 14, fontWeight: 600, color: 'var(--gm-brick)', marginBottom: 6 },
+  cancelledHint: { fontSize: 12, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
   back: { fontSize: 13, color: 'var(--gm-ink-soft)', textDecoration: 'none' },
   title: { fontSize: 24, marginTop: 10 },
   subtitle: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 4 },

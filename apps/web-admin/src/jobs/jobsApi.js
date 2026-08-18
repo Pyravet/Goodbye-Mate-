@@ -84,6 +84,55 @@ export async function smsQuote(jobId) {
   return data;
 }
 
+export async function fetchLineItems(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/line-items`);
+  if (!res.ok) throw new Error('Failed to load charges');
+  const data = await res.json();
+  return data.lineItems;
+}
+
+export async function addLineItem(jobId, { label, amount, vetPayout }) {
+  const res = await apiFetch(`/jobs/${jobId}/line-items`, {
+    method: 'POST',
+    body: JSON.stringify({ label, amount, vetPayout }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to add charge');
+  return data;
+}
+
+export async function removeLineItem(jobId, itemId) {
+  const res = await apiFetch(`/jobs/${jobId}/line-items/${itemId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to remove charge');
+  return res.json();
+}
+
+export async function saveAdminNotes(jobId, notes) {
+  const res = await apiFetch(`/jobs/${jobId}/admin-notes`, {
+    method: 'PUT',
+    body: JSON.stringify({ notes }),
+  });
+  if (!res.ok) throw new Error('Failed to save notes');
+  return res.json();
+}
+
+export async function cancelJob(jobId, reason) {
+  const res = await apiFetch(`/jobs/${jobId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to cancel job');
+  return data.job;
+}
+
+export async function reinstateJob(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/reinstate`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to reinstate job');
+  return data.job;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

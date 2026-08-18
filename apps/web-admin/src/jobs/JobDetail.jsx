@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, saveAdminNotes, cancelJob, reinstateJob } from './jobsApi.js';
+import JobCharges from './JobCharges.jsx';
 import { fetchVets } from '../vets/vetsApi.js';
 import TakePayment from './TakePayment.jsx';
 import MessageThread from './MessageThread.jsx';
@@ -198,6 +199,14 @@ export default function JobDetail() {
               <AssignVetControl job={job} onAssigned={load} />
             </Card>
 
+            <Card title="Notes for the vet">
+              <AdminNotesCard jobId={id} initial={job.admin_notes} />
+            </Card>
+
+            <Card title="Job status">
+              <CancelCard job={job} onChanged={load} />
+            </Card>
+
             <Card title="Client journey">
               <div style={styles.journeyStatusRow}>
                 <StatusChip done={job.consent_signed} label="Consent" />
@@ -232,6 +241,9 @@ export default function JobDetail() {
                   <span>{l.label}</span><span>${l.amount.toFixed(2)}</span>
                 </div>
               ))}
+              <div style={styles.chargesBlock}>
+                <JobCharges jobId={id} onChanged={load} />
+              </div>
               <div style={{ ...styles.billLine, ...styles.billTotal }}>
                 <span>Total</span><span>${bill.total.toFixed(2)}</span>
               </div>
@@ -395,6 +407,120 @@ function AssignVetControl({ job, onAssigned }) {
   );
 }
 
+function AdminNotesCard({ jobId, initial }) {
+  const [notes, setNotes] = useState(initial || '');
+  const [status, setStatus] = useState('idle');
+
+  const save = async () => {
+    setStatus('saving');
+    try {
+      await saveAdminNotes(jobId, notes);
+      setStatus('saved');
+    } catch {
+      setStatus('error');
+    }
+  };
+
+  return (
+    <>
+      <p style={styles.docHint}>
+        Operational instructions the assigned vet will see — parking, who'll be present, anything
+        they should know before arriving. The vet gets a notification when you save this.
+      </p>
+      <textarea
+        value={notes}
+        onChange={(e) => { setNotes(e.target.value); setStatus('idle'); }}
+        rows={3}
+        placeholder="e.g. Park in the rear lane. Client's daughter will be present."
+        style={styles.notesArea}
+      />
+      <button onClick={save} disabled={status === 'saving'} style={styles.journeySendBtn}>
+        {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved — vet notified' : 'Save notes'}
+      </button>
+      {status === 'error' && <p style={styles.assignError}>Could not save — try again.</p>}
+    </>
+  );
+}
+
+function CancelCard({ job, onChanged }) {
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const doCancel = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await cancelJob(job.id, reason.trim());
+      setConfirming(false);
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doReinstate = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await reinstateJob(job.id);
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (job.status === 'cancelled') {
+    return (
+      <>
+        <p style={styles.cancelledNote}>
+          This job is cancelled{job.cancellation_reason ? ` — ${job.cancellation_reason}` : ''}.
+        </p>
+        {error && <p style={styles.assignError}>{error}</p>}
+        <button onClick={doReinstate} disabled={busy} style={styles.journeySendBtn}>
+          {busy ? 'Reinstating…' : 'Reinstate this job'}
+        </button>
+      </>
+    );
+  }
+
+  if (!confirming) {
+    return (
+      <>
+        <p style={styles.docHint}>Current status: <strong>{job.status.replace(/_/g, ' ')}</strong></p>
+        {error && <p style={styles.assignError}>{error}</p>}
+        <button onClick={() => setConfirming(true)} style={styles.cancelJobBtn}>Cancel this job</button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p style={styles.docHint}>
+        The assigned vet is notified immediately by push and text — they may already be on their way.
+      </p>
+      {error && <p style={styles.assignError}>{error}</p>}
+      <input
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (optional, shown to the vet)"
+        style={styles.notesArea}
+      />
+      <div style={styles.assignActions}>
+        <button onClick={() => setConfirming(false)} style={styles.assignCancel}>Keep job</button>
+        <button onClick={doCancel} disabled={busy} style={styles.cancelJobBtn}>
+          {busy ? 'Cancelling…' : 'Confirm cancel'}
+        </button>
+      </div>
+    </>
+  );
+}
+
 function StatusChip({ label, done }) {
   return <span className={`gm-badge ${done ? 'gm-badge--forest' : 'gm-badge--brick'}`}>{done ? '✓' : '○'} {label}</span>;
 }
@@ -462,6 +588,10 @@ const styles = {
   assignActions: { display: 'flex', gap: 8, marginTop: 10 },
   assignCancel: { flex: 1, background: 'none', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 500 },
   assignConfirm: { flex: 1, background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 500 },
+  chargesBlock: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--gm-line-soft)' },
+  notesArea: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', marginBottom: 8, background: '#fff' },
+  cancelJobBtn: { flex: 1, width: '100%', background: 'var(--gm-brick)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
+  cancelledNote: { fontSize: 13, color: 'var(--gm-brick)', marginBottom: 10, fontWeight: 500 },
   assignError: { fontSize: 12, color: 'var(--gm-brick)', marginBottom: 8 },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
   docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },

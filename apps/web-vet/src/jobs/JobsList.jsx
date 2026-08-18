@@ -108,6 +108,9 @@ function JobRow({ job, muted }) {
           <div style={styles.petRow}>
             <span style={styles.petName}>{job.pet_name}</span>
             {job.vet_unread_messages && <span style={styles.unreadDot} title="New message" />}
+            {job.admin_notes && <span style={styles.noteFlag} title="Note from admin">📌</span>}
+            {job.status === 'in_route' && <span className="gm-badge gm-badge--forest">On the way</span>}
+            {job.status === 'started' && <span className="gm-badge gm-badge--honey">In progress</span>}
           </div>
           <div style={styles.subline}>{job.client_name} · {job.suburb || job.postcode}</div>
         </div>
@@ -128,6 +131,7 @@ const styles = {
   card: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', marginBottom: 8 },
   timeCol: { fontFamily: 'var(--gm-font-display)', fontSize: 15, fontWeight: 600, color: 'var(--gm-forest-dark)', width: 60, flexShrink: 0 },
   petRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  noteFlag: { fontSize: 12, flexShrink: 0 },
   unreadDot: { width: 8, height: 8, borderRadius: '50%', background: 'var(--gm-brick)', flexShrink: 0 },
   petName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600 },
   subline: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 2 },

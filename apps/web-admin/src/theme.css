@@ -108,15 +108,20 @@
     max-width: 100% !important;
   }
   /* Collapse desktop multi-column *layout* grids to a single column.
-     Deliberately scoped to 2-3 column layouts only: a blanket rule here
-     also flattened the calendar's repeat(7, 1fr) day grid into a single
-     vertical list of weekday names, which is exactly what it must not do. */
-  .gm-main div[style*="grid-template-columns: 1fr 1fr"],
-  .gm-main div[style*="grid-template-columns: 2fr 1fr"],
-  .gm-main div[style*="grid-template-columns: 1fr 2fr"],
-  .gm-main div[style*="grid-template-columns: repeat(2"],
-  .gm-main div[style*="grid-template-columns: repeat(3"] {
+     Previously this listed guessed patterns (1fr 1fr, 2fr 1fr, repeat(2…)
+     — none of which the admin app actually uses. The real page layout
+     grid is "1fr 320px", so the rule never matched and the job detail
+     page stayed two-column and overflowed the screen.
+     Now inverted: collapse ANY grid EXCEPT the calendar's repeat(7, …)
+     day grids, which must keep their columns. :not() means new layout
+     grids are handled automatically instead of silently missed. */
+  .gm-main div[style*="grid-template-columns"]:not([style*="repeat(7"]) {
     display: block !important;
+  }
+  /* Cards in a collapsed grid need their own spacing back, since the
+     grid `gap` no longer applies once display is block. */
+  .gm-main div[style*="grid-template-columns"]:not([style*="repeat(7"]) > * {
+    margin-bottom: 14px;
   }
   .gm-main table { display: block; overflow-x: auto; white-space: nowrap; }
 

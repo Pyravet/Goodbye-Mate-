@@ -922,7 +922,11 @@ router.post('/:id/payment-received', requireAuth, requireRole('admin'), asyncHan
   res.json({ job: rows[0] });
 }));
 
-router.post('/:id/procedure-done', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+// Admin as well as vet: admin's task checklist has a "Mark done" button
+// that hit this endpoint and silently 403'd, because it was vet-only.
+// Admin legitimately needs to record this — e.g. the vet phoned it in,
+// or is fixing up a job after the fact.
+router.post('/:id/procedure-done', requireAuth, requireRole('vet', 'admin'), asyncHandler(async (req, res) => {
   // Advance to 'started' — the vet is on site and the procedure has been
   // carried out. The job only becomes 'completed' once every task gate
   // (consent, payment, cremation if applicable) is satisfied, which is

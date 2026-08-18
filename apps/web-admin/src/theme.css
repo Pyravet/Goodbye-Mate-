@@ -89,14 +89,16 @@
   }
   .gm-tab {
     flex: 1;
+    min-width: 0; /* six tabs now — let them shrink rather than overflow */
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 14px 0;
+    padding: 14px 2px;
     color: var(--gm-ink-soft);
     text-decoration: none;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    white-space: nowrap;
   }
   .gm-tab.is-active { color: var(--gm-forest-dark); border-top: 2px solid var(--gm-forest); }
 

@@ -8,6 +8,7 @@ const navItems = [
   { to: '/', label: 'Jobs', short: 'Jobs', end: true },
   { to: '/vets', label: 'Vets', short: 'Vets' },
   { to: '/calendar', label: 'Calendar', short: 'Cal' },
+  { to: '/payouts', label: 'Payouts', short: 'Pay' },
   { to: '/activity', label: 'Activity', short: 'Inbox' },
   { to: '/settings', label: 'Settings', short: 'More' },
 ];

@@ -12,6 +12,7 @@ import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
+import { generateVetRecordPdf, generateVetRecordPdfBuffer, vetRecordFilename } from '../pdf/generateVetRecord.js';
 import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
@@ -589,6 +590,101 @@ router.get('/messages/inbox', requireAuth, requireRole('admin'), asyncHandler(as
 
 // Manual assignment — either from the ranked list or the "assign any
 // other vet" escape hatch for vets travelling outside their territory.
+// --- Veterinary record (medical notes as a formal document) ---
+
+/**
+ * Load everything the record PDF needs: the job, the attending vet's
+ * registration details, and company details.
+ */
+async function loadRecordContext(jobId) {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+  const job = rows[0];
+  if (!job) return null;
+
+  let vet = {};
+  if (job.assigned_vet_id) {
+    const { rows: vetRows } = await query(
+      `SELECT u.full_name, v.abn, v.reg_number, v.reg_state
+       FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [job.assigned_vet_id]
+    );
+    vet = vetRows[0] || {};
+  }
+
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  return { job, vet, company: contentRows[0].config.company || {} };
+}
+
+/**
+ * Both admin and the assigned vet may access the record — the vet wrote
+ * the notes, and admin fields the insurer requests.
+ */
+async function canAccessRecord(req, job) {
+  if (req.user.role === 'admin') return true;
+  const myVetId = await getVetIdForUser(req.user.sub);
+  return !!myVetId && job.assigned_vet_id === myVetId;
+}
+
+router.get('/:id/vet-record.pdf', requireAuth, asyncHandler(async (req, res) => {
+  const ctx = await loadRecordContext(req.params.id);
+  if (!ctx) return res.status(404).json({ error: 'Job not found' });
+  if (!(await canAccessRecord(req, ctx.job))) return res.status(403).json({ error: 'Not your job' });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${vetRecordFilename(ctx.job)}"`);
+  generateVetRecordPdf({ res, ...ctx });
+}));
+
+const emailRecordSchema = z.object({
+  // Defaults to the client's own address, but insurers and other vets
+  // often need it sent somewhere else entirely.
+  to: z.string().email('Enter a valid email address').optional().nullable(),
+  message: z.string().trim().max(2000).optional().nullable(),
+});
+
+router.post('/:id/email-vet-record', outboundMessageLimiter, requireAuth, asyncHandler(async (req, res) => {
+  const parsed = emailRecordSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid request' });
+  }
+
+  const ctx = await loadRecordContext(req.params.id);
+  if (!ctx) return res.status(404).json({ error: 'Job not found' });
+  if (!(await canAccessRecord(req, ctx.job))) return res.status(403).json({ error: 'Not your job' });
+
+  const to = parsed.data.to || ctx.job.client_email;
+  if (!to) {
+    return res.status(400).json({ error: 'No email address given, and this booking has no client email on file.' });
+  }
+  if (!isEmailConfigured()) {
+    return res.status(503).json({ error: 'Email is not configured on the server.' });
+  }
+
+  const pdf = await generateVetRecordPdfBuffer(ctx);
+  const note = parsed.data.message?.trim();
+
+  await sendEmail({
+    to,
+    subject: `Veterinary record — ${ctx.job.pet_name} (${ctx.job.job_number})`,
+    html: `<p>Hello,</p>`
+      + `<p>Please find attached the veterinary record for ${ctx.job.pet_name}'s visit on `
+      + `${new Date(ctx.job.job_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
+      + (note ? `<p>${note.replace(/</g, '&lt;')}</p>` : '')
+      + `<p>${ctx.company.name || 'Goodbye Mate'}</p>`,
+    attachments: [{ filename: vetRecordFilename(ctx.job), content: pdf }],
+  });
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'vet_record_emailed',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { to },
+  });
+
+  res.json({ ok: true, to });
+}));
+
 // --- Notify both sides when a job's status changes ---
 // Status changes were previously silent: a vet could have a job
 // cancelled out from under them with no signal at all.

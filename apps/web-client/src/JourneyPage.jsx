@@ -203,7 +203,19 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
   const [error, setError] = useState('');
 
   const done = job.paymentStatus === 'paid';
-  if (done && !isActive) return <SectionHeader label="Payment" done />;
+  // Collapsed-but-paid still offers the receipt: the client will often
+  // come back for it days later, long after this step stopped being the
+  // active one.
+  if (done && !isActive) {
+    return (
+      <>
+        <SectionHeader label="Payment" done />
+        <a href={`${API_URL}/public/journey/${token}/receipt.pdf`} target="_blank" rel="noreferrer" style={styles.pdfLink}>
+          📄 Download receipt
+        </a>
+      </>
+    );
+  }
 
   const publicKey = import.meta.env.VITE_EWAY_PUBLIC_API_KEY;
 
@@ -240,7 +252,12 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
 
   return (
     <>
-      <SectionHeader label="Payment" done={false} />
+      <SectionHeader label="Payment" done={done} />
+      {done && (
+        <a href={`${API_URL}/public/journey/${token}/receipt.pdf`} target="_blank" rel="noreferrer" style={styles.pdfLink}>
+          📄 Download receipt
+        </a>
+      )}
       <div style={styles.billBox}>
         {bill.lines.map((l, i) => (
           <div key={i} style={styles.billLine}><span>{l.label}</span><span>{formatMoney(l.amount)}</span></div>

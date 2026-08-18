@@ -9,6 +9,7 @@ import { query } from '../db/pool.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { billBreakdown } from '../domain/pricing.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
+import { generateInvoicePdf } from '../pdf/generateInvoice.js';
 import { logAction } from '../audit/log.js';
 
 const router = Router();
@@ -237,6 +238,35 @@ router.post('/:token/review', asyncHandler(async (req, res) => {
   await logAction({ actorUserId: null, action: 'client_review_submitted', targetType: 'job', targetId: job.id, metadata: { rating: parsed.data.rating } });
 
   res.json({ ok: true });
+}));
+
+/**
+ * GET /:token/receipt.pdf
+ *
+ * The client's own receipt, once payment has gone through. Deliberately
+ * gated on payment_status: issuing a "receipt" for money not yet
+ * received would be a false record.
+ */
+router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (job.payment_status !== 'paid') {
+    return res.status(409).json({ error: 'A receipt is available once payment has been received.' });
+  }
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const { rows: lineItems } = await query(
+    'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
+    [job.id]
+  );
+  const bill = billBreakdown(job, pricingRows[0].config, lineItems);
+
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const company = contentRows[0].config.company || {};
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="Receipt-${job.job_number}.pdf"`);
+  generateInvoicePdf({ res, job, bill, company, asQuote: false });
 }));
 
 // Serves the uploaded brochure PDF for this job's cremation type, if one

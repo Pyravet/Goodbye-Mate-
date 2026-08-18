@@ -108,7 +108,16 @@ export function formatMoney(n) {
 
 export function formatDate(d) {
   if (!d) return '';
-  return new Date(`${String(d).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-AU', {
+  // Accept both a Date (e.g. new Date() for "issued today") and a
+  // 'YYYY-MM-DD' string from Postgres. The previous version sliced
+  // everything as a string, so a Date object produced "Invalid Date" —
+  // it stringifies to "Tue Aug 19 2026 …", and the first 10 characters
+  // of that are not a parseable date.
+  const parsed = d instanceof Date
+    ? d
+    : new Date(`${String(d).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleDateString('en-AU', {
     day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
   });
 }

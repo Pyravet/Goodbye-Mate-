@@ -20,6 +20,14 @@ import { isTemplateConfigured } from '../integrations/sms/templates.js';
 import { sendWhatsappTemplate, isWhatsappConfigured } from '../integrations/whatsapp/msg91Whatsapp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
+// The business operates in Australia; all "today"/"upcoming"/"past"
+// reasoning must use local dates rather than the database server's UTC
+// clock. A named IANA zone (not a fixed offset) so daylight saving is
+// handled automatically.
+// NOTE: this is a hardcoded literal interpolated into SQL — safe because
+// it is a constant defined here, never user input.
+const BUSINESS_TZ = 'Australia/Melbourne';
+
 // Shared formatting for the *_day/*_date/*_time SMS template variables.
 function smsDateVars(job) {
   const d = new Date(`${job.job_date instanceof Date ? job.job_date.toISOString().slice(0, 10) : job.job_date}T${job.job_time}`);
@@ -204,12 +212,17 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     conditions.push(`(assigned_vet_id = $${params.length} OR (dispatch_offered_vet_id = $${params.length} AND dispatch_state = 'offered'))`);
   }
 
+  // "Today" must mean today in AUSTRALIA, not on the database server.
+  // CURRENT_DATE resolves in the server's timezone (UTC on Neon), so for
+  // most of the Australian working day UTC is still on the PREVIOUS
+  // date — a job booked for today sat in "Upcoming" until ~10am AEST.
+  // BUSINESS_TZ centralises this so the three views can't drift apart.
   if (view === 'today') {
-    conditions.push(`job_date = CURRENT_DATE`);
+    conditions.push(`job_date = (now() AT TIME ZONE '${BUSINESS_TZ}')::date`);
   } else if (view === 'upcoming') {
-    conditions.push(`job_date > CURRENT_DATE AND status NOT IN ('completed','cancelled')`);
+    conditions.push(`job_date > (now() AT TIME ZONE '${BUSINESS_TZ}')::date AND status NOT IN ('completed','cancelled')`);
   } else if (view === 'past') {
-    conditions.push(`(job_date < CURRENT_DATE OR status IN ('completed','cancelled'))`);
+    conditions.push(`(job_date < (now() AT TIME ZONE '${BUSINESS_TZ}')::date OR status IN ('completed','cancelled'))`);
   }
   // 'board' (or no view param) = everything the conditions above already allow.
 

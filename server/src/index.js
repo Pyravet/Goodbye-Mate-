@@ -33,8 +33,26 @@ process.on('uncaughtException', (err) => {
 app.set('trust proxy', 1); // needed for correct req.ip behind Vercel/hosting proxies
 
 app.use(helmet());
+// CORS allowlist. A missing origin here is a genuinely nasty failure
+// mode: the browser blocks the request BEFORE it reaches the server, so
+// nothing appears in the server logs at all. The symptom is usually
+// "signed out on refresh" — the silent refresh call is blocked, the app
+// concludes the session is dead, and logs the user out. The rejection
+// log below exists so this shows up in Railway logs instead of being
+// invisible.
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || 'http://localhost:5173',
+  origin(origin, callback) {
+    // No origin = same-origin, curl, or a server-to-server call.
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    console.warn(`CORS: rejected origin "${origin}". Add it to CORS_ORIGIN if this is one of ours. Currently allowed: ${allowedOrigins.join(', ')}`);
+    return callback(null, false);
+  },
   credentials: true, // required so the refresh-token cookie is sent/received
 }));
 // Body parsing. The brochure-upload route carries a base64-encoded PDF,

@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet } from './jobsApi.js';
+import { fetchVets } from '../vets/vetsApi.js';
 import TakePayment from './TakePayment.jsx';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
@@ -194,6 +195,7 @@ export default function JobDetail() {
                   {' '}— ETA was {job.en_route_eta_minutes} min ({job.en_route_distance_text}).
                 </p>
               )}
+              <AssignVetControl job={job} onAssigned={load} />
             </Card>
 
             <Card title="Client journey">
@@ -323,6 +325,76 @@ function Card({ title, children }) {
     </div>
   );
 }
+function AssignVetControl({ job, onAssigned }) {
+  const [vets, setVets] = useState(null);
+  const [selected, setSelected] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || vets) return;
+    fetchVets()
+      .then((list) => setVets(list.filter((v) => v.is_active)))
+      .catch(() => setError('Could not load the vet list.'));
+  }, [open, vets]);
+
+  const onSubmit = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setError('');
+    try {
+      await assignVet(job.id, selected);
+      setOpen(false);
+      onAssigned();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={styles.assignBtn}>
+        {job.assigned_vet_id ? 'Reassign vet' : 'Assign a vet manually'}
+      </button>
+    );
+  }
+
+  return (
+    <div style={styles.assignBox}>
+      {error && <p style={styles.assignError}>{error}</p>}
+      {!vets ? (
+        <p style={styles.docHint}>Loading vets…</p>
+      ) : vets.length === 0 ? (
+        <p style={styles.docHint}>No active vets to assign yet.</p>
+      ) : (
+        <>
+          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={styles.assignSelect}>
+            <option value="">Choose a vet…</option>
+            {vets.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.full_name}{v.suburb ? ` — ${v.suburb}` : ''}
+              </option>
+            ))}
+          </select>
+          <div style={styles.assignActions}>
+            <button onClick={() => setOpen(false)} style={styles.assignCancel}>Cancel</button>
+            <button onClick={onSubmit} disabled={busy || !selected} style={styles.assignConfirm}>
+              {busy ? 'Assigning…' : 'Assign'}
+            </button>
+          </div>
+          <p style={styles.docHint}>
+            Assigning manually skips the offer/accept step — the vet is booked straight in, and their
+            details appear on the client's consent form.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function StatusChip({ label, done }) {
   return <span className={`gm-badge ${done ? 'gm-badge--forest' : 'gm-badge--brick'}`}>{done ? '✓' : '○'} {label}</span>;
 }
@@ -384,6 +456,13 @@ const styles = {
   journeyCopyBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '8px 12px', fontSize: 12, fontWeight: 500, flexShrink: 0 },
   journeySendBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   journeySentNote: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
+  assignBtn: { marginTop: 12, width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
+  assignBox: { marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--gm-line)' },
+  assignSelect: { width: '100%', padding: '9px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
+  assignActions: { display: 'flex', gap: 8, marginTop: 10 },
+  assignCancel: { flex: 1, background: 'none', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 500 },
+  assignConfirm: { flex: 1, background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 500 },
+  assignError: { fontSize: 12, color: 'var(--gm-brick)', marginBottom: 8 },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
   docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },
   docBtn: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 12px', fontSize: 12, fontWeight: 500 },

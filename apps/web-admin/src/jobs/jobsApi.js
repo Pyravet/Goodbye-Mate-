@@ -84,6 +84,16 @@ export async function smsQuote(jobId) {
   return data;
 }
 
+export async function assignVet(jobId, vetId) {
+  const res = await apiFetch(`/jobs/${jobId}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ vetId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to assign vet');
+  return data.job;
+}
+
 export async function sendJourneyLink(jobId) {
   const res = await apiFetch(`/jobs/${jobId}/send-journey-link`, { method: 'POST' });
   const data = await res.json();

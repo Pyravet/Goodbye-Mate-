@@ -133,6 +133,30 @@ export async function reinstateJob(jobId) {
   return data.job;
 }
 
+/**
+ * Open the veterinary record PDF. Fetched with auth rather than linked
+ * directly — the endpoint requires an Authorization header, so a plain
+ * <a href> would just 401.
+ */
+export async function openVetRecord(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/vet-record.pdf`);
+  if (!res.ok) throw new Error('Could not open the record');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function emailVetRecord(jobId, { to, message }) {
+  const res = await apiFetch(`/jobs/${jobId}/email-vet-record`, {
+    method: 'POST',
+    body: JSON.stringify({ to: to || null, message: message || null }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send');
+  return data;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

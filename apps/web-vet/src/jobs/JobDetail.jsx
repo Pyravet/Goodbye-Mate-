@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
-import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes, notifyEnRoute } from './jobsApi.js';
+import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
+import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -169,6 +170,17 @@ export default function JobDetail() {
             <button onClick={onSaveNotes} disabled={busy || notesSaved} style={styles.saveBtn}>
               {notesSaved ? 'Saved' : busy ? 'Saving…' : 'Save notes'}
             </button>
+          </Card>
+        )}
+
+        {!isOffer && (
+          <Card title="Veterinary record">
+            <VetRecordCard
+              clientEmail={job.client_email}
+              hasNotes={!!(job.medical_notes && job.medical_notes.trim())}
+              onOpen={() => openVetRecord(id)}
+              onEmail={(payload) => emailVetRecord(id, payload)}
+            />
           </Card>
         )}
 

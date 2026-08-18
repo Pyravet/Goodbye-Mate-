@@ -4,6 +4,8 @@ import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
 import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, saveAdminNotes, cancelJob, reinstateJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
+import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
+import { openVetRecord, emailVetRecord } from './jobsApi.js';
 import { fetchVets } from '../vets/vetsApi.js';
 import TakePayment from './TakePayment.jsx';
 import MessageThread from './MessageThread.jsx';
@@ -225,6 +227,15 @@ export default function JobDetail() {
 
             <Card title="Job status">
               <CancelCard job={job} onChanged={load} />
+            </Card>
+
+            <Card title="Veterinary record">
+              <VetRecordCard
+                clientEmail={job.client_email}
+                hasNotes={!!(job.medical_notes && job.medical_notes.trim())}
+                onOpen={() => openVetRecord(id)}
+                onEmail={(payload) => emailVetRecord(id, payload)}
+              />
             </Card>
 
             <Card title="Client journey">

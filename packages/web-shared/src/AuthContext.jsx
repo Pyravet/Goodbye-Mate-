@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { apiFetch, setAccessToken } from './api.js';
+import { apiFetch, setAccessToken, setStoredRefreshToken } from './api.js';
 
 const AuthContext = createContext(null);
 
@@ -37,6 +37,9 @@ export function AuthProvider({ children }) {
     }
     const data = await res.json();
     setAccessToken(data.accessToken);
+    // Persist the refresh token so the session survives a page reload
+    // even where the third-party cookie is blocked (Safari/iOS).
+    if (data.refreshToken) setStoredRefreshToken(data.refreshToken);
     setUser(data.user);
     return data.user;
   };
@@ -44,6 +47,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     await apiFetch('/auth/logout', { method: 'POST' });
     setAccessToken(null);
+    setStoredRefreshToken(null);
     setUser(null);
   };
 

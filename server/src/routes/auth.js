@@ -98,9 +98,11 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
 
   res.json({
     accessToken,
-    // The native app has no cookie jar to rely on, so it stores this
-    // itself (in secure on-device storage) and sends it back explicitly
-    // on refresh. Web clients ignore this field and use the cookie instead.
+    // Returned for clients that can't rely on the httpOnly cookie:
+    // the native app (no cookie jar), and web clients on browsers that
+    // block third-party cookies — the API is on a different registrable
+    // domain from the frontends, so Safari/iOS drops the cookie entirely.
+    // Those clients store this and send it back in the refresh body.
     refreshToken: raw,
     user: { id: user.id, email: user.email, role: user.role, fullName: user.full_name },
   });

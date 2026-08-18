@@ -315,7 +315,13 @@ async function sendJourneyLink(job) {
     }
   }
 
-  if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+  if (!job.client_phone) {
+    results.sms = 'no phone number on file';
+  } else if (!isMsg91Configured()) {
+    results.sms = 'SMS is not configured on the server';
+  } else if (!isTemplateConfigured('genericMessage')) {
+    results.sms = 'no SMS template configured';
+  } else {
     try {
       await sendTemplatedSms(job.client_phone, 'genericMessage', {
         message: `Hi ${job.client_name}, here's your Goodbye Mate booking journey for ${job.pet_name}: ${link}`,

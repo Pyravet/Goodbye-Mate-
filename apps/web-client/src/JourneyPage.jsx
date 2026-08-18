@@ -117,6 +117,11 @@ export default function JourneyPage() {
         );
       })}
 
+      {/* Grief resources matter most for euthanasia-only bookings, which
+          have no aftercare step — so surface them for every client once
+          they've worked through the journey, not just cremation ones. */}
+      {!hasAftercare && <ResourceLinks resources={content.resources} />}
+
       {active === steps.length - 1 && steps[steps.length - 1].done && (
         <div style={styles.doneBanner}>
           <p style={styles.doneBannerText}>Thank you — everything's set for your visit. We're here if you need anything before then.</p>
@@ -286,6 +291,7 @@ function AftercareSection({ token, content, isActive, onContinue }) {
     <>
       <SectionHeader label="Aftercare" done={false} />
       <p style={styles.bodyText}>{content.brochure}</p>
+      <ResourceLinks resources={content.resources} />
       {content.brochurePdf && (
         <a
           href={`${API_URL}/public/journey/${token}/brochure.pdf`}
@@ -298,6 +304,27 @@ function AftercareSection({ token, content, isActive, onContinue }) {
       )}
       <button onClick={onContinue} style={styles.primaryBtn}>Got it</button>
     </>
+  );
+}
+
+function ResourceLinks({ resources }) {
+  if (!resources || resources.length === 0) return null;
+  return (
+    <div style={styles.resourceBox}>
+      <h4 style={styles.resourceHeading}>Support &amp; resources</h4>
+      {resources.map((r) => (
+        <a
+          key={r.id}
+          href={r.href}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.resourceLink}
+        >
+          <span>{r.isPdf ? '\u{1F4C4}' : '\u{1F517}'} {r.title}</span>
+          {r.description && <span style={styles.resourceDesc}>{r.description}</span>}
+        </a>
+      ))}
+    </div>
   );
 }
 
@@ -429,5 +456,9 @@ const styles = {
   pdfLink: { display: 'inline-block', marginBottom: 16, color: 'var(--gm-forest)', fontWeight: 500, fontSize: 14, textDecoration: 'none' },
   starRow: { display: 'flex', gap: 6, marginBottom: 10 },
   starBtn: { background: 'none', border: 'none', fontSize: 36, lineHeight: 1, color: 'var(--gm-honey)', padding: 2, cursor: 'pointer' },
+  resourceBox: { marginBottom: 16, paddingTop: 4 },
+  resourceHeading: { fontSize: 13, fontWeight: 600, margin: '0 0 8px' },
+  resourceLink: { display: 'flex', flexDirection: 'column', gap: 2, padding: '10px 12px', marginBottom: 6, borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', background: '#fff', color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none' },
+  resourceDesc: { fontSize: 12, color: 'var(--gm-ink-soft)', fontWeight: 400 },
   starHint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic' },
 };

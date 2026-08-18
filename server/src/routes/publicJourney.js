@@ -13,6 +13,10 @@ import { logAction } from '../audit/log.js';
 
 const router = Router();
 
+// Public path prefix these routes are mounted at (see index.js) — used to
+// build absolute-ish hrefs for downloadable resources.
+const API_BASE_PATH = '/api/public/journey';
+
 // Generous enough for a real client re-checking the page, tight enough
 // to make token-guessing (already astronomically unlikely for a UUID)
 // even less practical.
@@ -61,9 +65,26 @@ router.get('/:token', asyncHandler(async (req, res) => {
 
   let brochurePdf = null;
   if (job.service_type !== 'euthanasia_only') {
-    const { rows: docRows } = await query('SELECT filename FROM content_documents WHERE kind = $1', [job.service_type]);
+    // Prefer a brochure for this job's own state; fall back to the
+    // nationwide 'ALL' one. ORDER BY puts the state-specific row first.
+    const { rows: docRows } = await query(
+      `SELECT filename, state FROM content_documents
+       WHERE kind = $1 AND state IN ($2, 'ALL')
+       ORDER BY CASE WHEN state = $2 THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [job.service_type, (job.state || 'ALL').toUpperCase()]
+    );
     if (docRows[0]) brochurePdf = { filename: docRows[0].filename };
   }
+
+  // Supporting documents / grief resources — global ones plus any
+  // targeted at this job's state.
+  const { rows: resourceRows } = await query(
+    `SELECT id, title, description, filename, url FROM client_resources
+     WHERE is_active = true AND (state IS NULL OR state = $1)
+     ORDER BY sort_order, created_at`,
+    [(job.state || '').toUpperCase()]
+  );
 
   const { rows: reviewRows } = await query('SELECT rating FROM job_reviews WHERE job_id = $1', [job.id]);
 
@@ -89,6 +110,14 @@ router.get('/:token', asyncHandler(async (req, res) => {
       consentTemplate: fillPlaceholders(content.consentTemplate, job),
       brochure,
       brochurePdf,
+      resources: resourceRows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        // A resource is either a downloadable PDF or an outbound link.
+        href: r.url || `${API_BASE_PATH}/${req.params.token}/resource/${r.id}.pdf`,
+        isPdf: !r.url,
+      })),
     },
     company: content.company,
     eway: { configured: isEwayConfigured() },
@@ -195,12 +224,36 @@ router.get('/:token/brochure.pdf', asyncHandler(async (req, res) => {
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
   if (job.service_type === 'euthanasia_only') return res.status(404).json({ error: 'No brochure for this service type.' });
 
-  const { rows } = await query('SELECT filename, mime_type, data FROM content_documents WHERE kind = $1', [job.service_type]);
+  const { rows } = await query(
+    `SELECT filename, mime_type, data FROM content_documents
+     WHERE kind = $1 AND state IN ($2, 'ALL')
+     ORDER BY CASE WHEN state = $2 THEN 0 ELSE 1 END
+     LIMIT 1`,
+    [job.service_type, (job.state || 'ALL').toUpperCase()]
+  );
   const doc = rows[0];
   if (!doc) return res.status(404).json({ error: 'No brochure has been uploaded yet.' });
 
   res.setHeader('Content-Type', doc.mime_type);
   res.setHeader('Content-Disposition', `inline; filename="${doc.filename.replace(/"/g, '')}"`);
+  res.send(doc.data);
+}));
+
+// Serves an uploaded resource PDF, scoped to a valid job token so these
+// documents aren't openly enumerable.
+router.get('/:token/resource/:id.pdf', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+
+  const { rows } = await query(
+    'SELECT filename, mime_type, data FROM client_resources WHERE id = $1 AND is_active = true',
+    [req.params.id]
+  );
+  const doc = rows[0];
+  if (!doc || !doc.data) return res.status(404).json({ error: 'Not found.' });
+
+  res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${(doc.filename || 'document.pdf').replace(/"/g, '')}"`);
   res.send(doc.data);
 }));
 

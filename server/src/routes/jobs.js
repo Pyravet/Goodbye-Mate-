@@ -923,8 +923,22 @@ router.post('/:id/payment-received', requireAuth, requireRole('admin'), asyncHan
 }));
 
 router.post('/:id/procedure-done', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
-  const { rows } = await query(`UPDATE jobs SET procedure_done = true, procedure_done_at = now(), updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
+  // Advance to 'started' — the vet is on site and the procedure has been
+  // carried out. The job only becomes 'completed' once every task gate
+  // (consent, payment, cremation if applicable) is satisfied, which is
+  // handled by the /complete endpoint.
+  const { rows } = await query(
+    `UPDATE jobs SET procedure_done = true, procedure_done_at = now(),
+       status = CASE WHEN status IN ('available','assigned','in_route') THEN 'started'::job_status ELSE status END,
+       updated_at = now()
+     WHERE id = $1 RETURNING *`,
+    [req.params.id]
+  );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  notifyStatusChange(rows[0], rows[0].status, { actorRole: req.user.role })
+    .catch((e) => console.error('procedure-done notify failed:', e.message));
+
   res.json({ job: rows[0] });
 }));
 
@@ -962,7 +976,14 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
   });
 
   const { rows: updatedRows } = await query(
-    `UPDATE jobs SET en_route_at = now(), en_route_eta_minutes = $1, en_route_distance_text = $2, updated_at = now()
+    // Also advance status to 'in_route'. Previously only the en_route_*
+    // fields were written, so the job stayed on 'Assigned' in every list
+    // view even though the vet was already driving — 'in_route' and
+    // 'started' existed in the enum but nothing ever set them.
+    // Guarded so a completed/cancelled job can't be dragged backwards.
+    `UPDATE jobs SET en_route_at = now(), en_route_eta_minutes = $1, en_route_distance_text = $2,
+       status = CASE WHEN status IN ('available','assigned') THEN 'in_route'::job_status ELSE status END,
+       updated_at = now()
      WHERE id = $3 RETURNING *`,
     [etaMinutes, distanceText, req.params.id]
   );

@@ -144,9 +144,25 @@
     gap: 10px !important;
   }
 
-  /* Horizontal tab strips (Today / Upcoming / Past) were being cut off —
-     let them scroll sideways rather than clip. */
+  /* Horizontal tab strips (Today / Upcoming / Past / All jobs) are wider
+     than a phone. Let the STRIP scroll internally, and stop it forcing
+     the whole page wide — otherwise the body scrolls sideways and the
+     page title and job times get pushed off the left edge. */
   .gm-main div[style*="border-radius: var(--gm-radius-sm)"][style*="display: flex"] {
     overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: none; /* the strip is obviously swipeable; the bar just adds noise */
   }
+  .gm-main div[style*="border-radius: var(--gm-radius-sm)"][style*="display: flex"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Belt-and-braces: nothing should be able to scroll the page itself
+     sideways on a phone. Any element that overflows must scroll within
+     its own box instead. */
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+  .gm-shell { max-width: 100vw; overflow-x: hidden; }
 }

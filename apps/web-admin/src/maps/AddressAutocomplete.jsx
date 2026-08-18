@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useGoogleMaps } from './useGoogleMaps.js';
 
 // Real Google Places autocomplete on a plain text input. Calls onSelect
@@ -19,7 +19,6 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
   const inputRef = useRef(null);
   const autocompleteRef = useRef(null);
   const status = useGoogleMaps();
-  const [manualMode, setManualMode] = useState(false);
 
   useEffect(() => {
     if (status !== 'ready' || !inputRef.current || autocompleteRef.current) return;
@@ -54,21 +53,10 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
 
   const mapsUnavailable = status === 'missing-key' || status === 'error';
 
-  if (mapsUnavailable && !manualMode) {
-    return (
-      <div>
-        <p style={styles.warning}>
-          {status === 'missing-key' ? "Maps isn't configured right now." : 'Maps failed to load.'}{' '}
-          You can still type the address in manually below.
-        </p>
-        <button type="button" onClick={() => setManualMode(true)} style={styles.manualBtn}>
-          Enter address manually
-        </button>
-      </div>
-    );
-  }
-
-  if (mapsUnavailable && manualMode) {
+  // If Maps failed, drop straight into manual entry rather than making
+  // the user click a button first — at that point autocomplete is never
+  // coming back, so an extra step is just friction blocking a booking.
+  if (mapsUnavailable) {
     return (
       <div>
         <input
@@ -77,9 +65,10 @@ export default function AddressAutocomplete({ value, onChange, onSelect, placeho
           onChange={onManualChange}
           placeholder="Full street address, suburb, state, postcode…"
           style={styles.input}
-          autoFocus
         />
-        <p style={styles.hint}>Typed manually — double-check it's correct, since there's no autocomplete to catch typos right now.</p>
+        <p style={styles.warning}>
+          Address autocomplete is unavailable right now, so type the full address manually — bookings still work normally.
+        </p>
       </div>
     );
   }

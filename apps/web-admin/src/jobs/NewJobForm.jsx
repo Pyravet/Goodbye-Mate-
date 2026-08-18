@@ -27,6 +27,19 @@ export default function NewJobForm() {
 
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
 
+  // Typed text always populates the address field, whether or not a
+  // Places suggestion is ever picked. Previously address was only set by
+  // onAddressSelect, so if autocomplete produced no suggestions (invalid
+  // API key, offline, or an address Google doesn't know) the user could
+  // type a full address and still hit "address: must contain at least 1
+  // character" on submit, with no way through.
+  const onAddressTextChange = (text) => {
+    setAddressInput(text);
+    // Clear any previously-selected coordinates — they belonged to a
+    // different address and would otherwise be dispatched against.
+    setForm((f) => ({ ...f, address: text, lat: null, lng: null }));
+  };
+
   const onAddressSelect = ({ formattedAddress, lat, lng }) => {
     setAddressInput(formattedAddress);
     setForm((f) => ({ ...f, address: formattedAddress, lat, lng }));
@@ -65,7 +78,7 @@ export default function NewJobForm() {
 
           <Section title="Address">
             <Field label="Search address" required>
-              <AddressAutocomplete value={addressInput} onChange={setAddressInput} onSelect={onAddressSelect} />
+              <AddressAutocomplete value={addressInput} onChange={onAddressTextChange} onSelect={onAddressSelect} />
             </Field>
             <Row>
               <Field label="Suburb"><input value={form.suburb} onChange={set('suburb')} style={styles.input} /></Field>

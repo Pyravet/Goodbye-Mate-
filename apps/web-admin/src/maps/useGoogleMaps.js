@@ -28,10 +28,26 @@ export function useGoogleMaps() {
   useEffect(() => {
     if (!apiKey) return;
     let cancelled = false;
+
+    // Google reports an invalid/unauthorised key by calling this global
+    // rather than by failing the script load — the <script> tag itself
+    // still resolves fine. Without hooking this, an invalid key looks
+    // exactly like a working one ('ready'), so autocomplete silently
+    // returns no suggestions and the UI gives no clue why.
+    const previousAuthFailure = window.gm_authFailure;
+    window.gm_authFailure = () => {
+      if (!cancelled) setStatus('error');
+      if (typeof previousAuthFailure === 'function') previousAuthFailure();
+    };
+
     loadGoogleMapsScript(apiKey)
       .then(() => { if (!cancelled) setStatus('ready'); })
       .catch(() => { if (!cancelled) setStatus('error'); });
-    return () => { cancelled = true; };
+
+    return () => {
+      cancelled = true;
+      window.gm_authFailure = previousAuthFailure;
+    };
   }, [apiKey]);
 
   return status; // 'missing-key' | 'loading' | 'ready' | 'error'

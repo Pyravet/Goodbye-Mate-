@@ -298,7 +298,11 @@ async function sendJourneyLink(job) {
   const link = journeyLink(job);
   const results = { email: null, sms: null };
 
-  if (job.client_email && isEmailConfigured()) {
+  if (!job.client_email) {
+    results.email = 'no email address on file';
+  } else if (!isEmailConfigured()) {
+    results.email = 'email is not configured on the server';
+  } else {
     try {
       await sendEmail({
         to: job.client_email,

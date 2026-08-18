@@ -36,6 +36,7 @@ export default function JourneyPage() {
   const [welcomeAck, setWelcomeAck] = useState(false);
   const [aftercareAck, setAftercareAck] = useState(false);
   const [paymentSkipped, setPaymentSkipped] = useState(false);
+  const [localRating, setLocalRating] = useState(null);
 
   const load = () => {
     setState('loading');
@@ -54,7 +55,10 @@ export default function JourneyPage() {
 
   const { job, bill, content, company, eway } = data;
   const hasAftercare = job.serviceType !== 'euthanasia_only';
-  const [reviewRating, setReviewRatingLocal] = useState(job.reviewRating);
+  // Falls back to the server value until the client submits a rating in
+  // this session. Must NOT be its own useState down here — hooks can't
+  // live after the early returns above.
+  const reviewRating = localRating ?? job.reviewRating;
 
   const steps = [
     { key: 'welcome', label: 'About your visit', done: welcomeAck || job.consentSigned },
@@ -107,7 +111,7 @@ export default function JourneyPage() {
               <AftercareSection token={token} content={content} isActive={isActive} onContinue={() => setAftercareAck(true)} />
             )}
             {s.key === 'review' && (
-              <ReviewSection token={token} isActive={isActive} rating={reviewRating} onRated={setReviewRatingLocal} />
+              <ReviewSection token={token} isActive={isActive} rating={reviewRating} onRated={setLocalRating} />
             )}
           </section>
         );

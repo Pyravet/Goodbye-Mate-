@@ -117,12 +117,19 @@ export async function sendQuoteEverywhere(jobId, { hasEmail, hasPhone }) {
   if (hasEmail) {
     try { await emailDocument(jobId, 'quote'); results.email = 'sent'; }
     catch (err) { results.email = err.message; }
+  } else {
+    // Previously this branch silently did nothing, so a booking with no
+    // client email looked identical to a failed send — the admin just saw
+    // "no email arrived" with no explanation anywhere.
+    results.email = 'no email address on file for this client';
   }
   if (hasPhone) {
     try { await smsQuote(jobId); results.sms = 'sent'; }
     catch (err) { results.sms = err.message; }
     try { await whatsappQuote(jobId); results.whatsapp = 'sent'; }
     catch (err) { results.whatsapp = err.message; }
+  } else {
+    results.sms = 'no phone number on file for this client';
   }
   return results;
 }

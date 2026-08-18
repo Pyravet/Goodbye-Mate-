@@ -48,7 +48,13 @@ const outboundMessageLimiter = rateLimit({
 const createJobSchema = z.object({
   clientName: z.string().min(1),
   clientPhone: z.string().min(1),
-  clientEmail: z.string().email().optional().nullable(),
+  // Email is genuinely optional. Accept '' (what an untouched form field
+  // sends) and normalise it to null — previously a blank email failed
+  // .email() validation and silently rejected the entire booking.
+  clientEmail: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().email().nullable().optional()
+  ),
   address: z.string().min(1),
   suburb: z.string().optional(),
   postcode: z.string().min(1),
@@ -63,8 +69,8 @@ const createJobSchema = z.object({
   petBehaviour: z.string().optional(),
   serviceId: z.string().default('svc_euth'),
   serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']),
-  date: z.string(), // YYYY-MM-DD
-  time: z.string(), // HH:MM
+  date: z.string().min(1), // YYYY-MM-DD
+  time: z.string().min(1), // HH:MM
   extraTravelFee: z.number().optional().default(0),
   isPublicHoliday: z.boolean().optional().default(false),
   notes: z.string().optional(),
@@ -118,7 +124,19 @@ async function startOrRollDispatch(jobId) {
 
 router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = createJobSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: 'Invalid job', details: parsed.error.flatten() });
+  if (!parsed.success) {
+    // Surface WHICH field failed rather than a bare "Invalid job" — an
+    // opaque error here made a blank optional email look like a total
+    // system failure with no way to tell what to fix.
+    const fieldErrors = parsed.error.flatten().fieldErrors;
+    const summary = Object.entries(fieldErrors)
+      .map(([field, msgs]) => `${field}: ${msgs?.[0] || 'invalid'}`)
+      .join('; ');
+    return res.status(400).json({
+      error: summary ? `Please check these fields — ${summary}` : 'Invalid job',
+      details: parsed.error.flatten(),
+    });
+  }
   const d = parsed.data;
 
   const timeCategory = suggestTimeCategory(d.date, d.time);

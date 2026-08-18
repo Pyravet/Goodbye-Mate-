@@ -569,17 +569,60 @@ router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async
   const { vetId } = req.body;
   if (!vetId) return res.status(400).json({ error: 'vetId required' });
 
+  // Capture who held the job first, so a reassignment can be cleanly
+  // taken off their account and they can be told about it. Without this
+  // the job silently vanished from the previous vet's list with no
+  // notice — they could still be planning to attend.
+  const { rows: beforeRows } = await query('SELECT assigned_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  if (!beforeRows[0]) return res.status(404).json({ error: 'Job not found' });
+  const previousVetId = beforeRows[0].assigned_vet_id;
+
+  if (previousVetId === vetId) {
+    return res.status(400).json({ error: 'That vet is already assigned to this job.' });
+  }
+
   const { rows } = await query(
     `UPDATE jobs SET assigned_vet_id = $1, status = 'assigned',
        dispatch_state = 'accepted', dispatch_offered_vet_id = $1, dispatch_expires_at = NULL,
+       en_route_at = NULL, en_route_eta_minutes = NULL, en_route_distance_text = NULL,
        updated_at = now()
      WHERE id = $2 RETURNING *`,
     [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  const job = rows[0];
 
-  await logAction({ actorUserId: req.user.sub, action: 'job_manually_assigned', targetType: 'job', targetId: req.params.id, metadata: { vetId } });
-  res.json({ job: rows[0] });
+  await logAction({
+    actorUserId: req.user.sub,
+    action: previousVetId ? 'job_reassigned' : 'job_manually_assigned',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { vetId, previousVetId },
+  });
+
+  // Tell the vet who just lost the job. Fire-and-forget: a notification
+  // failure must not roll back a completed reassignment.
+  if (previousVetId) {
+    (async () => {
+      const { rows: prevRows } = await query(
+        'SELECT u.id AS user_id, u.full_name, u.phone FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+        [previousVetId]
+      );
+      const prev = prevRows[0];
+      if (!prev) return;
+
+      const body = `${job.pet_name} on ${job.job_date} has been reassigned to another vet. It's been removed from your schedule.`;
+      await sendPushToUser(prev.user_id, { title: 'Job reassigned', body, url: '/' }).catch((e) => console.error('reassign push failed:', e.message));
+      await sendExpoPushToUser(prev.user_id, { title: 'Job reassigned', body, url: '/' }).catch((e) => console.error('reassign expo push failed:', e.message));
+      if (prev.phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+        await sendTemplatedSms(prev.phone, 'genericMessage', {
+          message: `Hi ${prev.full_name}, ${body}`,
+        }).catch((e) => console.error('reassign sms failed:', e.message));
+      }
+    })().catch((e) => console.error('reassign notify failed:', e.message));
+  }
+
+  res.json({ job });
 }));
 
 // Vet accepts an offer made to them.

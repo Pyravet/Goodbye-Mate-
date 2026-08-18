@@ -43,6 +43,10 @@ app.use(cors({
 // the stream, so a route-level parser mounted later never gets a chance
 // and the upload just fails with 413 Payload Too Large.
 app.use('/api/settings/content/brochure', express.json({ limit: '20mb' }));
+// Consent submissions carry a drawn signature PNG as a data URI, which
+// can exceed the global 1mb limit. Same ordering rule as above: this
+// must be mounted before the global parser or it never runs.
+app.use('/api/public/journey', express.json({ limit: '8mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 

@@ -29,9 +29,13 @@ const publicJourneyLimiter = rateLimit({
 });
 router.use(publicJourneyLimiter);
 
-function fillPlaceholders(text, job) {
+// vetName is passed separately because it lives on the vets/users tables,
+// not on the job row. Without it, '{vetName}' rendered literally to the
+// client on the "About your visit" card.
+function fillPlaceholders(text, job, vetName) {
   if (!text) return text;
   return text
+    .replaceAll('{vetName}', vetName || 'your vet')
     .replaceAll('{petName}', job.pet_name || '')
     .replaceAll('{clientName}', job.client_name || '')
     .replaceAll('{date}', job.job_date ? new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) : '')
@@ -55,13 +59,23 @@ router.get('/:token', asyncHandler(async (req, res) => {
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+
+  // Assigned vet's name, for {vetName} in the client-facing copy.
+  let vetName = null;
+  if (job.assigned_vet_id) {
+    const { rows: vetRows } = await query(
+      'SELECT u.full_name FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+      [job.assigned_vet_id]
+    );
+    vetName = vetRows[0]?.full_name || null;
+  }
   const content = contentRows[0].config;
   const bill = billBreakdown(job, pricingRows[0].config);
 
   let brochure = null;
-  if (job.service_type === 'private_cremation') brochure = fillPlaceholders(content.privateCremationBrochure, job);
-  else if (job.service_type === 'communal_cremation') brochure = fillPlaceholders(content.communalCremationBrochure, job);
-  else brochure = fillPlaceholders(content.noCremationNote, job);
+  if (job.service_type === 'private_cremation') brochure = fillPlaceholders(content.privateCremationBrochure, job, vetName);
+  else if (job.service_type === 'communal_cremation') brochure = fillPlaceholders(content.communalCremationBrochure, job, vetName);
+  else brochure = fillPlaceholders(content.noCremationNote, job, vetName);
 
   let brochurePdf = null;
   if (job.service_type !== 'euthanasia_only') {
@@ -106,8 +120,8 @@ router.get('/:token', asyncHandler(async (req, res) => {
     },
     bill: { total: bill.total, lines: bill.lines },
     content: {
-      educationalIntro: fillPlaceholders(content.educationalIntro, job),
-      consentTemplate: fillPlaceholders(content.consentTemplate, job),
+      educationalIntro: fillPlaceholders(content.educationalIntro, job, vetName),
+      consentTemplate: fillPlaceholders(content.consentTemplate, job, vetName),
       brochure,
       brochurePdf,
       resources: resourceRows.map((r) => ({
@@ -127,6 +141,10 @@ router.get('/:token', asyncHandler(async (req, res) => {
 const consentSchema = z.object({
   signatureName: z.string().trim().min(2, 'Please type your full name.'),
   agree: z.literal(true, { errorMap: () => ({ message: 'You must confirm you understand and consent.' }) }),
+  // Drawn signature as a PNG data URI. Optional at the schema level so
+  // an older cached client build can't be locked out mid-booking, but
+  // the current UI requires one before enabling submit.
+  signatureImage: z.string().startsWith('data:image/png;base64,').max(2_000_000).optional().nullable(),
 });
 
 router.post('/:token/consent', asyncHandler(async (req, res) => {
@@ -137,9 +155,15 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
   const parsed = consentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid submission' });
 
+  const signatureBuffer = parsed.data.signatureImage
+    ? Buffer.from(parsed.data.signatureImage.split(',')[1], 'base64')
+    : null;
+
   await query(
-    `UPDATE jobs SET consent_signed = true, consent_signature_name = $1, consent_signed_at = now(), updated_at = now() WHERE id = $2`,
-    [parsed.data.signatureName, job.id]
+    `UPDATE jobs SET consent_signed = true, consent_signature_name = $1,
+       consent_signature_image = $2, consent_signed_at = now(), updated_at = now()
+     WHERE id = $3`,
+    [parsed.data.signatureName, signatureBuffer, job.id]
   );
   await logAction({ actorUserId: null, action: 'consent_signed_by_client', targetType: 'job', targetId: job.id, metadata: { signatureName: parsed.data.signatureName } });
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import { fetchJourney, submitConsent, submitPayment, submitReview, API_URL } from './api.js';
+import SignaturePad from './SignaturePad.jsx';
 
 const SERVICE_LABELS = {
   euthanasia_only: 'Euthanasia visit',
@@ -158,6 +159,7 @@ function WelcomeSection({ content, isActive, onContinue }) {
 function ConsentSection({ token, content, job, isActive, onSigned }) {
   const [name, setName] = useState('');
   const [agree, setAgree] = useState(false);
+  const [signature, setSignature] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -168,7 +170,7 @@ function ConsentSection({ token, content, job, isActive, onSigned }) {
     setError('');
     setSubmitting(true);
     try {
-      await submitConsent(token, { signatureName: name.trim(), agree: true });
+      await submitConsent(token, { signatureName: name.trim(), agree: true, signatureImage: signature });
       onSigned();
     } catch (err) {
       setError(err.message);
@@ -183,15 +185,17 @@ function ConsentSection({ token, content, job, isActive, onSigned }) {
       <p style={styles.bodyText}>{content.consentTemplate}</p>
       <form onSubmit={onSubmit}>
         {error && <p style={styles.errorText}>{error}</p>}
+        <label style={styles.label}>Sign here</label>
+        <SignaturePad onChange={setSignature} />
         <label style={styles.label}>
-          Type your full name as your signature
+          Your full name
           <input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} style={styles.input} />
         </label>
         <label style={styles.checkboxRow}>
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} required />
           <span>I understand and give my consent.</span>
         </label>
-        <button type="submit" disabled={submitting || !agree || name.trim().length < 2} style={styles.primaryBtn}>
+        <button type="submit" disabled={submitting || !agree || !signature || name.trim().length < 2} style={styles.primaryBtn}>
           {submitting ? 'Saving…' : 'Sign and continue'}
         </button>
       </form>

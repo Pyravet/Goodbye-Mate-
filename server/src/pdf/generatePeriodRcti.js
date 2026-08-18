@@ -1,19 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { periodLabel } from '../domain/payoutPeriods.js';
-
-const FOREST = '#33453A';
-const INK = '#2A2620';
-const INK_SOFT = '#6B6559';
-const LINE = '#E7E0D3';
-
-function formatMoney(n) {
-  return `$${Number(n).toFixed(2)}`;
-}
-function formatDate(d) {
-  return new Date(`${String(d).slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-AU', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  });
-}
+import { drawHeader, drawFooter, formatMoney, formatDate, FOREST, INK, INK_SOFT, LINE } from './branding.js';
 
 /**
  * Draw a period RCTI — one tax invoice covering every job a vet did in a
@@ -32,23 +19,20 @@ function formatDate(d) {
  * @param {object} args.company Issuing company details from content settings.
  */
 function drawPeriodRcti(doc, { period, items, vet, company }) {
-  // --- Header ---
-  doc.fontSize(20).fillColor(FOREST).text(company.name || 'Goodbye Mate', 50, 50);
-  doc.fontSize(10).fillColor(INK_SOFT).text('Recipient Created Tax Invoice', 50, 76);
-  if (company.abn) doc.text(`ABN: ${company.abn}`, 50, 90);
-  if (company.address) doc.text(company.address, 50, 104, { width: 240 });
-
-  doc.fontSize(10).fillColor(INK_SOFT);
-  doc.text(`RCTI ${period.rcti_number || '(draft — not yet issued)'}`, 330, 50, { width: 215, align: 'right' });
-  doc.text(`Issued: ${formatDate(period.approved_at || new Date())}`, 330, 64, { width: 215, align: 'right' });
-  doc.text(`Pay period: ${periodLabel(period.period_start, period.period_end)}`, 330, 78, { width: 215, align: 'right' });
-
-  doc.moveTo(50, 132).lineTo(545, 132).strokeColor(LINE).stroke();
+  const top = drawHeader(doc, {
+    company,
+    docTitle: 'Recipient Created Tax Invoice',
+    meta: [
+      ['RCTI', period.rcti_number || '(draft — not yet issued)'],
+      ['Issued', formatDate(period.approved_at || new Date())],
+      ['Pay period', periodLabel(period.period_start, period.period_end)],
+    ],
+  });
 
   // --- Payable to ---
-  doc.fontSize(11).fillColor(INK).text('Payable to', 50, 150);
+  doc.fontSize(11).fillColor(INK).text('Payable to', 50, top);
   doc.fontSize(10).fillColor(INK_SOFT);
-  let y = 166;
+  let y = top + 16;
   doc.text(vet.full_name, 50, y); y += 14;
   if (vet.reg_number) {
     doc.text(`Registration: ${vet.reg_number}${vet.reg_state ? ` (${vet.reg_state})` : ''}`, 50, y);
@@ -58,14 +42,14 @@ function drawPeriodRcti(doc, { period, items, vet, company }) {
   doc.text(`GST registered: ${vet.is_gst_registered ? 'Yes' : 'No'}`, 50, y);
 
   // --- Summary block ---
-  doc.fontSize(11).fillColor(INK).text('Summary', 330, 150);
+  doc.fontSize(11).fillColor(INK).text('Summary', 330, top);
   doc.fontSize(10).fillColor(INK_SOFT);
-  doc.text(`${items.length} job${items.length === 1 ? '' : 's'} completed`, 330, 166);
-  doc.text(`Status: ${period.status}`, 330, 180);
-  if (period.paid_at) doc.text(`Paid: ${formatDate(period.paid_at)}`, 330, 194);
+  doc.text(`${items.length} job${items.length === 1 ? '' : 's'} completed`, 330, top + 16);
+  doc.text(`Status: ${period.status}`, 330, top + 30);
+  if (period.paid_at) doc.text(`Paid: ${formatDate(period.paid_at)}`, 330, top + 44);
 
   // --- Line items table ---
-  let tableY = 250;
+  let tableY = top + 80;
   doc.fontSize(10).fillColor(INK_SOFT);
   doc.text('Date', 50, tableY);
   doc.text('Job', 110, tableY);
@@ -109,15 +93,12 @@ function drawPeriodRcti(doc, { period, items, vet, company }) {
   doc.fontSize(12).fillColor(FOREST).text('Total payable', 330, tableY + 4);
   doc.text(formatMoney(period.total), 480, tableY + 4, { width: 65, align: 'right' });
 
-  // --- Legal footer ---
-  // Required wording for a recipient-created tax invoice: the recipient
-  // (Goodbye Mate) issues it on the supplier's (vet's) behalf.
-  doc.fontSize(8).fillColor(INK_SOFT).text(
-    'This Recipient Created Tax Invoice is issued by the recipient of the supply. ' +
-    'The supplier will not issue a tax invoice for these services. ' +
-    'Both parties confirm they are registered for GST where indicated at the time of supply.',
-    50, 760, { width: 495 }
-  );
+  drawFooter(doc, {
+    company,
+    legalText: company.rctiDeclaration
+      || 'This Recipient Created Tax Invoice is issued by the recipient of the supply. '
+      + 'The supplier will not issue a tax invoice for these services.',
+  });
 }
 
 /** Stream a period RCTI directly to an HTTP response. */

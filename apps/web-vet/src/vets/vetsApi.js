@@ -45,3 +45,24 @@ export async function saveTerritory(vetId, geojson) {
   if (!res.ok) throw new Error('Failed to save territory');
   return res.json();
 }
+
+/** The vet's own weekly payout periods (approved and paid). */
+export async function fetchMyPayoutPeriods() {
+  const res = await apiFetch('/payouts/my-periods');
+  if (!res.ok) throw new Error('Failed to load payouts');
+  const data = await res.json();
+  return data.periods;
+}
+
+/**
+ * Open a period RCTI. Fetched with auth rather than linked directly,
+ * since the endpoint requires an Authorization header.
+ */
+export async function openMyPeriodRcti(periodId) {
+  const res = await apiFetch(`/payouts/periods/${periodId}/rcti.pdf`);
+  if (!res.ok) throw new Error('Could not open that RCTI');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

@@ -48,6 +48,9 @@ export default function ContentTab() {
         <Field label="Company name"><input value={content.company.name} onChange={(e) => setCompanyField('name', e.target.value)} style={styles.input} /></Field>
         <Field label="ABN"><input value={content.company.abn} onChange={(e) => setCompanyField('abn', e.target.value)} style={styles.input} /></Field>
         <Field label="Address"><input value={content.company.address} onChange={(e) => setCompanyField('address', e.target.value)} style={styles.input} /></Field>
+        <Field label="Phone"><input value={content.company.phone || ''} onChange={(e) => setCompanyField('phone', e.target.value)} placeholder="0400 000 000" style={styles.input} /></Field>
+        <Field label="Email"><input value={content.company.email || ''} onChange={(e) => setCompanyField('email', e.target.value)} placeholder="hello@goodbyemate.com.au" style={styles.input} /></Field>
+        <p style={styles.hint}>These appear in the header and footer of every quote, invoice, receipt and RCTI.</p>
         <Field label="RCTI declaration (appears on every vet's tax invoice)">
           <textarea value={content.company.rctiDeclaration} onChange={(e) => setCompanyField('rctiDeclaration', e.target.value)} rows={3} style={{ ...styles.input, resize: 'vertical' }} />
         </Field>

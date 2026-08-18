@@ -76,6 +76,17 @@ const createJobSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Line items (extra charges + discounts) for a job. Every bill/payout
+// calculation must include these or the client is quoted one figure and
+// invoiced another — so this is fetched everywhere billBreakdown is used.
+async function getLineItems(jobId) {
+  const { rows } = await query(
+    'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
+    [jobId]
+  );
+  return rows;
+}
+
 // Kicks off (or re-kicks) an auto-dispatch offer: ranks vets, offers to
 // the best match, sets the offer expiry. Called on job creation and by
 // the timeout-rollover worker.
@@ -172,7 +183,7 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
   const dispatch = await startOrRollDispatch(job.id);
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config);
+  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
 
   res.status(201).json({ job, dispatch, bill });
 }));
@@ -225,8 +236,8 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
-  const bill = billBreakdown(rows[0], pricing);
-  const payout = payoutBreakdown(rows[0], pricing);
+  const bill = billBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
+  const payout = payoutBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
 
   res.json({ job: rows[0], bill, payout });
 }));
@@ -257,7 +268,7 @@ router.get('/:id/rcti.pdf', requireAuth, asyncHandler(async (req, res) => {
   const pricing = pricingRows[0].config;
   const company = contentRows[0].config.company || {};
 
-  const payout = payoutBreakdown(job, pricing);
+  const payout = payoutBreakdown(job, pricing, await getLineItems(job.id));
   const gst = vet.is_gst_registered ? extractGst(payout.total, pricing.gstPercent) : null;
 
   generateRctiPdf({ res, job, vet, payout, gst, company });
@@ -277,7 +288,7 @@ router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(a
   const pricing = pricingRows[0].config;
   const company = contentRows[0].config.company || {};
 
-  const bill = billBreakdown(job, pricing);
+  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
   const asQuote = req.query.quote === '1';
 
   generateInvoicePdf({ res, job, bill, company, asQuote });
@@ -363,7 +374,7 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
-  const bill = billBreakdown(job, pricing);
+  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
 
   const result = await chargeCard({
     amountDollars: bill.total,
@@ -421,7 +432,7 @@ router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireR
       if (!vet) return res.status(404).json({ error: 'Assigned vet not found' });
       if (!vet.email) return res.status(400).json({ error: 'Vet has no email on file' });
 
-      const payout = payoutBreakdown(job, pricing);
+      const payout = payoutBreakdown(job, pricing, await getLineItems(job.id));
       const gst = vet.is_gst_registered ? extractGst(payout.total, pricing.gstPercent) : null;
       const buffer = await generateRctiPdfBuffer({ job, vet, payout, gst, company });
 
@@ -434,7 +445,7 @@ router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireR
     } else {
       const asQuote = type === 'quote';
       if (!job.client_email) return res.status(400).json({ error: 'Client has no email on file for this job' });
-      const bill = billBreakdown(job, pricing);
+      const bill = billBreakdown(job, pricing, await getLineItems(job.id));
       const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote });
 
       await sendEmail({
@@ -465,7 +476,7 @@ router.post('/:id/sms-quote', outboundMessageLimiter, requireAuth, requireRole('
   if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config);
+  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
 
   const message = `Hi ${job.client_name}, your quote for ${job.pet_name} is $${bill.total.toFixed(2)}. We've also sent a detailed quote to your email if provided.`;
 
@@ -497,7 +508,7 @@ router.post('/:id/whatsapp-quote', outboundMessageLimiter, requireAuth, requireR
   if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config);
+  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
 
   try {
     await sendWhatsappTemplate(job.client_phone, [job.client_name, job.pet_name, `$${bill.total.toFixed(2)}`]);
@@ -565,6 +576,159 @@ router.get('/messages/inbox', requireAuth, requireRole('admin'), asyncHandler(as
 
 // Manual assignment — either from the ranked list or the "assign any
 // other vet" escape hatch for vets travelling outside their territory.
+// --- Notify both sides when a job's status changes ---
+// Status changes were previously silent: a vet could have a job
+// cancelled out from under them with no signal at all.
+async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
+  const label = {
+    available: 'is back on the board and needs a vet',
+    assigned: 'has been assigned',
+    in_route: 'is now marked as on the way',
+    started: 'has been started',
+    completed: 'has been completed',
+    cancelled: 'has been CANCELLED',
+  }[newStatus] || `status changed to ${newStatus}`;
+
+  const body = `${job.pet_name} (${job.job_number}) ${label}${reason ? ` — ${reason}` : ''}.`;
+
+  // Notify the assigned vet, unless they're the one who triggered it.
+  if (job.assigned_vet_id && actorRole !== 'vet') {
+    const { rows } = await query(
+      'SELECT u.id AS user_id, u.phone, u.full_name FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+      [job.assigned_vet_id]
+    );
+    const vet = rows[0];
+    if (vet) {
+      await sendPushToUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}` })
+        .catch((e) => console.error('status push failed:', e.message));
+      await sendExpoPushToUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}` })
+        .catch((e) => console.error('status expo push failed:', e.message));
+      // Cancellation is the one case worth an SMS — the vet may have
+      // already set off, and a push alone can be missed while driving.
+      if (newStatus === 'cancelled' && vet.phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+        await sendTemplatedSms(vet.phone, 'genericMessage', { message: `Hi ${vet.full_name}, ${body}` })
+          .catch((e) => console.error('status sms failed:', e.message));
+      }
+    }
+  }
+
+  // Notify admin, unless admin triggered it.
+  if (actorRole !== 'admin') {
+    await sendPushToAdmins({ title: 'Job update', body, url: `/jobs/${job.id}` })
+      .catch((e) => console.error('status admin push failed:', e.message));
+  }
+  await sendSlackMessage(`📋 ${body}`).catch((e) => console.error('status slack failed:', e.message));
+}
+
+// --- Cancel a job ---
+router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const reason = (req.body?.reason || '').trim() || null;
+
+  const { rows } = await query(
+    `UPDATE jobs SET status = 'cancelled', cancelled_at = now(), cancellation_reason = $1,
+       dispatch_state = 'none', dispatch_expires_at = NULL, updated_at = now()
+     WHERE id = $2 AND status <> 'cancelled' RETURNING *`,
+    [reason, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found, or already cancelled.' });
+
+  await logAction({ actorUserId: req.user.sub, action: 'job_cancelled', targetType: 'job', targetId: req.params.id, metadata: { reason } });
+  notifyStatusChange(rows[0], 'cancelled', { actorRole: 'admin', reason })
+    .catch((e) => console.error('cancel notify failed:', e.message));
+
+  res.json({ job: rows[0] });
+}));
+
+// Reinstate a cancelled job — mistakes happen, and re-keying a whole
+// booking to undo one is worse than an explicit un-cancel.
+router.post('/:id/reinstate', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `UPDATE jobs SET status = CASE WHEN assigned_vet_id IS NULL THEN 'available' ELSE 'assigned' END,
+       cancelled_at = NULL, cancellation_reason = NULL, updated_at = now()
+     WHERE id = $1 AND status = 'cancelled' RETURNING *`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found, or not cancelled.' });
+
+  await logAction({ actorUserId: req.user.sub, action: 'job_reinstated', targetType: 'job', targetId: req.params.id });
+  notifyStatusChange(rows[0], rows[0].status, { actorRole: 'admin' })
+    .catch((e) => console.error('reinstate notify failed:', e.message));
+
+  res.json({ job: rows[0] });
+}));
+
+// --- Admin notes (visible to the assigned vet) ---
+router.put('/:id/admin-notes', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const notes = typeof req.body?.notes === 'string' ? req.body.notes : '';
+  const { rows } = await query(
+    'UPDATE jobs SET admin_notes = $1, updated_at = now() WHERE id = $2 RETURNING id, admin_notes, assigned_vet_id, pet_name, job_number',
+    [notes.trim() || null, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  await logAction({ actorUserId: req.user.sub, action: 'admin_notes_updated', targetType: 'job', targetId: req.params.id });
+
+  // Tell the vet there's a new instruction — a note nobody reads is
+  // worse than no note, since admin assumes it landed.
+  if (rows[0].assigned_vet_id && notes.trim()) {
+    const { rows: vetRows } = await query(
+      'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+      [rows[0].assigned_vet_id]
+    );
+    if (vetRows[0]) {
+      sendPushToUser(vetRows[0].user_id, {
+        title: `Note added — ${rows[0].pet_name}`,
+        body: notes.trim().slice(0, 120),
+        url: `/jobs/${req.params.id}`,
+      }).catch((e) => console.error('admin note push failed:', e.message));
+    }
+  }
+
+  res.json({ ok: true, adminNotes: rows[0].admin_notes });
+}));
+
+// --- Line items: extra charges and discounts ---
+const lineItemSchema = z.object({
+  label: z.string().trim().min(1, 'Give the charge a label.'),
+  amount: z.number().refine((n) => n !== 0, 'Amount cannot be zero.'),
+  vetPayout: z.number().min(0).optional().default(0),
+});
+
+router.get('/:id/line-items', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    'SELECT id, label, amount, vet_payout, created_at FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
+    [req.params.id]
+  );
+  res.json({ lineItems: rows });
+}));
+
+router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = lineItemSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid line item' });
+  }
+  const { label, amount, vetPayout } = parsed.data;
+
+  // A discount must not also pay the vet more — that would be a silent
+  // margin leak rather than a discount.
+  if (amount < 0 && vetPayout > 0) {
+    return res.status(400).json({ error: 'A discount cannot also increase the vet payout.' });
+  }
+
+  const { rows } = await query(
+    'INSERT INTO job_line_items (job_id, label, amount, vet_payout, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+    [req.params.id, label, amount, vetPayout, req.user.sub]
+  );
+  await logAction({ actorUserId: req.user.sub, action: amount < 0 ? 'discount_added' : 'extra_charge_added', targetType: 'job', targetId: req.params.id, metadata: { label, amount } });
+  res.status(201).json({ id: rows[0].id });
+}));
+
+router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  await query('DELETE FROM job_line_items WHERE id = $1 AND job_id = $2', [req.params.itemId, req.params.id]);
+  await logAction({ actorUserId: req.user.sub, action: 'line_item_removed', targetType: 'job', targetId: req.params.id });
+  res.json({ ok: true });
+}));
+
 router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { vetId } = req.body;
   if (!vetId) return res.status(400).json({ error: 'vetId required' });
@@ -725,6 +889,8 @@ router.post('/:id/complete', requireAuth, asyncHandler(async (req, res) => {
 
   const { rows: updated } = await query(`UPDATE jobs SET status = 'completed', updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
   await logAction({ actorUserId: req.user.sub, action: 'job_completed', targetType: 'job', targetId: req.params.id });
+  notifyStatusChange(updated[0], 'completed', { actorRole: req.user.role })
+    .catch((e) => console.error('complete notify failed:', e.message));
   res.json({ job: updated[0] });
 }));
 

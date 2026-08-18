@@ -14,7 +14,10 @@ function isMidnightBand(timeStr) {
   return hour >= 0 && hour < 6;
 }
 
-export function billBreakdown(job, pricing) {
+// lineItems: optional [{ label, amount, vet_payout }] from job_line_items.
+// Passed in rather than fetched here so this stays a pure function with
+// no DB access — which is what makes it directly unit-testable.
+export function billBreakdown(job, pricing, lineItems = []) {
   const service = getService(pricing, job.service_id);
   const isAfterHours = job.time_category === 'afterhours_weekend';
   const isMidnight = isMidnightBand(job.job_time);
@@ -29,11 +32,17 @@ export function billBreakdown(job, pricing) {
   if (job.service_type === 'communal_cremation') lines.push({ label: 'Communal cremation', amount: pricing.communalCremationFee });
   if (Number(job.extra_travel_fee) > 0) lines.push({ label: 'Extra travel fee', amount: Number(job.extra_travel_fee) });
 
-  const total = lines.reduce((sum, l) => sum + l.amount, 0);
-  return { lines, total };
+  // Ad-hoc extras and discounts. Discounts are simply negative amounts,
+  // so the total stays one sum rather than two divergent code paths.
+  for (const item of lineItems) {
+    lines.push({ label: item.label, amount: Number(item.amount) });
+  }
+
+  const total = lines.reduce((sum, l) => sum + Number(l.amount), 0);
+  return { lines, total: Math.round(total * 100) / 100 };
 }
 
-export function payoutBreakdown(job, pricing) {
+export function payoutBreakdown(job, pricing, lineItems = []) {
   const service = getService(pricing, job.service_id);
   const isAfterHours = job.time_category === 'afterhours_weekend';
 
@@ -41,12 +50,19 @@ export function payoutBreakdown(job, pricing) {
   const transferAmt = isAfterHours ? pricing.transferFee.vetAfterhours : pricing.transferFee.vetWeekday;
   const travelAmt = Number(job.extra_travel_fee) || 0;
 
+  // Only the portion of each line item explicitly marked as passing
+  // through to the vet. A goodwill discount reduces what the client pays
+  // without cutting the vet's payout, so these are tracked separately
+  // rather than derived from the client-facing amount.
+  const lineItemsAmt = lineItems.reduce((sum, i) => sum + (Number(i.vet_payout) || 0), 0);
+
   return {
     serviceName: service ? service.name : 'Service',
     serviceAmt,
     transferAmt,
     travelAmt,
-    total: serviceAmt + transferAmt + travelAmt,
+    lineItemsAmt,
+    total: Math.round((serviceAmt + transferAmt + travelAmt + lineItemsAmt) * 100) / 100,
   };
 }
 

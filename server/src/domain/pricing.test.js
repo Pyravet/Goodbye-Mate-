@@ -77,3 +77,51 @@ test('suggestTimeCategory: weekday business hours is weekday', () => {
 test('suggestTimeCategory: weekday evening is after-hours', () => {
   assert.equal(suggestTimeCategory('2026-08-17', '19:00'), 'afterhours_weekend');
 });
+
+// --- Line items: ad-hoc extras and discounts ---
+
+test('billBreakdown: adds extra charges to the client total', () => {
+  const bill = billBreakdown(baseJob, pricing, [
+    { label: 'Large pet handling', amount: 60, vet_payout: 40 },
+    { label: 'Extra time on site', amount: 45, vet_payout: 45 },
+  ]);
+  const withoutItems = billBreakdown(baseJob, pricing).total;
+  assert.equal(bill.total, withoutItems + 105);
+  assert.ok(bill.lines.some((l) => l.label === 'Large pet handling'));
+});
+
+test('billBreakdown: a discount is a negative line item and reduces the total', () => {
+  const withoutItems = billBreakdown(baseJob, pricing).total;
+  const bill = billBreakdown(baseJob, pricing, [
+    { label: 'Goodwill discount', amount: -50, vet_payout: 0 },
+  ]);
+  assert.equal(bill.total, withoutItems - 50);
+});
+
+test('billBreakdown: totals avoid floating point drift', () => {
+  const bill = billBreakdown(baseJob, pricing, [
+    { label: 'Odd charge', amount: 0.1, vet_payout: 0 },
+    { label: 'Another', amount: 0.2, vet_payout: 0 },
+  ]);
+  // 0.1 + 0.2 === 0.30000000000000004 in raw float maths; the rounding
+  // in billBreakdown must prevent that reaching an invoice.
+  const cents = Math.round(bill.total * 100);
+  assert.equal(cents, bill.total * 100);
+});
+
+test('payoutBreakdown: vet is paid only the vet_payout portion, not the client amount', () => {
+  const payout = payoutBreakdown(baseJob, pricing, [
+    { label: 'Large pet handling', amount: 60, vet_payout: 40 },
+  ]);
+  const without = payoutBreakdown(baseJob, pricing).total;
+  // Vet gets 40, not the 60 the client was charged.
+  assert.equal(payout.total, without + 40);
+});
+
+test('payoutBreakdown: a client discount does not reduce the vet payout', () => {
+  const without = payoutBreakdown(baseJob, pricing).total;
+  const payout = payoutBreakdown(baseJob, pricing, [
+    { label: 'Goodwill discount', amount: -50, vet_payout: 0 },
+  ]);
+  assert.equal(payout.total, without);
+});

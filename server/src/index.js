@@ -16,6 +16,7 @@ import auditRoutes from './routes/audit.js';
 import publicJourneyRoutes from './routes/publicJourney.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
+import { closePool } from './db/pool.js';
 
 const app = express();
 
@@ -69,15 +70,76 @@ app.use('/api/push', pushRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
 
-// Central error handler — never leak stack traces to the client.
+// 404 for unmatched API routes. Without this, an unknown path falls
+// through to Express's HTML error page, which is confusing for an API
+// client expecting JSON.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `No such endpoint: ${req.method} ${req.originalUrl}` });
+});
+
+/**
+ * Central error handler.
+ *
+ * Two rules, in tension, both important:
+ *  1. Never leak stack traces, SQL, or driver internals to a client.
+ *  2. Don't discard an error a route raised DELIBERATELY. The previous
+ *     version replaced every error with a flat "Internal server error",
+ *     so a route that threw a considered 409 "job already cancelled"
+ *     surfaced to the user as an unexplained 500 — which is what made
+ *     several bugs in this app so slow to diagnose.
+ *
+ * The distinction is `err.expose`/`err.status`: errors carrying an
+ * explicit 4xx status are treated as intentional and their message is
+ * passed through. Anything else (including all 5xx) is logged in full
+ * server-side and reduced to a generic message for the client.
+ */
+// eslint-disable-next-line no-unused-vars -- Express requires 4 args to
+// recognise this as an error handler; `next` must stay in the signature.
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ error: 'Internal server error' });
+  const status = Number(err.status || err.statusCode) || 500;
+  const isClientError = status >= 400 && status < 500;
+
+  // Log server errors loudly with context; client errors are expected
+  // traffic (bad input, wrong state) and would drown the logs.
+  if (!isClientError) {
+    console.error(`[${req.method} ${req.originalUrl}]`, err);
+  }
+
+  res.status(status).json({
+    error: isClientError && err.message ? err.message : 'Internal server error',
+  });
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`API listening on :${port}`);
   startDispatchWorker();
   seedTestVet().catch((err) => console.error('Test vet seed error:', err.message));
 });
+
+/**
+ * Graceful shutdown. Railway sends SIGTERM on every redeploy; without
+ * this the process is killed mid-request and Postgres connections are
+ * left for Neon to time out server-side. Draining first means in-flight
+ * requests finish and connections are returned immediately.
+ */
+async function shutdown(signal) {
+  console.log(`${signal} received — shutting down.`);
+  server.close(async () => {
+    try {
+      await closePool();
+    } catch (err) {
+      console.error('Error closing pool:', err.message);
+    }
+    process.exit(0);
+  });
+
+  // Don't hang forever if a connection refuses to drain.
+  setTimeout(() => {
+    console.error('Shutdown timed out — forcing exit.');
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

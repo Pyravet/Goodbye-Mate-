@@ -19,7 +19,12 @@ export function requireAuth(req, res, next) {
 export function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Forbidden' });
+      // Say what was required vs. what the account actually has. A bare
+      // "Forbidden" made a wrong-role account indistinguishable from a
+      // broken endpoint, which cost real debugging time.
+      return res.status(403).json({
+        error: `Forbidden — this action needs a ${roles.join(' or ')} account, but you're signed in as ${req.user?.role || 'unknown'}. Log out and back in if your role was changed recently.`,
+      });
     }
     next();
   };

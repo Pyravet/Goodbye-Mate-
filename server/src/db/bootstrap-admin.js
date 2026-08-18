@@ -26,7 +26,11 @@ async function main() {
   await query(
     `INSERT INTO users (email, password_hash, role, full_name, is_active)
      VALUES ($1, $2, 'admin', $3, true)
-     ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, is_active = true`,
+     ON CONFLICT (email) DO UPDATE SET
+       password_hash = EXCLUDED.password_hash,
+       role = 'admin',
+       full_name = EXCLUDED.full_name,
+       is_active = true`,
     [email.toLowerCase(), passwordHash, fullName]
   );
 

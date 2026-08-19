@@ -6,6 +6,8 @@ import {
   formatRctiNumber,
   splitGst,
   WEEKDAYS,
+  toDateStr,
+  periodLabel,
 } from './payoutPeriods.js';
 
 // --- Period boundaries (Monday default) ---
@@ -109,4 +111,36 @@ test('splitGst: components always re-add to the total exactly', () => {
       `subtotal + gst must equal total for ${amount}`
     );
   }
+});
+
+// --- Date objects from Postgres ---
+// node-postgres returns DATE columns as Date objects, not strings. These
+// helpers were written against strings, so a row passed straight from a
+// query threw "endStr.slice is not a function" and broke RCTI download
+// completely in production. These lock that in.
+
+test('periodLabel: accepts Date objects as returned by node-postgres', () => {
+  const asStrings = periodLabel('2026-08-17', '2026-08-23');
+  const asDates = periodLabel(new Date('2026-08-17T00:00:00Z'), new Date('2026-08-23T00:00:00Z'));
+  assert.equal(asDates, asStrings);
+  assert.match(asDates, /2026$/);
+});
+
+test('periodStartFor: accepts a Date object', () => {
+  assert.equal(
+    periodStartFor(new Date('2026-08-19T00:00:00Z'), WEEKDAYS.monday),
+    periodStartFor('2026-08-19', WEEKDAYS.monday)
+  );
+});
+
+test('periodEndFor: accepts a Date object', () => {
+  assert.equal(periodEndFor(new Date('2026-08-17T00:00:00Z')), periodEndFor('2026-08-17'));
+});
+
+test('toDateStr: normalises both shapes to YYYY-MM-DD', () => {
+  assert.equal(toDateStr('2026-08-17'), '2026-08-17');
+  assert.equal(toDateStr(new Date('2026-08-17T00:00:00Z')), '2026-08-17');
+  // A full timestamp string (what a TIMESTAMPTZ column yields) truncates
+  // to its date part rather than throwing.
+  assert.equal(toDateStr('2026-08-17T13:29:00.000Z'), '2026-08-17');
 });

@@ -31,7 +31,7 @@ export const WEEKDAYS = {
 export function periodStartFor(dateStr, weekStartsOn = 1) {
   // Parse as UTC midnight so no local-timezone shift can occur — we're
   // doing calendar arithmetic, not instant-in-time arithmetic.
-  const d = new Date(`${dateStr}T00:00:00Z`);
+  const d = new Date(`${toDateStr(dateStr)}T00:00:00Z`);
   const day = d.getUTCDay();
   // How many days back to the most recent `weekStartsOn`. The +7 %7
   // keeps it non-negative when the week start is later in the week than
@@ -48,7 +48,7 @@ export function periodStartFor(dateStr, weekStartsOn = 1) {
  * @returns {string} 'YYYY-MM-DD' six days later.
  */
 export function periodEndFor(startStr) {
-  const d = new Date(`${startStr}T00:00:00Z`);
+  const d = new Date(`${toDateStr(startStr)}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 6);
   return d.toISOString().slice(0, 10);
 }
@@ -59,12 +59,32 @@ export function periodEndFor(startStr) {
  * @param {string} startStr 'YYYY-MM-DD'
  * @param {string} endStr 'YYYY-MM-DD'
  */
-export function periodLabel(startStr, endStr) {
+/**
+ * Normalise a date to 'YYYY-MM-DD'.
+ *
+ * node-postgres returns DATE columns as JavaScript Date objects, not
+ * strings. These helpers were written against the string form used
+ * elsewhere in the code, so passing a row straight from the database
+ * threw "endStr.slice is not a function" and broke RCTI generation
+ * entirely. Accepting both shapes is the fix — every caller either
+ * builds these strings itself or reads them from a query.
+ *
+ * @param {string|Date} d
+ * @returns {string} 'YYYY-MM-DD'
+ */
+export function toDateStr(d) {
+  if (d instanceof Date) return d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
+}
+
+export function periodLabel(start, end) {
+  const startStr = toDateStr(start);
+  const endStr = toDateStr(end);
   const opts = { day: 'numeric', month: 'short' };
-  const start = new Date(`${startStr}T00:00:00Z`).toLocaleDateString('en-AU', { ...opts, timeZone: 'UTC' });
-  const end = new Date(`${endStr}T00:00:00Z`).toLocaleDateString('en-AU', { ...opts, timeZone: 'UTC' });
+  const startLabel = new Date(`${startStr}T00:00:00Z`).toLocaleDateString('en-AU', { ...opts, timeZone: 'UTC' });
+  const endLabel = new Date(`${endStr}T00:00:00Z`).toLocaleDateString('en-AU', { ...opts, timeZone: 'UTC' });
   const year = endStr.slice(0, 4);
-  return `${start} – ${end} ${year}`;
+  return `${startLabel} – ${endLabel} ${year}`;
 }
 
 /**

@@ -4,8 +4,7 @@ import { pool, query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { logAction } from '../audit/log.js';
-import { sendPushToUser } from '../integrations/push/webPush.js';
-import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
+import { notifyUser } from '../notifications/notify.js';
 
 const router = Router();
 
@@ -49,6 +48,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
      FROM conversations c
      JOIN conversation_participants me
        ON me.conversation_id = c.id AND me.user_id = $1
+       AND me.hidden_at IS NULL
      LEFT JOIN LATERAL (
        SELECT body, sender_name, created_at
        FROM conversation_messages m
@@ -161,7 +161,12 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
 
   const { rows: messages } = await query(
-    `SELECT id, sender_user_id, sender_name, body, created_at
+    `SELECT id, sender_user_id, sender_name, created_at, deleted_at,
+            -- Deleted messages keep their row (so the thread's shape and
+            -- ordering are preserved) but never send the body to the
+            -- client — hiding it only in the UI would still ship the
+            -- text to anyone reading the network response.
+            CASE WHEN deleted_at IS NULL THEN body ELSE NULL END AS body
      FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at`,
     [req.params.id]
   );
@@ -317,12 +322,14 @@ router.post('/', requireAuth, asyncHandler(async (req, res) => {
 
     // Notify outside the transaction — a push failure must not roll back
     // messages that were genuinely sent.
+    const preview = body.slice(0, 120);
     for (const n of notify) {
-      const preview = body.slice(0, 120);
-      sendPushToUser(n.userId, { title: `Message from ${senderName}`, body: preview, url: `/messages/${n.conversationId}` })
-        .catch((e) => console.error('message push failed:', e.message));
-      sendExpoPushToUser(n.userId, { title: `Message from ${senderName}`, body: preview, url: `/messages/${n.conversationId}` })
-        .catch((e) => console.error('message expo push failed:', e.message));
+      notifyUser(n.userId, {
+        title: `Message from ${senderName}`,
+        body: preview,
+        url: `/messages/${n.conversationId}`,
+        category: 'message',
+      }).catch((e) => console.error('notify failed:', e.message));
     }
 
     res.status(201).json({ conversationIds: created, count: created.length });
@@ -359,6 +366,9 @@ router.post('/:id/messages', requireAuth, asyncHandler(async (req, res) => {
 
   // Keeps the inbox ordered without a subquery over messages.
   await query('UPDATE conversations SET last_message_at = now() WHERE id = $1', [req.params.id]);
+  // Un-hide for everyone: someone who cleared this thread from their
+  // inbox must still see a new reply, or messages would vanish silently.
+  await query('UPDATE conversation_participants SET hidden_at = NULL WHERE conversation_id = $1', [req.params.id]);
   await query(
     'UPDATE conversation_participants SET last_read_at = now() WHERE conversation_id = $1 AND user_id = $2',
     [req.params.id, req.user.sub]
@@ -370,10 +380,12 @@ router.post('/:id/messages', requireAuth, asyncHandler(async (req, res) => {
   );
   const preview = parsed.data.body.slice(0, 120);
   for (const o of others) {
-    sendPushToUser(o.user_id, { title: `Message from ${senderName}`, body: preview, url: `/messages/${req.params.id}` })
-      .catch((e) => console.error('reply push failed:', e.message));
-    sendExpoPushToUser(o.user_id, { title: `Message from ${senderName}`, body: preview, url: `/messages/${req.params.id}` })
-      .catch((e) => console.error('reply expo push failed:', e.message));
+    notifyUser(o.user_id, {
+      title: `Message from ${senderName}`,
+      body: preview,
+      url: `/messages/${req.params.id}`,
+      category: 'message',
+    }).catch((e) => console.error('notify failed:', e.message));
   }
 
   res.status(201).json({ message: rows[0] });
@@ -430,11 +442,78 @@ router.post('/:id/participants', requireAuth, asyncHandler(async (req, res) => {
     metadata: { addedUserId: parsed.data.userId },
   });
 
-  sendPushToUser(parsed.data.userId, {
+  notifyUser(parsed.data.userId, {
     title: 'Added to a conversation',
     body: conversation.subject || 'You were added to a message thread.',
     url: `/messages/${req.params.id}`,
-  }).catch((e) => console.error('add participant push failed:', e.message));
+    category: 'message',
+  }).catch((e) => console.error('notify failed:', e.message));
+
+  res.json({ ok: true });
+}));
+
+
+/**
+ * Soft-delete a message.
+ *
+ * Only the sender may delete their own message. Admin deliberately
+ * cannot delete a vet's message: these threads carry operational
+ * commitments ("yes, I can cover Thursday"), and letting one party erase
+ * the other's words would make the record worthless in any dispute.
+ *
+ * The row is kept and the body withheld, rather than hard-deleted, so
+ * the thread's shape stays intact and it's visible that something was
+ * removed instead of the conversation silently not making sense.
+ */
+router.delete('/:id/messages/:messageId', requireAuth, asyncHandler(async (req, res) => {
+  const conversation = await loadIfParticipant(req.params.id, req.user.sub);
+  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+  const { rows } = await query(
+    `UPDATE conversation_messages
+     SET deleted_at = now(), deleted_by = $1
+     WHERE id = $2 AND conversation_id = $3 AND sender_user_id = $1 AND deleted_at IS NULL
+     RETURNING id`,
+    [req.user.sub, req.params.messageId, req.params.id]
+  );
+
+  if (!rows[0]) {
+    return res.status(403).json({ error: 'You can only delete your own messages.' });
+  }
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'message_deleted',
+    targetType: 'conversation',
+    targetId: req.params.id,
+    metadata: { messageId: req.params.messageId },
+  });
+
+  res.json({ ok: true });
+}));
+
+/**
+ * Remove a conversation from YOUR inbox.
+ *
+ * Per-participant, not a delete: the other person keeps their copy, and
+ * any new message un-hides it (see below) so clearing a thread can't
+ * cause you to silently miss a reply.
+ */
+router.delete('/:id', requireAuth, asyncHandler(async (req, res) => {
+  const conversation = await loadIfParticipant(req.params.id, req.user.sub);
+  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+  await query(
+    'UPDATE conversation_participants SET hidden_at = now() WHERE conversation_id = $1 AND user_id = $2',
+    [req.params.id, req.user.sub]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'conversation_hidden',
+    targetType: 'conversation',
+    targetId: req.params.id,
+  });
 
   res.json({ ok: true });
 }));

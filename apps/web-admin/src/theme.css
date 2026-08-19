@@ -38,6 +38,7 @@
   padding-top: 14px;
   margin-top: 14px;
 }
+.gm-sidebar-bell { padding: 0 8px 8px; }
 .gm-sidebar-user { font-size: 13px; color: #D9D3C4; padding: 0 8px 8px; }
 .gm-sidebar-logout {
   background: none; border: none; color: #D9D3C4; font-size: 13px;
@@ -68,6 +69,7 @@
     z-index: 20;
   }
   .gm-mobile-logo { height: 22px; width: auto; display: block; }
+  .gm-mobile-actions { display: flex; align-items: center; gap: 14px; }
   .gm-mobile-logout {
     background: none; border: none; color: #D9D3C4; font-size: 13px;
     text-decoration: underline; cursor: pointer; flex-shrink: 0;

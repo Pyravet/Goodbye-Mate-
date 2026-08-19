@@ -62,6 +62,16 @@ export function makeConversationsApi(apiFetch) {
       return json(res, 'Failed to add them');
     },
 
+    async deleteMessage(conversationId, messageId) {
+      const res = await apiFetch(`/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' });
+      return json(res, 'Could not delete that message');
+    },
+
+    async deleteConversation(conversationId) {
+      const res = await apiFetch(`/conversations/${conversationId}`, { method: 'DELETE' });
+      return json(res, 'Could not remove that conversation');
+    },
+
     async unreadCount() {
       const res = await apiFetch('/conversations/unread/count');
       return (await json(res, 'Failed')).unread;

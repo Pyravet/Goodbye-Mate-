@@ -1,8 +1,17 @@
 import { NavLink } from 'react-router';
+import NotificationBell from '@goodbye-mate/web-shared/src/NotificationBell.jsx';
+import { LOGO_DATA_URI } from '../assets.js';
+import { apiFetch } from '../api.js';
 
 export default function AppShell({ children }) {
   return (
     <div style={styles.wrap}>
+      {/* Compact header purely to host the bell — the vet app had no
+          header at all, and the tab bar is the wrong place for it. */}
+      <header style={styles.header}>
+        <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.headerLogo} />
+        <NotificationBell apiFetch={apiFetch} />
+      </header>
       <main style={styles.main}>{children}</main>
       <nav style={styles.tabBar}>
         <NavLink to="/" end style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
@@ -26,6 +35,12 @@ export default function AppShell({ children }) {
 }
 
 const styles = {
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '10px 16px', background: 'var(--gm-forest)',
+    position: 'sticky', top: 0, zIndex: 20,
+  },
+  headerLogo: { height: 20, width: 'auto', display: 'block' },
   wrap: { display: 'flex', flexDirection: 'column', minHeight: '100dvh', background: 'var(--gm-paper)' },
   main: { flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 72 },
   tabBar: {

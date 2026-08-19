@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
@@ -723,8 +724,8 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
 
   // Notify admin, unless admin triggered it.
   if (actorRole !== 'admin') {
-    await sendPushToAdmins({ title: 'Job update', body, url: `/jobs/${job.id}` })
-      .catch((e) => console.error('status admin push failed:', e.message));
+    await notifyAdmins({ title: 'Job update', body, url: `/jobs/${job.id}`, category: 'job' })
+      .catch((e) => console.error('notify admins failed:', e.message));
   }
   await sendSlackMessage(`📋 ${body}`).catch((e) => console.error('status slack failed:', e.message));
 }
@@ -1106,7 +1107,8 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
     }
   }
 
-  sendPushToAdmins({
+  notifyAdmins({
+    category: 'job',
     title: 'Vet en route',
     body: `${vetName} is on the way to ${job.pet_name} (${job.job_number}) — ETA ${etaMinutes} min.`,
     url: `/jobs/${job.id}`,
@@ -1309,7 +1311,7 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
     }
   } else {
     await query(`UPDATE jobs SET admin_unread_messages = true WHERE id = $1`, [job.id]);
-    sendPushToAdmins({ title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
+    notifyAdmins({ title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}`, category: 'message' })
       .catch((err) => console.error('Admin message push failed:', err.message));
     sendSlackMessage(`💬 New message on *${job.pet_name}* (${job.job_number}) from the vet: "${body.trim().slice(0, 200)}"`)
       .catch((err) => console.error('Slack notify for message failed:', err.message));

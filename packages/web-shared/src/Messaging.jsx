@@ -163,6 +163,17 @@ function Thread({ api, conversationId, currentUserId, canAddPeople, onBack }) {
     }
   };
 
+  const removeMessage = async (messageId) => {
+    if (!window.confirm('Delete this message? The other person will see that a message was removed.')) return;
+    setError('');
+    try {
+      await api.deleteMessage(conversationId, messageId);
+      load(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const openAdd = async () => {
     setAdding(true);
     setError('');
@@ -236,11 +247,22 @@ function Thread({ api, conversationId, currentUserId, canAddPeople, onBack }) {
               <div key={m.id} style={{ ...styles.bubbleRow, justifyContent: mine ? 'flex-end' : 'flex-start' }}>
                 <div style={{ ...styles.bubble, ...(mine ? styles.bubbleMine : styles.bubbleTheirs) }}>
                   {!mine && <div style={styles.sender}>{m.sender_name}</div>}
-                  <div style={styles.body}>{m.body}</div>
+                  {m.deleted_at ? (
+                    <div style={styles.deletedBody}>Message deleted</div>
+                  ) : (
+                    <div style={styles.body}>{m.body}</div>
+                  )}
                   <div style={styles.time}>
                     {new Date(m.created_at).toLocaleString('en-AU', {
                       day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
                     })}
+                    {/* Only your own, still-present messages can be
+                        deleted — the server enforces this too. */}
+                    {mine && !m.deleted_at && (
+                      <button onClick={() => removeMessage(m.id)} style={styles.deleteBtn} title="Delete message">
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -535,7 +557,9 @@ const styles = {
   bubbleTheirs: { background: 'var(--gm-line-soft)', color: 'var(--gm-ink)', borderBottomLeftRadius: 3 },
   sender: { fontSize: 11, fontWeight: 600, marginBottom: 2, opacity: 0.75 },
   body: { whiteSpace: 'pre-wrap' },
-  time: { fontSize: 10, opacity: 0.6, marginTop: 4 },
+  time: { fontSize: 10, opacity: 0.6, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 },
+  deleteBtn: { background: 'none', border: 'none', color: 'inherit', fontSize: 10, textDecoration: 'underline', cursor: 'pointer', padding: 0, opacity: 0.9 },
+  deletedBody: { fontStyle: 'italic', opacity: 0.65 },
   composer: { display: 'flex', gap: 8, alignItems: 'flex-end' },
   input: { width: '100%', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, fontFamily: 'inherit', resize: 'vertical', background: '#fff', marginBottom: 10 },
   sendBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '10px 18px', fontSize: 14, fontWeight: 500, marginBottom: 10, flexShrink: 0 },

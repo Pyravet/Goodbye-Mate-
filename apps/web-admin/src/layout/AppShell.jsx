@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
+import NotificationBell from '@goodbye-mate/web-shared/src/NotificationBell.jsx';
+import { apiFetch } from '../api.js';
 
 // Nav items are shared between the desktop sidebar and the mobile bottom
 // tab bar. `short` is used on mobile where horizontal space is tight.
@@ -41,7 +43,8 @@ export default function AppShell({ children }) {
           ))}
         </nav>
         <div className="gm-sidebar-footer">
-          <div className="gm-sidebar-user">{user?.fullName}</div>
+          <div className="gm-sidebar-bell"><NotificationBell apiFetch={apiFetch} /></div>
+        <div className="gm-sidebar-user">{user?.fullName}</div>
           <button onClick={logout} className="gm-sidebar-logout">Log out</button>
         </div>
       </aside>
@@ -50,7 +53,10 @@ export default function AppShell({ children }) {
           sidebar on desktop and would otherwise be unreachable on a phone. */}
       <header className="gm-mobile-header">
         <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-mobile-logo" />
-        <button onClick={logout} className="gm-mobile-logout">Log out</button>
+        <div className="gm-mobile-actions">
+          <NotificationBell apiFetch={apiFetch} />
+          <button onClick={logout} className="gm-mobile-logout">Log out</button>
+        </div>
       </header>
 
       <main className="gm-main">{children}</main>

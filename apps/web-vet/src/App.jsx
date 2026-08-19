@@ -9,6 +9,7 @@ import JobDetail from './jobs/JobDetail.jsx';
 import Calendar from './calendar/Calendar.jsx';
 import Earnings from './earnings/Earnings.jsx';
 import PastJobs from './jobs/PastJobs.jsx';
+import MessagesPage from './messages/MessagesPage.jsx';
 
 export default function App() {
   return (
@@ -22,6 +23,8 @@ export default function App() {
           <Route path="/jobs/:id" element={<RequireAuth><JobDetail /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />
           <Route path="/earnings" element={<RequireAuth><Earnings /></RequireAuth>} />
+          <Route path="/messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
+          <Route path="/messages/:id" element={<RequireAuth><MessagesPage /></RequireAuth>} />
           <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
         </Routes>
       </BrowserRouter>

@@ -11,6 +11,9 @@ export default function AppShell({ children }) {
         <NavLink to="/calendar" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Calendar</span>
         </NavLink>
+        <NavLink to="/messages" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
+          <span style={styles.tabLabel}>Messages</span>
+        </NavLink>
         <NavLink to="/earnings" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Earnings</span>
         </NavLink>
@@ -37,13 +40,15 @@ const styles = {
   },
   tab: {
     flex: 1,
+    minWidth: 0, // five tabs now — shrink rather than overflow the screen
+    padding: '14px 2px',
+    whiteSpace: 'nowrap',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '14px 0',
     color: 'var(--gm-ink-soft)',
     textDecoration: 'none',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 500,
   },
   tabActive: { color: 'var(--gm-forest-dark)', borderTop: '2px solid var(--gm-forest)' },

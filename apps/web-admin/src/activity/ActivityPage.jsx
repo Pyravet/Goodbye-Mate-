@@ -3,15 +3,26 @@ import AppShell from '../layout/AppShell.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import MessagesTab from './MessagesTab.jsx';
 import InboxTab from './InboxTab.jsx';
+import Messaging from '@goodbye-mate/web-shared/src/Messaging.jsx';
+import { makeConversationsApi } from '@goodbye-mate/web-shared/src/conversationsApi.js';
+import { apiFetch } from '../api.js';
+import { useAuth } from '../AuthContext.jsx';
+
+// Built once at module scope — recreating it per render would give the
+// Messaging component a new `api` identity every time and retrigger its
+// data-loading effects endlessly.
+const conversationsApi = makeConversationsApi(apiFetch);
 
 const TABS = [
-  { key: 'inbox', label: 'Vet messages' },
+  { key: 'messages', label: 'Messages' },
+  { key: 'inbox', label: 'Job threads' },
   { key: 'audit', label: 'Audit log' },
   { key: 'messages', label: 'Client messages' },
 ];
 
 export default function ActivityPage() {
-  const [tab, setTab] = useState('inbox');
+  const [tab, setTab] = useState('messages');
+  const { user } = useAuth();
 
   return (
     <AppShell>
@@ -30,6 +41,9 @@ export default function ActivityPage() {
           ))}
         </div>
 
+        {tab === 'messages' && (
+          <Messaging api={conversationsApi} currentUserId={user?.id} canBroadcast />
+        )}
         {tab === 'inbox' && <InboxTab />}
         {tab === 'audit' && <AuditLogTab />}
         {tab === 'messages' && <MessagesTab />}

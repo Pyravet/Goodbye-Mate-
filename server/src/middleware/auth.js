@@ -2,7 +2,19 @@ import { verifyAccessToken } from '../auth/tokens.js';
 
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  let token = header.startsWith('Bearer ') ? header.slice(7) : null;
+
+  // Fallback: ?token= on the query string.
+  //
+  // Needed for PDFs opened in the DEVICE BROWSER from the native app —
+  // React Native can't fetch a document into a blob and hand it to a
+  // viewer the way a web page can, and the system browser won't carry
+  // our Authorization header. Restricted to GET so a token in a URL can
+  // never trigger a state change, and access tokens are short-lived, so
+  // a URL that leaks into browser history stops working quickly.
+  if (!token && req.method === 'GET' && typeof req.query?.token === 'string') {
+    token = req.query.token;
+  }
 
   if (!token) {
     return res.status(401).json({ error: 'Missing access token' });

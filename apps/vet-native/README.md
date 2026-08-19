@@ -1,62 +1,66 @@
-# Goodbye Mate — Vet (native)
+# Goodbye Mate — Vet app (native)
 
-React Native app built with Expo. One codebase, both iOS and Android.
+React Native / Expo app for vets. Feature parity with the vet web app.
 
-## What's here
-- Real login against the same backend as the web apps (uses SecureStore
-  instead of cookies — see `src/api/client.js`)
-- Jobs list: pending offers (accept/decline), assigned jobs
-- Job detail: tap-to-call, tap-for-directions, procedure-done, medical notes
-- Push notifications via Expo's push service (`src/push.js`)
-- Change password
+## What's in it
 
-## Running it locally (no app store needed for this)
+- **Jobs** — offers (accept/decline), job detail, directions, en-route ETA,
+  procedure/consent actions
+- **Medical notes** — append-only log; every entry timestamped and attributed,
+  matching the web app. Entries can't be edited or deleted; corrections are
+  added as a new entry.
+- **Notes from admin** — shown prominently above the job details
+- **Veterinary record** — opens the formal PDF (company + vet registration,
+  pet details, clinical notes) for insurer requests
+- **Messages** — inbox, threads, compose to admin, long-press your own
+  message to delete it
+- **Earnings** — summary plus weekly payout periods with RCTI download
+- **Push notifications** — job offers, messages, status changes
 
-1. Install [Expo Go](https://expo.dev/go) on your phone (App Store / Play Store)
+## Testing it without a build
+
+The fastest way to try this is Expo Go — no App Store or Play Store
+involvement, no build server:
+
+1. Install **Expo Go** on your phone (App Store / Play Store).
 2. On your computer:
    ```bash
    cd apps/vet-native
    npm install
    npx expo start
    ```
-3. Scan the QR code Expo prints with your phone (Camera app on iOS, Expo Go app on Android)
+3. Scan the QR code that appears — iOS with the Camera app, Android from
+   inside Expo Go.
 
-This runs the real app on your actual phone — no build/submission needed for testing.
+The app points at the live production API, so log in with a real vet
+account and you'll see real data.
 
-## Building a real installable app (TestFlight / Play internal testing / production)
+### Caveats with Expo Go
+- **Push notifications don't work in Expo Go** on a real device; they need a
+  development or production build (see below). Everything else does.
+- The phone and computer must be on the same network. If the QR code won't
+  connect, run `npx expo start --tunnel`.
 
-This needs an [Expo account](https://expo.dev) (free) and EAS CLI:
+## Building a real installable app
+
+Push notifications and store distribution need EAS:
 
 ```bash
 npm install -g eas-cli
 eas login
-eas build:configure
-eas build --platform ios      # or --platform android, or --platform all
+eas build --platform android --profile preview   # .apk for sideloading
+eas build --platform ios --profile preview       # needs an Apple dev account
 ```
 
-EAS builds in the cloud — no Mac needed even for iOS. First iOS build will
-prompt you to either provide an Apple Developer account or let EAS manage
-signing credentials for you.
+`eas.json` already has the profiles. `preview` produces an installable
+build for testing; `production` is for store submission.
 
-**Before submitting to app stores you'll need:**
-- Apple Developer Program membership ($99/year) — for iOS
-- Google Play Developer account ($25 one-time) — for Android
-
-```bash
-eas submit --platform ios
-eas submit --platform android
-```
+An Apple Developer account ($149/yr AUD) is required for any iOS build,
+including internal testing. Android has no such requirement — the
+`preview` profile gives you an `.apk` you can install directly.
 
 ## Configuration
 
-`app.json` → `expo.extra.apiUrl` points at the production API
-(`https://goodbye-mate-production.up.railway.app/api`). Change this if the
-API URL ever changes, or add an `app.config.js` for per-environment values
-if you want separate dev/staging/production builds later.
-
-## What's not built yet
-- App icons/splash are generated placeholders using the brand mark — worth
-  a final design pass before a real store submission
-- No offline queueing (if a vet loses signal mid-action, the action just
-  fails — worth adding a retry queue before this is in daily heavy use)
-- No crash reporting / analytics wired in (Sentry or similar, when ready)
+`app.json` → `expo.extra.apiUrl` points at the API. It's set to production;
+change it to `http://<your-computer-ip>:4000/api` to test against a local
+server (localhost won't resolve from a phone).

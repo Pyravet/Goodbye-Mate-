@@ -10,6 +10,18 @@ export function setAccessToken(token) {
   accessToken = token;
 }
 
+/**
+ * Current access token.
+ *
+ * Needed because React Native can't fetch a PDF into a blob and trigger
+ * a download the way a browser can — PDFs are opened in the device
+ * browser instead, which means attaching the token to the URL or a
+ * header at the call site.
+ */
+export function getAccessToken() {
+  return accessToken;
+}
+
 export async function getStoredRefreshToken() {
   return SecureStore.getItemAsync('refreshToken');
 }

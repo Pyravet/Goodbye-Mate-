@@ -1,7 +1,12 @@
 import { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes } from '../api/jobsApi.js';
+import { fetchJob, acceptOffer, declineOffer, markProcedureDone, fetchMedicalNotes, addMedicalNote } from '../api/jobsApi.js';
+import Constants from 'expo-constants';
+import { Linking, Alert } from 'react-native';
+import { getAccessToken } from '../api/client.js';
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:4000/api';
 import { colors } from '../theme.js';
 
 export default function JobDetailScreen({ route, navigation }) {
@@ -9,15 +14,17 @@ export default function JobDetailScreen({ route, navigation }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [notesSaved, setNotesSaved] = useState(true);
+  const [noteEntries, setNoteEntries] = useState(null);
+  const [noteDraft, setNoteDraft] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const d = await fetchJob(id);
       setData(d);
-      setNotes(d.job.medical_notes || '');
+      // Notes load independently — a failure here shouldn't blank the
+      // whole job screen the vet needs at the door.
+      loadNotes();
     } catch {
       setData(null);
     } finally {
@@ -30,7 +37,33 @@ export default function JobDetailScreen({ route, navigation }) {
   const onAccept = async () => { setBusy(true); try { await acceptOffer(id); load(); } finally { setBusy(false); } };
   const onDecline = async () => { setBusy(true); try { await declineOffer(id); navigation.goBack(); } finally { setBusy(false); } };
   const onProcedureDone = async () => { setBusy(true); try { await markProcedureDone(id); load(); } finally { setBusy(false); } };
-  const onSaveNotes = async () => { setBusy(true); try { await saveMedicalNotes(id, notes); setNotesSaved(true); } finally { setBusy(false); } };
+  const loadNotes = () => fetchMedicalNotes(id).then(setNoteEntries).catch(() => setNoteEntries([]));
+
+  const onAddNote = async () => {
+    if (!noteDraft.trim()) return;
+    setBusy(true);
+    try {
+      setNoteEntries(await addMedicalNote(id, noteDraft.trim()));
+      setNoteDraft('');
+    } catch (err) {
+      Alert.alert('Could not save', err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Open the veterinary record PDF in the device browser. React Native
+   * can't download a blob, and the system browser won't carry our auth
+   * header, so the short-lived token goes in the query string.
+   */
+  const openRecord = async () => {
+    const token = getAccessToken();
+    if (!token) return Alert.alert('Not signed in', 'Please sign in again.');
+    const url = `${API_URL}/jobs/${id}/vet-record.pdf?token=${encodeURIComponent(token)}`;
+    if (await Linking.canOpenURL(url)) Linking.openURL(url);
+    else Alert.alert('Cannot open', 'No app available to open this document.');
+  };
 
   if (loading) return <View style={styles.wrap}><Text style={styles.loading}>Loading…</Text></View>;
   if (!data) return <View style={styles.wrap}><Text style={styles.loading}>Job not found.</Text></View>;
@@ -94,17 +127,54 @@ export default function JobDetailScreen({ route, navigation }) {
       )}
 
       {!isOffer && (
+        {job.admin_notes ? (
+          <Card title="📌 Note from admin">
+            <Text style={styles.adminNote}>{job.admin_notes}</Text>
+          </Card>
+        ) : null}
+
         <Card title="Medical notes">
+          {noteEntries === null ? (
+            <Text style={styles.subtle}>Loading…</Text>
+          ) : noteEntries.length === 0 ? (
+            <Text style={styles.subtle}>No notes recorded yet.</Text>
+          ) : (
+            noteEntries.map((e) => (
+              <View key={e.id} style={styles.noteEntry}>
+                <Text style={styles.noteMeta}>
+                  {new Date(e.created_at).toLocaleString('en-AU', {
+                    day: 'numeric', month: 'short', year: 'numeric',
+                    hour: 'numeric', minute: '2-digit',
+                  })} · {e.author_name}
+                </Text>
+                <Text style={styles.noteBody}>{e.body}</Text>
+              </View>
+            ))
+          )}
+
           <TextInput
-            value={notes}
-            onChangeText={(t) => { setNotes(t); setNotesSaved(false); }}
+            value={noteDraft}
+            onChangeText={setNoteDraft}
             multiline
-            numberOfLines={5}
-            placeholder="Private notes — never shown to the client automatically."
+            numberOfLines={4}
+            placeholder="Add a note — it will be timestamped and attributed to you."
             style={styles.textarea}
           />
-          <TouchableOpacity onPress={onSaveNotes} disabled={busy || notesSaved} style={styles.saveBtn}>
-            <Text style={styles.acceptText}>{notesSaved ? 'Saved' : busy ? 'Saving…' : 'Save notes'}</Text>
+          <TouchableOpacity onPress={onAddNote} disabled={busy || !noteDraft.trim()} style={styles.saveBtn}>
+            <Text style={styles.saveBtnText}>{busy ? 'Saving…' : 'Add note'}</Text>
+          </TouchableOpacity>
+          <Text style={styles.noteHint}>
+            Notes can't be edited or deleted once added — add a follow-up entry to correct anything.
+          </Text>
+        </Card>
+
+        <Card title="Veterinary record">
+          <Text style={styles.subtle}>
+            A formal record of the visit — company and vet registration details, the pet's details and
+            the clinical notes. Pet insurers often ask clients for this.
+          </Text>
+          <TouchableOpacity onPress={openRecord} style={styles.saveBtn}>
+            <Text style={styles.saveBtnText}>Open record</Text>
           </TouchableOpacity>
         </Card>
       )}
@@ -122,6 +192,13 @@ function Card({ title, children }) {
 }
 
 const styles = StyleSheet.create({
+  saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+  adminNote: { fontSize: 14, lineHeight: 20, color: colors.ink },
+  subtle: { fontSize: 13, color: colors.inkSoft, lineHeight: 18 },
+  noteEntry: { paddingBottom: 10, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0EBE0' },
+  noteMeta: { fontSize: 11, color: colors.inkSoft, marginBottom: 3 },
+  noteBody: { fontSize: 14, lineHeight: 20, color: colors.ink },
+  noteHint: { fontSize: 11, color: colors.inkSoft, fontStyle: 'italic', marginTop: 8, lineHeight: 15 },
   wrap: { flex: 1, backgroundColor: colors.paper },
   content: { padding: 16, paddingBottom: 40 },
   loading: { padding: 20, color: colors.inkSoft },

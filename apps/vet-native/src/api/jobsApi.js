@@ -39,3 +39,30 @@ export async function saveMedicalNotes(id, notes) {
   if (!res.ok) throw new Error('Failed to save notes');
   return res.json();
 }
+
+/** Medical note entries — append-only, timestamped and attributed. */
+export async function fetchMedicalNotes(id) {
+  const res = await apiFetch(`/jobs/${id}/medical-notes`);
+  if (!res.ok) throw new Error('Failed to load notes');
+  return (await res.json()).entries;
+}
+
+export async function addMedicalNote(id, notes) {
+  const res = await apiFetch(`/jobs/${id}/medical-notes`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to save note');
+  return data.entries;
+}
+
+export async function emailVetRecord(id, { to, message }) {
+  const res = await apiFetch(`/jobs/${id}/email-vet-record`, {
+    method: 'POST',
+    body: JSON.stringify({ to: to || null, message: message || null }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to send');
+  return data;
+}

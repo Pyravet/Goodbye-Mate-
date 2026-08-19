@@ -15,6 +15,7 @@ import pushRoutes from './routes/push.js';
 import auditRoutes from './routes/audit.js';
 import publicJourneyRoutes from './routes/publicJourney.js';
 import payoutRoutes from './routes/payouts.js';
+import conversationRoutes from './routes/conversations.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
 import { closePool } from './db/pool.js';
@@ -88,6 +89,7 @@ app.use('/api/jobs', jobsRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/payouts', payoutRoutes);
+app.use('/api/conversations', conversationRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
 
 // 404 for unmatched API routes. Without this, an unknown path falls

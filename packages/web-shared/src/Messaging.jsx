@@ -28,6 +28,7 @@ function timeAgo(iso) {
 export default function Messaging({ api, currentUserId, canBroadcast = false }) {
   const [conversations, setConversations] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [openBroadcast, setOpenBroadcast] = useState(null);
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState('');
 
@@ -59,6 +60,17 @@ export default function Messaging({ api, currentUserId, canBroadcast = false }) 
     );
   }
 
+  if (openBroadcast) {
+    return (
+      <BroadcastView
+        api={api}
+        broadcastId={openBroadcast}
+        onOpenThread={(id) => { setOpenBroadcast(null); setOpenId(id); }}
+        onBack={() => { setOpenBroadcast(null); loadInbox(); }}
+      />
+    );
+  }
+
   if (openId) {
     return (
       <Thread
@@ -81,7 +93,10 @@ export default function Messaging({ api, currentUserId, canBroadcast = false }) 
       ) : conversations.length === 0 ? (
         <p style={styles.empty}>No messages yet.</p>
       ) : (
-        conversations.map((c) => (
+        collapseBroadcasts(conversations, canBroadcast).map((c) => (
+          c.isBroadcastGroup ? (
+            <BroadcastRow key={c.broadcastId} group={c} onOpen={() => setOpenBroadcast(c.broadcastId)} />
+          ) : (
           <button key={c.id} onClick={() => setOpenId(c.id)} style={styles.row} className="gm-card">
             <div style={styles.rowMain}>
               <div style={styles.rowTop}>
@@ -97,6 +112,7 @@ export default function Messaging({ api, currentUserId, canBroadcast = false }) 
             </div>
             <span style={styles.rowTime}>{timeAgo(c.lastMessageAt)}</span>
           </button>
+          )
         ))
       )}
     </div>
@@ -368,6 +384,124 @@ function Compose({ api, canBroadcast, onCancel, onSent }) {
             ? `Send to ${selected.length} people`
             : 'Send'}
       </button>
+    </div>
+  );
+}
+
+
+/**
+ * Collapse a broadcast's per-recipient threads into ONE inbox row.
+ *
+ * A broadcast to eight vets creates eight conversations. Listing all of
+ * them would bury every other message under near-identical rows. Admin
+ * sees a single row ("Sent to 8 vets · 3 replied") that opens a summary.
+ * Vets are unaffected — each only ever has their own thread.
+ */
+function collapseBroadcasts(conversations, isAdmin) {
+  if (!isAdmin) return conversations;
+
+  const groups = new Map();
+  const out = [];
+
+  for (const c of conversations) {
+    if (!c.broadcastId) { out.push(c); continue; }
+
+    if (!groups.has(c.broadcastId)) {
+      const group = {
+        isBroadcastGroup: true,
+        broadcastId: c.broadcastId,
+        subject: c.subject || c.title,
+        threadCount: 0,
+        repliedCount: 0,
+        unreadCount: 0,
+        lastMessageAt: c.lastMessageAt,
+        namesList: [],
+      };
+      groups.set(c.broadcastId, group);
+      out.push(group);
+    }
+
+    const g = groups.get(c.broadcastId);
+    g.threadCount += 1;
+    g.unreadCount += c.unreadCount;
+    if (c.otherNames) g.namesList.push(c.otherNames);
+    // Counts as replied when the newest message came from the recipient
+    // rather than from us.
+    if (c.lastSenderName && c.otherNames && c.lastSenderName === c.otherNames) {
+      g.repliedCount += 1;
+    }
+    if (new Date(c.lastMessageAt) > new Date(g.lastMessageAt)) {
+      g.lastMessageAt = c.lastMessageAt;
+    }
+  }
+
+  for (const g of groups.values()) g.names = g.namesList.join(', ');
+  return out;
+}
+
+function BroadcastRow({ group, onOpen }) {
+  return (
+    <button onClick={onOpen} style={styles.row} className="gm-card">
+      <div style={styles.rowMain}>
+        <div style={styles.rowTop}>
+          <span style={{ ...styles.rowTitle, fontWeight: group.unreadCount > 0 ? 700 : 600 }}>
+            {group.subject || 'Message to several vets'}
+          </span>
+          {group.unreadCount > 0 && <span style={styles.badge}>{group.unreadCount}</span>}
+        </div>
+        <div style={styles.rowSubject}>
+          Sent to {group.threadCount} vets · {group.repliedCount} replied
+        </div>
+        <div style={styles.rowPreview}>{group.names}</div>
+      </div>
+      <span style={styles.rowTime}>{timeAgo(group.lastMessageAt)}</span>
+    </button>
+  );
+}
+
+/** All reply threads from one broadcast, side by side. */
+function BroadcastView({ api, broadcastId, onOpenThread, onBack }) {
+  const [threads, setThreads] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.broadcastThreads(broadcastId)
+      .then(setThreads)
+      .catch((err) => { setError(err.message); setThreads([]); });
+  }, [api, broadcastId]);
+
+  return (
+    <div>
+      <button onClick={onBack} style={styles.back}>← All messages</button>
+      <div style={styles.threadTitle}>{threads?.[0]?.subject || 'Message to several vets'}</div>
+      <div style={styles.threadWith}>Each vet replied privately — they can't see one another.</div>
+
+      {error && <p style={styles.error}>{error}</p>}
+
+      <div style={{ marginTop: 12 }}>
+        {threads === null ? (
+          <p style={styles.empty}>Loading…</p>
+        ) : threads.length === 0 ? (
+          <p style={styles.empty}>No threads found.</p>
+        ) : (
+          threads.map((t) => (
+            <button key={t.id} onClick={() => onOpenThread(t.id)} style={styles.row} className="gm-card">
+              <div style={styles.rowMain}>
+                <div style={styles.rowTop}>
+                  <span style={styles.rowTitle}>{t.recipient_name}</span>
+                  {t.has_replied
+                    ? <span className="gm-badge gm-badge--forest">replied</span>
+                    : <span className="gm-badge gm-badge--brick">no reply yet</span>}
+                </div>
+                <div style={styles.rowPreview}>
+                  {t.last_sender_name ? t.last_sender_name + ': ' : ''}{t.last_body}
+                </div>
+              </div>
+              <span style={styles.rowTime}>{timeAgo(t.last_message_at)}</span>
+            </button>
+          ))
+        )}
+      </div>
     </div>
   );
 }

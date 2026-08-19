@@ -187,6 +187,16 @@ export default function JobDetail() {
                   action={!job.cremation_booked && <ActionBtn onClick={() => doAction(`/jobs/${id}/cremation-booked`, { method: 'POST', body: JSON.stringify({}) })} busy={busy}>Mark booked</ActionBtn>} />
               )}
 
+              {/* Private cremation only — communal cremation returns no
+                  ashes, so showing this there would imply a step that
+                  never happens. Not a completion gate: ashes come back
+                  from the crematorium days after the visit, so the job
+                  closes first and this is tracked afterwards. */}
+              {job.service_type === 'private_cremation' && (
+                <TaskRow label="Ashes returned to client" done={job.ashes_returned}
+                  action={!job.ashes_returned && <ActionBtn onClick={() => doAction(`/jobs/${id}/ashes-returned`, { method: 'POST' })} busy={busy}>Mark returned</ActionBtn>} />
+              )}
+
               {job.status !== 'completed' && job.status !== 'cancelled' && (
                 <div style={styles.completeRow}>
                   <button onClick={onComplete} disabled={busy} style={styles.completeBtn}>Mark job complete</button>

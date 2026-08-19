@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
-import { fetchJob, acceptOffer, declineOffer, markProcedureDone, saveMedicalNotes, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
+import { fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
+import { fetchMedicalNotes, addMedicalNote } from './jobsApi.js';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -13,15 +14,13 @@ export default function JobDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [notesSaved, setNotesSaved] = useState(true);
   const [enRouteState, setEnRouteState] = useState('idle'); // idle | locating | sending | done | error
   const [enRouteError, setEnRouteError] = useState('');
   const [enRouteResult, setEnRouteResult] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
-    fetchJob(id).then((d) => { setData(d); setNotes(d.job.medical_notes || ''); }).catch(() => setData(null)).finally(() => setLoading(false));
+    fetchJob(id).then((d) => { setData(d); }).catch(() => setData(null)).finally(() => setLoading(false));
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
@@ -60,10 +59,6 @@ export default function JobDetail() {
     );
   };
 
-  const onSaveNotes = async () => {
-    setBusy(true);
-    try { await saveMedicalNotes(id, notes); setNotesSaved(true); } finally { setBusy(false); }
-  };
 
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
@@ -160,16 +155,7 @@ export default function JobDetail() {
 
         {!isOffer && (
           <Card title="Medical notes">
-            <textarea
-              value={notes}
-              onChange={(e) => { setNotes(e.target.value); setNotesSaved(false); }}
-              rows={5}
-              placeholder="Private notes — never shown to the client automatically."
-              style={styles.textarea}
-            />
-            <button onClick={onSaveNotes} disabled={busy || notesSaved} style={styles.saveBtn}>
-              {notesSaved ? 'Saved' : busy ? 'Saving…' : 'Save notes'}
-            </button>
+            <MedicalNotesLog jobId={id} onChanged={load} />
           </Card>
         )}
 
@@ -191,6 +177,86 @@ export default function JobDetail() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * Medical notes as an append-only log.
+ *
+ * Entries are never edited: a clinical note records what was observed at
+ * a moment in time, and silently rewriting one after the fact is exactly
+ * what makes a record indefensible if an insurer or complaint puts it
+ * under scrutiny. Corrections go in as a new, separately timestamped
+ * entry — which is also how paper clinical records work.
+ */
+function MedicalNotesLog({ jobId, onChanged }) {
+  const [entries, setEntries] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    fetchMedicalNotes(jobId).then(setEntries).catch(() => setEntries([]));
+  }, [jobId]);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async () => {
+    if (!draft.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await addMedicalNote(jobId, draft.trim());
+      setEntries(updated);
+      setDraft('');
+      onChanged?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      {entries === null ? (
+        <p style={styles.subline2}>Loading…</p>
+      ) : entries.length === 0 ? (
+        <p style={styles.subline2}>No notes recorded yet.</p>
+      ) : (
+        <div style={styles.noteList}>
+          {entries.map((e) => (
+            <div key={e.id} style={styles.noteEntry}>
+              <div style={styles.noteMeta}>
+                {new Date(e.created_at).toLocaleString('en-AU', {
+                  day: 'numeric', month: 'short', year: 'numeric',
+                  hour: 'numeric', minute: '2-digit',
+                })}
+                {' · '}{e.author_name}
+                {e.author_role === 'admin' ? ' (admin)' : ''}
+              </div>
+              <div style={styles.noteBody}>{e.body}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <p style={styles.errorNote}>{error}</p>}
+
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={4}
+        placeholder="Add a note — it will be timestamped and attributed to you."
+        style={styles.textarea}
+      />
+      <button onClick={add} disabled={saving || !draft.trim()} style={styles.saveBtn}>
+        {saving ? 'Saving…' : 'Add note'}
+      </button>
+      <p style={styles.noteHint}>
+        Notes can't be edited or deleted once added — add a follow-up entry to correct or expand on
+        anything.
+      </p>
+    </div>
   );
 }
 
@@ -229,6 +295,11 @@ const styles = {
   enRouteBtnSecondary: { width: '100%', padding: '10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', background: '#fff', color: 'var(--gm-ink)', fontSize: 13, fontWeight: 500, marginTop: 4 },
   errorNote: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   doneBtn: { width: '100%', padding: '12px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
+  noteList: { marginBottom: 12 },
+  noteEntry: { paddingBottom: 10, marginBottom: 10, borderBottom: '1px solid var(--gm-line-soft)' },
+  noteMeta: { fontSize: 11, color: 'var(--gm-ink-soft)', marginBottom: 4 },
+  noteBody: { fontSize: 14, lineHeight: 1.5, whiteSpace: 'pre-wrap' },
+  noteHint: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic', lineHeight: 1.4 },
   textarea: { width: '100%', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 15, resize: 'vertical', fontFamily: 'inherit' },
   saveBtn: { marginTop: 10, padding: '10px 16px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
 };

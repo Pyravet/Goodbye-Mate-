@@ -347,7 +347,11 @@ function ReviewSection({ token, isActive, rating, onRated }) {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [submittedLowRating, setSubmittedLowRating] = useState(false);
+  // Tracks whether the FEEDBACK COMMENT has been sent — not whether the
+  // rating has. The previous version set this as soon as a low rating
+  // was saved, which instantly hid the comment box, so a client who
+  // rated us 1-4 was thanked and then given no way to say why.
+  const [commentSent, setCommentSent] = useState(false);
 
   if (rating != null && !isActive) return <SectionHeader label="How did we do?" done />;
 
@@ -357,10 +361,12 @@ function ReviewSection({ token, isActive, rating, onRated }) {
     try {
       await submitReview(token, { rating: value, comment: withComment ? comment.trim() : undefined });
       onRated(value);
-      if (value === 5) {
+      if (withComment) setCommentSent(true);
+      // Five stars: hand off to Google. Opened synchronously-ish right
+      // after the await; if a popup blocker stops it, the fallback link
+      // below still gets them there.
+      if (value === 5 && !withComment) {
         window.open(GOOGLE_REVIEW_URL, '_blank', 'noopener');
-      } else {
-        setSubmittedLowRating(true);
       }
     } catch (err) {
       setError(err.message);
@@ -369,37 +375,62 @@ function ReviewSection({ token, isActive, rating, onRated }) {
     }
   };
 
+  // Save the rating immediately on tap so it's never lost, then invite
+  // detail separately.
   const onStarClick = (value) => {
     if (submitting || rating != null) return;
-    if (value === 5) {
-      submit(5, false);
-    } else {
-      // For anything under 5, save the rating immediately so it's never
-      // lost, then let them optionally add a comment before "done".
-      submit(value, false);
-    }
+    submit(value, false);
   };
 
   if (rating != null) {
+    const isHigh = rating === 5;
     return (
       <>
-        <SectionHeader label="How did we do?" done />
-        <p style={styles.bodyText}>
-          {rating === 5
-            ? 'Thank you — we really appreciate you taking the time to leave a review.'
-            : 'Thank you for letting us know. If there\u2019s anything more you\u2019d like to share, we\u2019re listening.'}
-        </p>
-        {rating < 5 && !submittedLowRating && (
+        <SectionHeader label="How did we do?" done={isHigh || commentSent} />
+
+        <div style={styles.starRowStatic}>
+          {[1, 2, 3, 4, 5].map((n) => (
+            <span key={n} style={styles.starStatic}>{n <= rating ? '\u2605' : '\u2606'}</span>
+          ))}
+        </div>
+
+        {isHigh ? (
           <>
+            <p style={styles.bodyText}>
+              Thank you — that means a great deal to us. If the Google review page didn't open, you can
+              leave your review here.
+            </p>
+            <a href={GOOGLE_REVIEW_URL} target="_blank" rel="noreferrer" style={styles.pdfLink}>
+              Leave a Google review
+            </a>
+          </>
+        ) : commentSent ? (
+          <p style={styles.bodyText}>
+            Thank you — your feedback has been passed to our team, and we read every word of it.
+          </p>
+        ) : (
+          <>
+            <p style={styles.bodyText}>
+              Thank you for being honest with us. We're sorry it wasn't better. If you're willing,
+              please tell us what we could have done differently — it goes straight to our team.
+            </p>
+            {error && <p style={styles.errorText}>{error}</p>}
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              rows={3}
-              placeholder="Optional — tell us more"
-              style={styles.input}
+              rows={4}
+              placeholder="What could we have done better?"
+              style={{ ...styles.input, resize: 'vertical' }}
             />
-            <button onClick={() => submit(rating, true)} disabled={submitting} style={styles.primaryBtn}>
-              {submitting ? 'Sending…' : 'Send feedback'}
+            <button
+              onClick={() => submit(rating, true)}
+              disabled={submitting || !comment.trim()}
+              style={styles.primaryBtn}
+            >
+              {submitting ? 'Sending\u2026' : 'Send feedback'}
+            </button>
+            <button onClick={() => setCommentSent(true)} style={styles.skipBtn}>
+              No thanks
             </button>
           </>
         )}
@@ -424,11 +455,10 @@ function ReviewSection({ token, isActive, rating, onRated }) {
             style={styles.starBtn}
             aria-label={`${n} star${n === 1 ? '' : 's'}`}
           >
-            {n <= hoverStar ? '★' : '☆'}
+            {n <= hoverStar ? '\u2605' : '\u2606'}
           </button>
         ))}
       </div>
-      <p style={styles.starHint}>Five stars will also take you to leave us a Google review.</p>
     </>
   );
 }
@@ -472,5 +502,8 @@ const styles = {
   resourceHeading: { fontSize: 13, fontWeight: 600, margin: '0 0 8px' },
   resourceLink: { display: 'flex', flexDirection: 'column', gap: 2, padding: '10px 12px', marginBottom: 6, borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', background: '#fff', color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none' },
   resourceDesc: { fontSize: 12, color: 'var(--gm-ink-soft)', fontWeight: 400 },
+  starRowStatic: { display: 'flex', gap: 4, marginBottom: 12 },
+  starStatic: { fontSize: 26, color: 'var(--gm-honey)', lineHeight: 1 },
+  skipBtn: { width: '100%', background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 13, padding: '10px 0', marginTop: 4, textDecoration: 'underline', cursor: 'pointer' },
   starHint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic' },
 };

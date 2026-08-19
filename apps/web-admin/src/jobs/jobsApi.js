@@ -42,7 +42,16 @@ export async function completeJob(id) {
 // fetch as a blob and trigger the browser's save dialog manually.
 async function downloadPdf(path, fallbackFilename) {
   const res = await apiFetch(path);
-  if (!res.ok) throw new Error('Failed to generate PDF');
+  if (!res.ok) {
+    // Surface the server's own message — these endpoints return real
+    // explanations (e.g. "available once payment has been received").
+    let message = `Could not generate that document (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch { /* not JSON */ }
+    throw new Error(message);
+  }
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') || '';
   const match = disposition.match(/filename="([^"]+)"/);
@@ -55,7 +64,9 @@ async function downloadPdf(path, fallbackFilename) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Delayed revoke: revoking immediately can race the browser's read of
+  // the blob on slower devices and produce an empty file.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export function downloadInvoice(jobId, jobNumber) {
@@ -139,12 +150,7 @@ export async function reinstateJob(jobId) {
  * <a href> would just 401.
  */
 export async function openVetRecord(jobId) {
-  const res = await apiFetch(`/jobs/${jobId}/vet-record.pdf`);
-  if (!res.ok) throw new Error('Could not open the record');
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return downloadPdf(`/jobs/${jobId}/vet-record.pdf`, `Veterinary-Record-${jobId}.pdf`);
 }
 
 export async function emailVetRecord(jobId, { to, message }) {

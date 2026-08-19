@@ -1,4 +1,5 @@
 import { apiFetch, API_URL } from '../api.js';
+import { downloadPdf } from '@goodbye-mate/web-shared/src/openPdf.js';
 
 /** Payout run for the week containing `weekStart` (any date in it). */
 export async function fetchPayoutRun(weekStart) {
@@ -35,13 +36,10 @@ export async function markPeriodPaid(periodId, paymentReference) {
  * bare <a href> would just 401.
  */
 export async function openPeriodRcti(periodId) {
-  const res = await apiFetch(`/payouts/periods/${periodId}/rcti.pdf`);
-  if (!res.ok) throw new Error('Could not generate that RCTI');
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  // Revoke after a delay so the new tab has time to load it first.
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  await downloadPdf(
+    () => apiFetch(`/payouts/periods/${periodId}/rcti.pdf`),
+    `RCTI-${periodId}.pdf`
+  );
 }
 
 export { API_URL };

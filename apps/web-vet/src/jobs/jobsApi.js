@@ -1,4 +1,5 @@
 import { apiFetch } from '../api.js';
+import { downloadPdf } from '@goodbye-mate/web-shared/src/openPdf.js';
 
 export async function fetchMyJobs(view) {
   const qs = view ? `?view=${view}` : '';
@@ -41,6 +42,24 @@ export async function markProcedureDone(id) {
   return res.json();
 }
 
+export async function fetchMedicalNotes(id) {
+  const res = await apiFetch(`/jobs/${id}/medical-notes`);
+  if (!res.ok) throw new Error('Failed to load notes');
+  const data = await res.json();
+  return data.entries;
+}
+
+/** Append a new, timestamped, attributed entry. Notes are never edited. */
+export async function addMedicalNote(id, notes) {
+  const res = await apiFetch(`/jobs/${id}/medical-notes`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to save note');
+  return data.entries;
+}
+
 export async function saveMedicalNotes(id, notes) {
   const res = await apiFetch(`/jobs/${id}/medical-notes`, { method: 'PUT', body: JSON.stringify({ notes }) });
   if (!res.ok) throw new Error('Failed to save notes');
@@ -64,12 +83,10 @@ export async function sendInternalMessage(jobId, body) {
 
 /** Open the veterinary record PDF (auth required, so fetched not linked). */
 export async function openVetRecord(jobId) {
-  const res = await apiFetch(`/jobs/${jobId}/vet-record.pdf`);
-  if (!res.ok) throw new Error('Could not open the record');
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  await downloadPdf(
+    () => apiFetch(`/jobs/${jobId}/vet-record.pdf`),
+    `Veterinary-Record-${jobId}.pdf`
+  );
 }
 
 export async function emailVetRecord(jobId, { to, message }) {

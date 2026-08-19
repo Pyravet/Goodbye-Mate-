@@ -1126,14 +1126,106 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
 }));
 
 // Vet's private medical notes — never shown to the client automatically.
-router.put('/:id/medical-notes', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
-  const { notes } = req.body;
+/**
+ * Rebuild jobs.medical_notes from the entry log.
+ *
+ * The column is kept as a flattened, human-readable view of the entries
+ * so every existing reader (the vet-record PDF, the job payload the apps
+ * already consume) keeps working without change. The entries table is
+ * the source of truth; this is a derived cache.
+ */
+async function rebuildMedicalNotes(jobId) {
   const { rows } = await query(
-    `UPDATE jobs SET medical_notes = $1, updated_at = now() WHERE id = $2 RETURNING *`,
-    [notes || '', req.params.id]
+    `SELECT body, author_name, author_role, created_at
+     FROM job_medical_notes WHERE job_id = $1 ORDER BY created_at`,
+    [jobId]
   );
-  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
-  res.json({ job: rows[0] });
+  const flattened = rows
+    .map((r) => {
+      const when = new Date(r.created_at).toLocaleString('en-AU', {
+        day: 'numeric', month: 'short', year: 'numeric',
+        hour: 'numeric', minute: '2-digit',
+        timeZone: 'Australia/Melbourne',
+      });
+      return `[${when} — ${r.author_name}] ${r.body}`;
+    })
+    .join('\n\n');
+  await query('UPDATE jobs SET medical_notes = $1, updated_at = now() WHERE id = $2', [flattened, jobId]);
+  return flattened;
+}
+
+/** All medical note entries for a job, oldest first. */
+router.get('/:id/medical-notes', requireAuth, asyncHandler(async (req, res) => {
+  const { rows: jobRows } = await query('SELECT assigned_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  if (!jobRows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (jobRows[0].assigned_vet_id !== myVetId) return res.status(403).json({ error: 'Not your job' });
+  }
+
+  const { rows } = await query(
+    `SELECT id, body, author_name, author_role, created_at
+     FROM job_medical_notes WHERE job_id = $1 ORDER BY created_at`,
+    [req.params.id]
+  );
+  res.json({ entries: rows });
+}));
+
+const medicalNoteSchema = z.object({
+  notes: z.string().trim().min(1, 'Write something before saving.'),
+});
+
+/**
+ * Append a medical note entry.
+ *
+ * POST, not PUT, and deliberately append-only: clinical notes are a
+ * record of what was observed at a point in time. Allowing edits would
+ * let an earlier observation be silently rewritten after the fact, which
+ * is exactly what makes a record indefensible if an insurer or a
+ * complaint ever puts it under scrutiny. Corrections are added as a new,
+ * separately timestamped entry.
+ *
+ * Admin may also add entries (e.g. recording something the vet phoned
+ * in), and every entry records who wrote it and in what capacity.
+ */
+router.post('/:id/medical-notes', requireAuth, asyncHandler(async (req, res) => {
+  const parsed = medicalNoteSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid note' });
+  }
+
+  const { rows: jobRows } = await query('SELECT assigned_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  if (!jobRows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (jobRows[0].assigned_vet_id !== myVetId) return res.status(403).json({ error: 'Not your job' });
+  }
+
+  const { rows: userRows } = await query('SELECT full_name FROM users WHERE id = $1', [req.user.sub]);
+  const authorName = userRows[0]?.full_name || 'Unknown';
+
+  await query(
+    `INSERT INTO job_medical_notes (job_id, body, author_user_id, author_name, author_role)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [req.params.id, parsed.data.notes.trim(), req.user.sub, authorName, req.user.role]
+  );
+
+  const flattened = await rebuildMedicalNotes(req.params.id);
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'medical_note_added',
+    targetType: 'job',
+    targetId: req.params.id,
+  });
+
+  const { rows } = await query(
+    `SELECT id, body, author_name, author_role, created_at
+     FROM job_medical_notes WHERE job_id = $1 ORDER BY created_at`,
+    [req.params.id]
+  );
+  res.status(201).json({ entries: rows, medicalNotes: flattened });
 }));
 
 router.post('/:id/cremation-booked', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {

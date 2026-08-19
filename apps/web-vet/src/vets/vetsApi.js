@@ -1,4 +1,5 @@
 import { apiFetch } from '../api.js';
+import { downloadPdf } from '@goodbye-mate/web-shared/src/openPdf.js';
 
 export async function fetchMe() {
   const res = await apiFetch('/vets/me');
@@ -59,10 +60,8 @@ export async function fetchMyPayoutPeriods() {
  * since the endpoint requires an Authorization header.
  */
 export async function openMyPeriodRcti(periodId) {
-  const res = await apiFetch(`/payouts/periods/${periodId}/rcti.pdf`);
-  if (!res.ok) throw new Error('Could not open that RCTI');
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  await downloadPdf(
+    () => apiFetch(`/payouts/periods/${periodId}/rcti.pdf`),
+    `RCTI-${periodId}.pdf`
+  );
 }

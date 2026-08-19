@@ -24,7 +24,9 @@ async function downloadRcti(jobId, jobNumber) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Delay revocation — revoking immediately can race the browser's read
+  // of the blob on slower devices, producing an empty download.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export default function Earnings() {

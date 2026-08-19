@@ -12,7 +12,16 @@ export function requireAuth(req, res, next) {
   // our Authorization header. Restricted to GET so a token in a URL can
   // never trigger a state change, and access tokens are short-lived, so
   // a URL that leaks into browser history stops working quickly.
-  if (!token && req.method === 'GET' && typeof req.query?.token === 'string') {
+  // Additionally restricted to .pdf paths: this exists solely so the
+  // device browser can open a document, and a token in a URL is far more
+  // exposure-prone than a header (browser history, referrer headers,
+  // shared links), so the smallest possible surface is right.
+  if (
+    !token
+    && req.method === 'GET'
+    && typeof req.query?.token === 'string'
+    && req.path.endsWith('.pdf')
+  ) {
     token = req.query.token;
   }
 

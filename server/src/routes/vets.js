@@ -92,7 +92,15 @@ router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res)
     `SELECT v.*, u.full_name, u.email, u.phone, u.is_active
      FROM vets v JOIN users u ON u.id = v.user_id ORDER BY u.full_name`
   );
-  res.json({ vets: rows });
+  // Never ship the encrypted bank blobs. The detail route already strips
+  // these; the list did not, which defeats the point of encrypting them
+  // at rest and widens the blast radius if an admin token ever leaks.
+  // hasBankDetails preserves the only thing the UI actually needs.
+  const safe = rows.map((v) => {
+    const { bank_bsb_enc, bank_account_number_enc, bank_account_name_enc, ...rest } = v;
+    return { ...rest, hasBankDetails: !!bank_account_number_enc };
+  });
+  res.json({ vets: safe });
 }));
 
 // IMPORTANT: this must be registered before GET '/:vetId' — otherwise
@@ -423,12 +431,31 @@ router.put('/:vetId/date-overrides/:date', requireAuth, asyncHandler(async (req,
 }));
 
 // Note templates — a vet's personal reusable medical-note snippets.
+/**
+ * Ensure the caller may act on this vet's data.
+ *
+ * These routes took vetId straight from the URL with no check at all, so
+ * any signed-in vet could read or write another vet's note templates
+ * simply by changing the id. Vets are independent contractors — that's
+ * cross-tenant access.
+ *
+ * @returns {boolean} true if allowed
+ */
+async function canActForVet(req, vetId) {
+  if (req.user.role === 'admin') return true;
+  const { rows } = await query('SELECT id FROM vets WHERE id = $1 AND user_id = $2', [vetId, req.user.sub]);
+  return rows.length > 0;
+}
+
 router.get('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
   const { rows } = await query('SELECT * FROM vet_note_templates WHERE vet_id = $1 ORDER BY created_at', [req.params.vetId]);
   res.json({ templates: rows });
 }));
 
 router.post('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
+
   const { label, text } = req.body;
   if (!label || !text) return res.status(400).json({ error: 'label and text required' });
 

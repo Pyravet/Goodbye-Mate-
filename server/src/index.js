@@ -126,7 +126,12 @@ app.use((err, req, res, next) => {
   // Log server errors loudly with context; client errors are expected
   // traffic (bad input, wrong state) and would drown the logs.
   if (!isClientError) {
-    console.error(`[${req.method} ${req.originalUrl}]`, err);
+    // Redact ?token= before logging. The native app passes a short-lived
+    // access token in the query string for PDFs opened in the device
+    // browser, so logging the raw URL would write a WORKING bearer token
+    // into the platform logs — turning log access into account access.
+    const safeUrl = req.originalUrl.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]');
+    console.error(`[${req.method} ${safeUrl}]`, err);
   }
 
   res.status(status).json({

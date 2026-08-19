@@ -44,6 +44,24 @@ function fillPlaceholders(text, job, vetName) {
     .replaceAll('{crematorium}', 'our cremation partner');
 }
 
+/**
+ * Bill for a job, INCLUDING ad-hoc extras and discounts.
+ *
+ * Every price shown or charged must go through this. The payment route
+ * previously called billBreakdown without line items while the journey
+ * page and receipt included them, so a client was quoted one total and
+ * charged another — a discount was displayed but never applied, and an
+ * extra was quoted but never collected.
+ */
+async function billForJob(job) {
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const { rows: lineItems } = await query(
+    'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
+    [job.id]
+  );
+  return billBreakdown(job, pricingRows[0].config, lineItems);
+}
+
 async function loadJobByToken(token) {
   const { rows } = await query('SELECT * FROM jobs WHERE client_token = $1', [token]);
   return rows[0] || null;
@@ -58,7 +76,6 @@ router.get('/:token', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
 
-  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
 
   // Assigned vet's name, for {vetName} in the client-facing copy.
@@ -71,7 +88,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
     vetName = vetRows[0]?.full_name || null;
   }
   const content = contentRows[0].config;
-  const bill = billBreakdown(job, pricingRows[0].config);
+  const bill = await billForJob(job);
 
   let brochure = null;
   if (job.service_type === 'private_cremation') brochure = fillPlaceholders(content.privateCremationBrochure, job, vetName);
@@ -190,8 +207,7 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
   const parsed = chargeSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Invalid card details' });
 
-  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config);
+  const bill = await billForJob(job);
 
   const result = await chargeCard({
     amountDollars: bill.total,
@@ -254,12 +270,7 @@ router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
     return res.status(409).json({ error: 'A receipt is available once payment has been received.' });
   }
 
-  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const { rows: lineItems } = await query(
-    'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
-    [job.id]
-  );
-  const bill = billBreakdown(job, pricingRows[0].config, lineItems);
+  const bill = await billForJob(job);
 
   const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
   const company = contentRows[0].config.company || {};

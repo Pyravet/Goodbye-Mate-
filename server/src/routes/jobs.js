@@ -805,6 +805,17 @@ const lineItemSchema = z.object({
 });
 
 router.get('/:id/line-items', requireAuth, asyncHandler(async (req, res) => {
+  // Pricing and vet payout for a job shouldn't be readable by a vet who
+  // has nothing to do with it.
+  const { rows: jobRows } = await query('SELECT assigned_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  if (!jobRows[0]) return res.status(404).json({ error: 'Job not found' });
+  if (req.user.role !== 'admin') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (!myVetId || jobRows[0].assigned_vet_id !== myVetId) {
+      return res.status(403).json({ error: 'This job is not assigned to you.' });
+    }
+  }
+
   const { rows } = await query(
     'SELECT id, label, amount, vet_payout, created_at FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
     [req.params.id]
@@ -1007,8 +1018,22 @@ router.post('/:id/complete', requireAuth, asyncHandler(async (req, res) => {
 // Task-gate field updates — separate small endpoints rather than one
 // giant PATCH, so each action logs clearly in the audit trail.
 router.post('/:id/consent-signed', requireAuth, asyncHandler(async (req, res) => {
+  // Consent is a legal record for a euthanasia procedure. This route
+  // previously had no role or ownership check at all, so any signed-in
+  // vet could mark consent on ANY job by guessing/knowing its id.
+  // Restricted to admin or the vet actually assigned to the job.
+  const { rows: jobRows } = await query('SELECT assigned_vet_id FROM jobs WHERE id = $1', [req.params.id]);
+  if (!jobRows[0]) return res.status(404).json({ error: 'Job not found' });
+
+  if (req.user.role !== 'admin') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    if (!myVetId || jobRows[0].assigned_vet_id !== myVetId) {
+      return res.status(403).json({ error: 'This job is not assigned to you.' });
+    }
+  }
+
   const { rows } = await query(`UPDATE jobs SET consent_signed = true, updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  await logAction({ actorUserId: req.user.sub, action: 'consent_marked_signed', targetType: 'job', targetId: req.params.id });
   res.json({ job: rows[0] });
 }));
 

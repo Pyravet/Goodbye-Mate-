@@ -11,7 +11,13 @@ const router = Router();
 // JSON limit — scoped to just this route rather than raising the global
 // limit, since nothing else needs it.
 
-router.get('/pricing', requireAuth, asyncHandler(async (req, res) => {
+// Admin only. The pricing config contains BOTH clientPrice and the vet
+// payout rates for every service, i.e. the full margin structure. Any
+// signed-in vet could previously read it and see exactly what the
+// business makes on each job, and what every other vet is paid. Checked
+// before locking down: only the admin app calls this — the vet web and
+// native apps never did, so nothing breaks.
+router.get('/pricing', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   res.json({ pricing: rows[0].config });
 }));

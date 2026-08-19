@@ -204,12 +204,30 @@ router.get('/:vetId/earnings', requireAuth, asyncHandler(async (req, res) => {
   const startOfMonth = today.slice(0, 7) + '-01';
   const thisWeekStart = startOfWeek(today);
 
+  // Line items (extras and discounts that pass through to the vet) must
+  // be included, or earnings under-report what the vet is actually owed
+  // and disagree with the RCTI they're issued. Fetched in ONE query and
+  // grouped in memory rather than per job inside the loop, which would
+  // be an N+1 across a vet's entire history.
+  const jobIds = [...jobs.map((j) => j.id), ...upcomingRows.map((j) => j.id)];
+  const itemsByJob = new Map();
+  if (jobIds.length > 0) {
+    const { rows: allItems } = await query(
+      'SELECT job_id, label, amount, vet_payout FROM job_line_items WHERE job_id = ANY($1::uuid[])',
+      [jobIds]
+    );
+    for (const item of allItems) {
+      if (!itemsByJob.has(item.job_id)) itemsByJob.set(item.job_id, []);
+      itemsByJob.get(item.job_id).push(item);
+    }
+  }
+
   let todayTotal = 0, weekTotal = 0, monthTotal = 0, allTimeTotal = 0;
   const byWeek = {};
 
   for (const job of jobs) {
     const jobDate = typeof job.job_date === 'string' ? job.job_date.slice(0, 10) : new Date(job.job_date).toISOString().slice(0, 10);
-    const payout = payoutBreakdown(job, pricing);
+    const payout = payoutBreakdown(job, pricing, itemsByJob.get(job.id) || []);
     allTimeTotal += payout.total;
     if (jobDate === today) todayTotal += payout.total;
     if (jobDate >= thisWeekStart) weekTotal += payout.total;
@@ -222,7 +240,10 @@ router.get('/:vetId/earnings', requireAuth, asyncHandler(async (req, res) => {
     byWeek[weekKey].jobs.push({ id: job.id, jobNumber: job.job_number, petName: job.pet_name, jobDate, payout: payout.total });
   }
 
-  const upcomingTotal = upcomingRows.reduce((sum, job) => sum + payoutBreakdown(job, pricing).total, 0);
+  const upcomingTotal = upcomingRows.reduce(
+    (sum, job) => sum + payoutBreakdown(job, pricing, itemsByJob.get(job.id) || []).total,
+    0
+  );
 
   const weeklyHistory = Object.values(byWeek).sort((a, b) => b.weekStart.localeCompare(a.weekStart));
 

@@ -33,18 +33,6 @@ async function getWeekStartsOn() {
 }
 
 /**
- * Payout amount for a single completed job, including any line items
- * that pass through to the vet.
- */
-async function jobPayoutAmount(job, pricing) {
-  const { rows: items } = await query(
-    'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1',
-    [job.id]
-  );
-  return payoutBreakdown(job, pricing, items);
-}
-
-/**
  * GET /payouts/periods?weekStart=YYYY-MM-DD
  *
  * Admin payout run for a week: every vet with completed jobs in that
@@ -81,6 +69,22 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
   );
   const savedByVet = new Map(existing.map((p) => [p.vet_id, p]));
 
+  // One query for every job's line items rather than one PER job. The
+  // payout run covers every vet's whole week, so a per-job query here is
+  // an N+1 that grows with business volume — exactly the sort of thing
+  // that's fine with two test jobs and slow with two hundred.
+  const itemsByJob = new Map();
+  if (jobs.length > 0) {
+    const { rows: allItems } = await query(
+      'SELECT job_id, label, amount, vet_payout FROM job_line_items WHERE job_id = ANY($1::uuid[])',
+      [jobs.map((j) => j.id)]
+    );
+    for (const item of allItems) {
+      if (!itemsByJob.has(item.job_id)) itemsByJob.set(item.job_id, []);
+      itemsByJob.get(item.job_id).push(item);
+    }
+  }
+
   const byVet = new Map();
   for (const job of jobs) {
     if (!byVet.has(job.assigned_vet_id)) {
@@ -93,7 +97,7 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
       });
     }
     const entry = byVet.get(job.assigned_vet_id);
-    const payout = await jobPayoutAmount(job, pricing);
+    const payout = payoutBreakdown(job, pricing, itemsByJob.get(job.id) || []);
     entry.jobs.push({
       id: job.id,
       jobNumber: job.job_number,

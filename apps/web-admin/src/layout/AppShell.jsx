@@ -8,6 +8,7 @@ import { apiFetch } from '../api.js';
 // tab bar. `short` is used on mobile where horizontal space is tight.
 const navItems = [
   { to: '/', label: 'Jobs', short: 'Jobs', end: true },
+  { to: '/requests', label: 'Requests', short: 'Reqs' },
   { to: '/vets', label: 'Vets', short: 'Vets' },
   { to: '/calendar', label: 'Calendar', short: 'Cal' },
   { to: '/payouts', label: 'Payouts', short: 'Pay' },

@@ -84,14 +84,21 @@
     position: fixed;
     bottom: 0; left: 0; right: 0;
     display: flex;
+    /* Seven tabs no longer fit a phone. Scrolling horizontally keeps
+       every label readable, rather than shrinking them all to an
+       illegible width — the first five are visible without scrolling,
+       and the rest are a short swipe away. */
+    overflow-x: auto;
+    scrollbar-width: none;
     background: #fff;
     border-top: 1px solid var(--gm-line);
     padding-bottom: env(safe-area-inset-bottom);
     z-index: 30;
   }
+  .gm-tabbar::-webkit-scrollbar { display: none; }
   .gm-tab {
-    flex: 1;
-    min-width: 0; /* six tabs now — let them shrink rather than overflow */
+    flex: 1 0 auto;
+    min-width: 19vw; /* ~5 visible at once; the rest scroll */
     display: flex;
     align-items: center;
     justify-content: center;

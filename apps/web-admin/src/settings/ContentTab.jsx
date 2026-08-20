@@ -34,6 +34,12 @@ export default function ContentTab() {
     setContent((c) => ({ ...c, [key]: value }));
     setSaved(false);
   };
+  // Defaults to {} so the form renders even before migration 029 has
+  // populated the block, rather than throwing on undefined.
+  const rf = content.requestForm || {};
+  const setRf = (key) => (e) =>
+    setContent((c) => ({ ...c, requestForm: { ...c.requestForm, [key]: e.target.value } }));
+
   const setCompanyField = (key, value) => {
     setContent((c) => ({ ...c, company: { ...c.company, [key]: value } }));
     setSaved(false);
@@ -68,6 +74,84 @@ export default function ContentTab() {
           </Field>
         ))}
         <p style={styles.hint}>Use placeholders like {'{petName}'}, {'{date}'}, {'{time}'}, {'{vetName}'}, {'{crematorium}'} — these get filled in automatically.</p>
+      </Card>
+
+      <Card title="Public request form">
+        <p style={styles.hint}>
+          The wording clients see at <strong>/request</strong>. This is read by someone who has just
+          decided to put their pet down, so the tone matters more here than anywhere else in the
+          product.
+        </p>
+        <Field label="Page title">
+          <input value={rf.title || ''} onChange={setRf('title')} style={styles.input} />
+        </Field>
+        <Field label="Intro paragraph">
+          <textarea value={rf.intro || ''} onChange={setRf('intro')} rows={3} style={{ ...styles.input, resize: 'vertical' }} />
+        </Field>
+
+        <Field label="Section heading — contact">
+          <input value={rf.contactSectionTitle || ''} onChange={setRf('contactSectionTitle')} style={styles.input} />
+        </Field>
+        <Field label="Section heading — location">
+          <input value={rf.locationSectionTitle || ''} onChange={setRf('locationSectionTitle')} style={styles.input} />
+        </Field>
+        <Field label="Section heading — pet">
+          <input value={rf.petSectionTitle || ''} onChange={setRf('petSectionTitle')} style={styles.input} />
+        </Field>
+        <Field label="Section heading — service">
+          <input value={rf.serviceSectionTitle || ''} onChange={setRf('serviceSectionTitle')} style={styles.input} />
+        </Field>
+
+        <Field label="Service options (one per line)">
+          <textarea
+            value={(rf.serviceOptions || []).join('\n')}
+            onChange={(e) => setContent((c) => ({
+              ...c,
+              requestForm: {
+                ...c.requestForm,
+                // Blank lines dropped so a stray newline can't create an
+                // empty, unselectable option in the dropdown.
+                serviceOptions: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean),
+              },
+            }))}
+            rows={4}
+            style={{ ...styles.input, resize: 'vertical' }}
+          />
+        </Field>
+        <p style={styles.hint}>
+          These are the client-facing wordings only. You still confirm the actual service type when
+          turning the request into a booking, so rewording an option can't change what gets booked.
+        </p>
+
+        <Field label="Timing question">
+          <input value={rf.timingLabel || ''} onChange={setRf('timingLabel')} style={styles.input} />
+        </Field>
+        <Field label="Timing placeholder">
+          <input value={rf.timingPlaceholder || ''} onChange={setRf('timingPlaceholder')} style={styles.input} />
+        </Field>
+        <Field label="Free-text question">
+          <input value={rf.messageLabel || ''} onChange={setRf('messageLabel')} style={styles.input} />
+        </Field>
+        <Field label="Submit button">
+          <input value={rf.submitLabel || ''} onChange={setRf('submitLabel')} style={styles.input} />
+        </Field>
+        <Field label="Privacy note">
+          <input value={rf.privacyNote || ''} onChange={setRf('privacyNote')} style={styles.input} />
+        </Field>
+
+        <Field label="Thank you — title">
+          <input value={rf.thankYouTitle || ''} onChange={setRf('thankYouTitle')} style={styles.input} />
+        </Field>
+        <Field label="Thank you — message">
+          <textarea value={rf.thankYouBody || ''} onChange={setRf('thankYouBody')} rows={2} style={{ ...styles.input, resize: 'vertical' }} />
+        </Field>
+        <p style={styles.hint}>
+          The client's phone number is appended automatically after this, so they can see we have
+          the right one.
+        </p>
+        <Field label="Thank you — urgent note">
+          <input value={rf.thankYouUrgent || ''} onChange={setRf('thankYouUrgent')} style={styles.input} />
+        </Field>
       </Card>
 
       <Card title="Brochure PDFs">

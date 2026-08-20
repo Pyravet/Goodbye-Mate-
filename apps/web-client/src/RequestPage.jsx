@@ -1,12 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { API_URL } from './api.js';
 
-const SERVICES = [
-  'Euthanasia only',
-  'Euthanasia + private cremation (ashes returned)',
-  'Euthanasia + communal cremation',
-  "I'm not sure yet",
-];
+/**
+ * Fallback copy.
+ *
+ * Used only if the settings fetch fails. A grieving person shouldn't hit
+ * a blank page because a config request timed out, so the form always
+ * has usable wording even with no network answer.
+ */
+const FALLBACK = {
+  title: 'Request a visit',
+  intro: "We're sorry you're facing this. Fill in as much as you can — only your name and phone number are needed, and we'll call you to talk through the rest.",
+  contactSectionTitle: 'How can we reach you?',
+  locationSectionTitle: 'Where are you?',
+  petSectionTitle: 'About your pet',
+  serviceSectionTitle: "What you're after",
+  timingLabel: 'When would you like us to come?',
+  timingPlaceholder: 'e.g. tomorrow morning, or as soon as possible',
+  messageLabel: 'Anything else we should know?',
+  submitLabel: 'Send request',
+  privacyNote: "We'll only use these details to contact you about this request.",
+  serviceOptions: [
+    'Euthanasia only',
+    'Euthanasia + private cremation (ashes returned)',
+    'Euthanasia + communal cremation',
+    "I'm not sure yet",
+  ],
+  thankYouTitle: 'Thank you',
+  thankYouBody: "We've received your request and someone will call you shortly.",
+  thankYouUrgent: 'If you need to speak with someone right away, please call us directly.',
+};
 
 /**
  * Public booking request form.
@@ -28,6 +51,18 @@ export default function RequestPage() {
   });
   const [status, setStatus] = useState('idle'); // idle | sending | sent
   const [error, setError] = useState('');
+  const [copy, setCopy] = useState(FALLBACK);
+
+  useEffect(() => {
+    fetch(`${API_URL}/booking-requests/form-content`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        // Merge over the fallback so a partially-filled settings object
+        // can't blank out individual labels.
+        if (d?.content) setCopy({ ...FALLBACK, ...d.content });
+      })
+      .catch(() => { /* keep the fallback copy */ });
+  }, []);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -54,13 +89,13 @@ export default function RequestPage() {
     return (
       <div style={styles.page}>
         <div style={styles.doneBox}>
-          <h1 style={styles.doneTitle}>Thank you</h1>
+          <h1 style={styles.doneTitle}>{copy.thankYouTitle}</h1>
           <p style={styles.doneBody}>
-            We've received your request and someone will call you shortly on{' '}
+            {copy.thankYouBody}{' '}
             <strong>{form.clientPhone}</strong>.
           </p>
           <p style={styles.doneBody}>
-            If you need to speak with someone right away, please call us directly.
+            {copy.thankYouUrgent}
           </p>
         </div>
       </div>
@@ -69,16 +104,15 @@ export default function RequestPage() {
 
   return (
     <div style={styles.page}>
-      <h1 style={styles.title}>Request a visit</h1>
+      <h1 style={styles.title}>{copy.title}</h1>
       <p style={styles.intro}>
-        We're sorry you're facing this. Fill in as much as you can — only your name and phone
-        number are needed, and we'll call you to talk through the rest.
+{copy.intro}
       </p>
 
       <form onSubmit={submit}>
         {error && <p style={styles.error}>{error}</p>}
 
-        <Section title="How can we reach you?" />
+        <Section title={copy.contactSectionTitle} />
         <Field label="Your name" required>
           <input value={form.clientName} onChange={set('clientName')} required style={styles.input} />
         </Field>
@@ -89,7 +123,7 @@ export default function RequestPage() {
           <input type="email" value={form.clientEmail} onChange={set('clientEmail')} style={styles.input} />
         </Field>
 
-        <Section title="Where are you?" />
+        <Section title={copy.locationSectionTitle} />
         <Field label="Address">
           <input value={form.address} onChange={set('address')} style={styles.input} />
         </Field>
@@ -102,7 +136,7 @@ export default function RequestPage() {
           </Field>
         </div>
 
-        <Section title="About your pet" />
+        <Section title={copy.petSectionTitle} />
         <div style={styles.row}>
           <Field label="Name" flex>
             <input value={form.petName} onChange={set('petName')} style={styles.input} />
@@ -120,26 +154,26 @@ export default function RequestPage() {
           </Field>
         </div>
 
-        <Section title="What you're after" />
+        <Section title={copy.serviceSectionTitle} />
         <Field label="Service">
           <select value={form.servicePreference} onChange={set('servicePreference')} style={styles.input}>
             <option value="">Choose one…</option>
-            {SERVICES.map((s) => <option key={s} value={s}>{s}</option>)}
+            {(copy.serviceOptions || []).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </Field>
         {/* Free text, not a date picker: people say "tomorrow morning if
             possible" or "as soon as you can", and forcing an exact slot
             here would be both unkind and inaccurate — the real time gets
             confirmed on the phone. */}
-        <Field label="When would you like us to come?">
+        <Field label={copy.timingLabel}>
           <input
             value={form.preferredTiming}
             onChange={set('preferredTiming')}
-            placeholder="e.g. tomorrow morning, or as soon as possible"
+            placeholder={copy.timingPlaceholder}
             style={styles.input}
           />
         </Field>
-        <Field label="Anything else we should know?">
+        <Field label={copy.messageLabel}>
           <textarea value={form.message} onChange={set('message')} rows={4} style={styles.input} />
         </Field>
 
@@ -159,10 +193,10 @@ export default function RequestPage() {
         </div>
 
         <button type="submit" disabled={status === 'sending'} style={styles.submitBtn}>
-          {status === 'sending' ? 'Sending…' : 'Send request'}
+          {status === 'sending' ? 'Sending…' : copy.submitLabel}
         </button>
         <p style={styles.privacy}>
-          We'll only use these details to contact you about this request.
+{copy.privacyNote}
         </p>
       </form>
     </div>

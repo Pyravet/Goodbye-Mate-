@@ -148,6 +148,26 @@ router.post('/', submitLimiter, asyncHandler(async (req, res) => {
   res.status(201).json({ ok: true, id: rows[0].id });
 }));
 
+
+/**
+ * GET /booking-requests/form-content — public.
+ *
+ * The form needs its own wording before anyone has logged in, so this is
+ * unauthenticated. It returns ONLY the requestForm block plus the
+ * company name — never the whole content config, which also holds
+ * consent templates, brochure copy and the RCTI declaration that have no
+ * business being readable by the public.
+ */
+router.get('/form-content', asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const config = rows[0]?.config || {};
+  res.json({
+    content: config.requestForm || null,
+    companyName: config.company?.name || 'Goodbye Mate',
+    companyPhone: config.company?.phone || null,
+  });
+}));
+
 // --- Admin ---
 
 router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {

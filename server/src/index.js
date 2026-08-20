@@ -18,6 +18,7 @@ import payoutRoutes from './routes/payouts.js';
 import conversationRoutes from './routes/conversations.js';
 import notificationRoutes from './routes/notifications.js';
 import bookingRequestRoutes from './routes/bookingRequests.js';
+import exportRoutes from './routes/exports.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
 import { closePool } from './db/pool.js';
@@ -94,6 +95,7 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/booking-requests', bookingRequestRoutes);
+app.use('/api/exports', exportRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
 
 // 404 for unmatched API routes. Without this, an unknown path falls

@@ -15,7 +15,7 @@ import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
 import { generateVetRecordPdf, generateVetRecordPdfBuffer, vetRecordFilename } from '../pdf/generateVetRecord.js';
 import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
-import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
+import { chargeCard, isEwayConfigured, refundTransaction } from '../integrations/payments/eway.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
 import { isTemplateConfigured } from '../integrations/sms/templates.js';
@@ -1346,4 +1346,140 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
 }));
 
 export { startOrRollDispatch };
+
+// --- Refunds ---
+
+const refundSchema = z.object({
+  // Omit to refund the full remaining amount.
+  amount: z.number().positive().optional(),
+  reason: z.string().trim().max(500).optional().nullable(),
+  /**
+   * true  -> record only; money was returned by other means (bank
+   *          transfer, cash) and eWay is NOT contacted.
+   * false -> attempt the refund through eWay.
+   *
+   * Explicit rather than inferred, because "we already refunded them
+   * manually" and "please actually move the money" must never be
+   * confused — getting that wrong either double-refunds a client or
+   * leaves them out of pocket.
+   */
+  manual: z.boolean().optional().default(false),
+});
+
+router.post('/:id/refund', outboundMessageLimiter, requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = refundSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid refund' });
+  }
+
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.payment_status !== 'paid') {
+    return res.status(409).json({ error: 'This job has no completed payment to refund.' });
+  }
+
+  // The original successful charge — refunds reference it, and eWay can
+  // only refund against a transaction it processed.
+  const { rows: chargeRows } = await query(
+    `SELECT * FROM payments
+     WHERE job_id = $1 AND status = 'succeeded'
+     ORDER BY created_at DESC LIMIT 1`,
+    [req.params.id]
+  );
+  const charge = chargeRows[0];
+  if (!charge) {
+    return res.status(409).json({ error: 'No successful payment found for this job.' });
+  }
+
+  const alreadyRefunded = Number(job.refunded_amount) || 0;
+  const remaining = Math.round((Number(charge.amount) - alreadyRefunded) * 100) / 100;
+  if (remaining <= 0) {
+    return res.status(409).json({ error: 'This payment has already been fully refunded.' });
+  }
+
+  const amount = parsed.data.amount ?? remaining;
+  if (amount > remaining) {
+    return res.status(400).json({
+      error: `Only $${remaining.toFixed(2)} remains refundable on this payment.`,
+    });
+  }
+
+  let refundTransactionId = null;
+  let responseMessage = 'Recorded manually by admin';
+
+  if (!parsed.data.manual) {
+    if (!isEwayConfigured()) {
+      return res.status(503).json({
+        error: 'Payment gateway is not configured. Refund the client directly, then record it here as a manual refund.',
+      });
+    }
+    const result = await refundTransaction({
+      transactionId: charge.provider_transaction_id,
+      amountDollars: amount,
+      invoiceReference: job.job_number,
+    });
+    if (!result.success) {
+      // Nothing is written on failure — recording a refund that didn't
+      // happen is worse than not recording one.
+      return res.status(402).json({ error: `Refund declined: ${result.responseMessage}` });
+    }
+    refundTransactionId = result.refundTransactionId;
+    responseMessage = result.responseMessage;
+  }
+
+  // Ledger stays append-only: a refund is its own row, never a mutation
+  // of the original charge.
+  await query(
+    `INSERT INTO payments
+       (job_id, amount, provider, provider_transaction_id, status, response_message,
+        processed_by_user_id, refunds_payment_id, is_manual)
+     VALUES ($1, $2, $3, $4, 'refunded', $5, $6, $7, $8)`,
+    [
+      req.params.id,
+      -amount, // negative: the ledger sums to the net position
+      parsed.data.manual ? 'manual' : 'eway',
+      refundTransactionId,
+      responseMessage,
+      req.user.sub,
+      charge.id,
+      parsed.data.manual,
+    ]
+  );
+
+  const totalRefunded = Math.round((alreadyRefunded + amount) * 100) / 100;
+  const fullyRefunded = totalRefunded >= Number(charge.amount);
+
+  await query(
+    `UPDATE jobs
+     SET refunded_amount = $1,
+         refunded_at = now(),
+         refund_reason = COALESCE($2, refund_reason),
+         -- Only a FULL refund flips payment_status; a partial refund
+         -- leaves the job paid, because money is still held.
+         payment_status = CASE WHEN $3 THEN 'refunded'::job_payment_status ELSE payment_status END,
+         updated_at = now()
+     WHERE id = $4`,
+    [totalRefunded, parsed.data.reason || null, fullyRefunded, req.params.id]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: parsed.data.manual ? 'refund_recorded_manually' : 'refund_processed',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { amount, totalRefunded, fullyRefunded, reason: parsed.data.reason },
+  });
+
+  notifyAdmins({
+    title: 'Refund processed',
+    body: `${job.pet_name} (${job.job_number}) — $${amount.toFixed(2)} refunded${fullyRefunded ? ' in full' : ' (partial)'}.`,
+    url: `/jobs/${req.params.id}`,
+    category: 'job',
+    exceptUserId: req.user.sub,
+  }).catch((e) => console.error('refund notify failed:', e.message));
+
+  res.json({ ok: true, amount, totalRefunded, fullyRefunded });
+}));
+
 export default router;

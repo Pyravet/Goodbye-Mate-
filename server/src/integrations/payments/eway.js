@@ -64,3 +64,66 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
     raw: data,
   };
 }
+
+/**
+ * Refund a previously settled transaction via eWay's Refund endpoint.
+ *
+ * eWay refunds reference the ORIGINAL transaction id rather than card
+ * details — the card was never stored on our side (that's the point of
+ * Client Side Encryption), so a refund can only ever be issued against
+ * a transaction we already processed.
+ *
+ * Supports partial refunds: pass an amount smaller than the original.
+ * eWay rejects an amount larger than what was captured, so over-refunding
+ * fails at the provider rather than silently succeeding.
+ *
+ * @param {object} args
+ * @param {string} args.transactionId eWay TransactionID from the charge.
+ * @param {number} args.amountDollars Amount to refund, in dollars.
+ * @param {string} [args.invoiceReference]
+ * @returns {Promise<{success: boolean, refundTransactionId: string|null, responseMessage: string}>}
+ */
+export async function refundTransaction({ transactionId, amountDollars, invoiceReference }) {
+  if (!isEwayConfigured()) {
+    throw new Error('eWay is not configured — set EWAY_API_KEY, EWAY_API_PASSWORD, EWAY_ENDPOINT.');
+  }
+  if (!transactionId) {
+    throw new Error('No original transaction id — this payment cannot be refunded automatically.');
+  }
+
+  const auth = Buffer.from(
+    `${process.env.EWAY_API_KEY}:${process.env.EWAY_API_PASSWORD}`
+  ).toString('base64');
+
+  const body = {
+    Refund: {
+      TransactionID: String(transactionId),
+      // Cents, like the charge path.
+      TotalAmount: Math.round(Number(amountDollars) * 100),
+      CurrencyCode: 'AUD',
+      InvoiceReference: invoiceReference || undefined,
+    },
+  };
+
+  const res = await fetch(`${process.env.EWAY_ENDPOINT}/Transaction/${transactionId}/Refund`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  // eWay signals success via TransactionStatus, not the HTTP status —
+  // a declined refund still returns 200.
+  const success = data?.TransactionStatus === true;
+  const errors = data?.Errors || data?.ResponseMessage || '';
+
+  return {
+    success,
+    refundTransactionId: data?.TransactionID ? String(data.TransactionID) : null,
+    responseMessage: success ? 'Refunded' : (errors || 'Refund was declined by the payment gateway.'),
+  };
+}

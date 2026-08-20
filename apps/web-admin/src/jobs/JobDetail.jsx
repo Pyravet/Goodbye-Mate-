@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, saveAdminNotes, cancelJob, reinstateJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
@@ -239,6 +239,12 @@ export default function JobDetail() {
               <CancelCard job={job} onChanged={load} />
             </Card>
 
+            {(job.payment_status === 'paid' || job.payment_status === 'refunded') && (
+              <Card title="Refund">
+                <RefundCard job={job} onChanged={load} />
+              </Card>
+            )}
+
             <Card title="Veterinary record">
               <VetRecordCard
                 clientEmail={job.client_email}
@@ -448,6 +454,100 @@ function AssignVetControl({ job, onAssigned }) {
   );
 }
 
+function RefundCard({ job, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [manual, setManual] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const alreadyRefunded = Number(job.refunded_amount) || 0;
+  const fullyRefunded = job.payment_status === 'refunded';
+
+  const submit = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await refundJob(job.id, {
+        // Blank = refund everything still outstanding.
+        amount: amount.trim() ? Number(amount) : undefined,
+        reason: reason.trim() || null,
+        manual,
+      });
+      setOpen(false);
+      setAmount('');
+      setReason('');
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (fullyRefunded) {
+    return (
+      <>
+        <p style={styles.cancelledNote}>
+          Fully refunded — ${alreadyRefunded.toFixed(2)}
+          {job.refunded_at ? ` on ${new Date(job.refunded_at).toLocaleDateString('en-AU')}` : ''}.
+        </p>
+        {job.refund_reason && <p style={styles.docHint}>{job.refund_reason}</p>}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {alreadyRefunded > 0 && (
+        <p style={styles.docHint}>
+          Partially refunded: ${alreadyRefunded.toFixed(2)} returned so far.
+        </p>
+      )}
+
+      {!open ? (
+        <button onClick={() => setOpen(true)} style={styles.cancelJobBtn}>Refund this payment</button>
+      ) : (
+        <>
+          {error && <p style={styles.assignError}>{error}</p>}
+          <label style={styles.docHint}>Amount (leave blank to refund the full remaining amount)</label>
+          <input
+            type="number" min="0" step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Full remaining amount"
+            style={styles.notesArea}
+          />
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason (optional)"
+            style={styles.notesArea}
+          />
+          <label style={styles.refundModeRow}>
+            <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} />
+            <span>
+              Already refunded outside the system
+              <br />
+              <span style={styles.docHint}>
+                Tick only if you've already returned the money by bank transfer or cash. eWay will
+                NOT be charged again — this just records it.
+              </span>
+            </span>
+          </label>
+          <div style={styles.assignActions}>
+            <button onClick={() => setOpen(false)} style={styles.assignCancel}>Cancel</button>
+            <button onClick={submit} disabled={busy} style={styles.cancelJobBtn}>
+              {busy ? 'Processing…' : manual ? 'Record refund' : 'Refund via eWay'}
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function AdminNotesCard({ jobId, initial }) {
   const [notes, setNotes] = useState(initial || '');
   const [status, setStatus] = useState('idle');
@@ -632,6 +732,7 @@ const styles = {
   chargesBlock: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--gm-line-soft)' },
   notesArea: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', marginBottom: 8, background: '#fff' },
   cancelJobBtn: { flex: 1, width: '100%', background: 'var(--gm-brick)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
+  refundModeRow: { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, marginBottom: 10 },
   cancelledNote: { fontSize: 13, color: 'var(--gm-brick)', marginBottom: 10, fontWeight: 500 },
   assignError: { fontSize: 12, color: 'var(--gm-brick)', marginBottom: 8 },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },

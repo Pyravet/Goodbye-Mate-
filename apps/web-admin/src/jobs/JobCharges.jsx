@@ -35,6 +35,19 @@ export default function JobCharges({ jobId, onChanged }) {
     setForm({ label: '', amount: '', vetPayout: '' });
   };
 
+  // When adding a custom charge, default the vet's share to the FULL
+  // amount as soon as an amount is typed. Leaving it blank meant zero,
+  // so an admin adding "Extra travel $40" by hand charged the client but
+  // paid the vet nothing — silently, with nothing on screen to suggest
+  // it. Zero is still allowed, it just has to be chosen deliberately.
+  const onAmountChange = (value) => {
+    setForm((f) => ({
+      ...f,
+      amount: value,
+      vetPayout: f.vetPayoutTouched ? f.vetPayout : value,
+    }));
+  };
+
   const submit = async () => {
     const magnitude = Number(form.amount);
     if (!form.label.trim() || !magnitude || magnitude <= 0) {
@@ -131,7 +144,7 @@ export default function JobCharges({ jobId, onChanged }) {
                 min="0"
                 step="0.01"
                 value={form.amount}
-                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                onChange={(e) => onAmountChange(e.target.value)}
                 style={styles.input}
               />
             </label>
@@ -143,14 +156,20 @@ export default function JobCharges({ jobId, onChanged }) {
                   min="0"
                   step="0.01"
                   value={form.vetPayout}
-                  onChange={(e) => setForm((f) => ({ ...f, vetPayout: e.target.value }))}
+                  onChange={(e) => setForm((f) => ({ ...f, vetPayout: e.target.value, vetPayoutTouched: true }))}
                   style={styles.input}
                 />
               </label>
             )}
           </div>
-          {mode === 'discount' && (
+          {mode === 'discount' ? (
             <p style={styles.hint}>Discounts reduce what the client pays. The vet's payout is unaffected.</p>
+          ) : (
+            <p style={styles.hint}>
+              {Number(form.vetPayout) > 0
+                ? `Client pays $${Number(form.amount || 0).toFixed(2)} · vet receives $${Number(form.vetPayout || 0).toFixed(2)}`
+                : 'Vet receives nothing from this charge — set an amount above if they should be paid.'}
+            </p>
           )}
           <div style={styles.formActions}>
             <button onClick={() => setMode(null)} style={styles.cancelBtn}>Cancel</button>

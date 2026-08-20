@@ -98,12 +98,19 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
     }
     const entry = byVet.get(job.assigned_vet_id);
     const payout = payoutBreakdown(job, pricing, itemsByJob.get(job.id) || []);
+    // A refunded job is NOT silently dropped from the payout: the vet
+    // usually still attended and did the work, so whether they're paid
+    // is a commercial decision, not something code should make quietly.
+    // It's flagged instead, so admin can remove it deliberately before
+    // approving.
     entry.jobs.push({
       id: job.id,
       jobNumber: job.job_number,
       jobDate: job.job_date,
       petName: job.pet_name,
       amount: payout.total,
+      paymentStatus: job.payment_status,
+      refundedAmount: Number(job.refunded_amount) || 0,
     });
     entry.computedTotal = Math.round((entry.computedTotal + payout.total) * 100) / 100;
   }
@@ -206,14 +213,39 @@ router.post('/periods/approve', requireAuth, requireRole('admin'), asyncHandler(
       );
       const payout = payoutBreakdown(job, pricing, lineItems);
       runningTotal += payout.total;
+      // Base service + transfer + travel as one line, then EACH extra
+      // as its own line. Previously the whole job collapsed into a
+      // single line labelled with just the service name, so a vet paid
+      // an extra-travel or large-pet fee could see the money in the
+      // total but had no idea what it was for — and no way to check it
+      // was right. A tax invoice should itemise what's being paid.
+      const baseAmount = Math.round(
+        (payout.serviceAmt + payout.transferAmt + payout.travelAmt) * 100
+      ) / 100;
+
       itemRows.push({
         jobId: job.id,
         jobNumber: job.job_number,
         jobDate: job.job_date,
         petName: job.pet_name,
-        description: payout.serviceName,
-        amount: payout.total,
+        description: payout.travelAmt > 0
+          ? `${payout.serviceName} (incl. travel)`
+          : payout.serviceName,
+        amount: baseAmount,
       });
+
+      for (const item of lineItems) {
+        const vetShare = Number(item.vet_payout) || 0;
+        if (vetShare === 0) continue; // client-only charge; not the vet's income
+        itemRows.push({
+          jobId: job.id,
+          jobNumber: job.job_number,
+          jobDate: job.job_date,
+          petName: job.pet_name,
+          description: item.label,
+          amount: vetShare,
+        });
+      }
     }
 
     const { subtotal, gst, total } = splitGst(runningTotal, vet.is_gst_registered);

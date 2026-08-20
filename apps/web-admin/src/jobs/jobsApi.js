@@ -163,6 +163,16 @@ export async function emailVetRecord(jobId, { to, message }) {
   return data;
 }
 
+export async function refundJob(jobId, { amount, reason, manual }) {
+  const res = await apiFetch(`/jobs/${jobId}/refund`, {
+    method: 'POST',
+    body: JSON.stringify({ amount, reason, manual }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Refund failed');
+  return data;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

@@ -133,7 +133,15 @@ export default function PayoutsPage() {
                     {v.jobs.map((j) => (
                       <div key={j.id} style={styles.jobRow}>
                         <span style={styles.jobDate}>{formatDay(String(j.jobDate).slice(0, 10))}</span>
-                        <span style={styles.jobName}>{j.petName} · {j.jobNumber}</span>
+                        <span style={styles.jobName}>
+                          {j.petName} · {j.jobNumber}
+                          {/* The vet usually still attended, so this is
+                              flagged for a human decision rather than
+                              silently excluded from their pay. */}
+                          {j.paymentStatus === 'refunded' && (
+                            <span style={styles.refundFlag}> · client refunded</span>
+                          )}
+                        </span>
                         <span style={styles.jobAmt}>{formatMoney(j.amount)}</span>
                       </div>
                     ))}
@@ -207,6 +215,7 @@ const styles = {
   jobRow: { display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '4px 0' },
   jobDate: { width: 60, color: 'var(--gm-ink-soft)', flexShrink: 0 },
   jobName: { flex: 1, minWidth: 0 },
+  refundFlag: { color: 'var(--gm-brick)', fontSize: 11, fontWeight: 500 },
   jobAmt: { fontWeight: 500, flexShrink: 0 },
   breakdown: { display: 'flex', gap: 16, fontSize: 12, color: 'var(--gm-ink-soft)', paddingTop: 8, borderTop: '1px solid var(--gm-line-soft)' },
   paidNote: { fontSize: 12, color: 'var(--gm-forest)', marginTop: 6 },

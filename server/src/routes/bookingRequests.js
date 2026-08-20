@@ -15,20 +15,6 @@ import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 
 const router = Router();
 
-/**
- * Map the free-text service preference from the public form onto a real
- * service type. Returns null when it can't be determined, so admin is
- * asked rather than guessed at — a wrong service type changes both the
- * price and whether ashes come back.
- */
-export function guessServiceType(preference) {
-  const p = (preference || '').toLowerCase();
-  if (!p) return null;
-  if (p.includes('private')) return 'private_cremation';
-  if (p.includes('communal')) return 'communal_cremation';
-  if (p.includes('euthanasia only')) return 'euthanasia_only';
-  return null; // "I'm not sure yet" and anything unrecognised
-}
 
 
 /**
@@ -231,41 +217,6 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
   res.json({ request: rows[0] });
 }));
 
-/**
- * Mark a request as converted, linking it to the job admin created.
- *
- * Deliberately NOT an automatic "create the job from this request":
- * every real booking needs a confirmed date, time, service and address,
- * and those are settled on the phone. Auto-creating from unverified
- * free text would put junk on the dispatch board. Admin creates the job
- * through the normal form and links it here.
- */
-router.post('/:id/converted', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
-  const jobId = req.body?.jobId;
-  if (!jobId) return res.status(400).json({ error: 'jobId is required' });
-
-  const { rows: jobRows } = await query('SELECT id FROM jobs WHERE id = $1', [jobId]);
-  if (!jobRows[0]) return res.status(400).json({ error: 'That job does not exist.' });
-
-  const { rows } = await query(
-    `UPDATE booking_requests
-     SET status = 'converted', converted_job_id = $1, handled_by = $2, handled_at = now()
-     WHERE id = $3 AND status <> 'converted'
-     RETURNING *`,
-    [jobId, req.user.sub, req.params.id]
-  );
-  if (!rows[0]) return res.status(409).json({ error: 'Request not found, or already converted.' });
-
-  await logAction({
-    actorUserId: req.user.sub,
-    action: 'booking_request_converted',
-    targetType: 'booking_request',
-    targetId: req.params.id,
-    metadata: { jobId },
-  });
-
-  res.json({ request: rows[0] });
-}));
 
 
 const convertSchema = z.object({

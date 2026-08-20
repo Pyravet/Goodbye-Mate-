@@ -34,9 +34,33 @@ function cell(value) {
 function toCsv(headers, rows) {
   const lines = [headers.map(cell).join(',')];
   for (const row of rows) lines.push(row.map(cell).join(','));
+  const notice = truncationNotice(rows.length, headers.length);
+  if (notice) lines.push(notice.map(cell).join(','));
   // CRLF and a UTF-8 BOM: Excel on Windows misreads plain LF files and
   // mangles non-ASCII (pet names with accents) without the BOM.
   return '\uFEFF' + lines.join('\r\n');
+}
+
+/**
+ * Hard ceiling on exported rows.
+ *
+ * Each export builds the whole result set in memory and serialises it in
+ * one go. That's fine at current volume, but an unbounded multi-year
+ * export would eventually exhaust memory on a small instance and take
+ * the API down for everyone.
+ *
+ * The cap is deliberately high enough that normal use never hits it, and
+ * when it IS hit the file says so in a final row rather than silently
+ * truncating — a short export that looks complete is exactly the kind of
+ * thing that produces wrong numbers in an accounts reconciliation.
+ */
+const MAX_EXPORT_ROWS = 50000;
+
+function truncationNotice(rowCount, headerCount) {
+  if (rowCount < MAX_EXPORT_ROWS) return null;
+  const notice = new Array(headerCount).fill('');
+  notice[0] = `TRUNCATED at ${MAX_EXPORT_ROWS} rows — narrow the date range to get the rest`;
+  return notice;
 }
 
 function sendCsv(res, filename, csv) {
@@ -82,7 +106,8 @@ router.get('/jobs.csv', requireAuth, requireRole('admin'), asyncHandler(async (r
        FROM job_line_items WHERE job_id = j.id
      ) li ON true
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY j.job_date DESC, j.job_time DESC`,
+     ORDER BY j.job_date DESC, j.job_time DESC
+     LIMIT ${MAX_EXPORT_ROWS}`,
     params
   );
 
@@ -131,7 +156,8 @@ router.get('/payments.csv', requireAuth, requireRole('admin'), asyncHandler(asyn
      JOIN jobs j ON j.id = p.job_id
      LEFT JOIN users u ON u.id = p.processed_by_user_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY p.created_at DESC`,
+     ORDER BY p.created_at DESC
+     LIMIT ${MAX_EXPORT_ROWS}`,
     params
   );
 
@@ -169,7 +195,8 @@ router.get('/payouts.csv', requireAuth, requireRole('admin'), asyncHandler(async
      JOIN vets v ON v.id = p.vet_id
      JOIN users u ON u.id = v.user_id
      WHERE ${where.join(' AND ')}
-     ORDER BY p.period_start DESC, u.full_name`,
+     ORDER BY p.period_start DESC, u.full_name
+     LIMIT ${MAX_EXPORT_ROWS}`,
     params
   );
 

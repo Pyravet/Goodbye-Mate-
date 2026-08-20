@@ -22,3 +22,17 @@ export async function fetchNewRequestCount() {
   if (!res.ok) return 0;
   return (await res.json()).count;
 }
+
+/**
+ * Turn a request into a real booking, optionally dispatching it.
+ * Returns { job, dispatch } so the UI can report what happened.
+ */
+export async function convertRequest(id, payload) {
+  const res = await apiFetch(`/booking-requests/${id}/convert`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not create the booking');
+  return data;
+}

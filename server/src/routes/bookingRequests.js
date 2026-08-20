@@ -6,10 +6,30 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { logAction } from '../audit/log.js';
 import { notifyAdmins } from '../notifications/notify.js';
+import { suggestTimeCategory } from '../domain/pricing.js';
+// Reused rather than reimplemented, so a converted request dispatches
+// and links exactly like any other booking.
+import { startOrRollDispatch, sendJourneyLink } from './jobs.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 
 const router = Router();
+
+/**
+ * Map the free-text service preference from the public form onto a real
+ * service type. Returns null when it can't be determined, so admin is
+ * asked rather than guessed at — a wrong service type changes both the
+ * price and whether ashes come back.
+ */
+export function guessServiceType(preference) {
+  const p = (preference || '').toLowerCase();
+  if (!p) return null;
+  if (p.includes('private')) return 'private_cremation';
+  if (p.includes('communal')) return 'communal_cremation';
+  if (p.includes('euthanasia only')) return 'euthanasia_only';
+  return null; // "I'm not sure yet" and anything unrecognised
+}
+
 
 /**
  * Tight limit on the PUBLIC endpoint.
@@ -225,6 +245,118 @@ router.post('/:id/converted', requireAuth, requireRole('admin'), asyncHandler(as
   });
 
   res.json({ request: rows[0] });
+}));
+
+
+const convertSchema = z.object({
+  // The three things a human must confirm — everything else can carry
+  // over from the request as-is.
+  address: z.string().trim().min(1, 'Confirm the address.'),
+  serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a date.'),
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'Choose a time.'),
+
+  postcode: z.string().trim().min(1, 'A postcode is needed for territory matching.'),
+  state: z.string().trim().min(1),
+  suburb: z.string().trim().optional().nullable(),
+  petName: z.string().trim().min(1, 'The pet needs a name on the booking.'),
+  petType: z.string().trim().min(1),
+  petBreed: z.string().trim().optional().nullable(),
+  petWeight: z.string().trim().optional().nullable(),
+  petAge: z.string().trim().optional().nullable(),
+  lat: z.number().optional().nullable(),
+  lng: z.number().optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
+
+  /**
+   * Whether to start auto-dispatch immediately.
+   *
+   * Defaults TRUE — the point of this screen is one-tap approve and
+   * dispatch — but admin can turn it off to create the booking without
+   * offering it yet (e.g. the client is still deciding on a time).
+   */
+  dispatch: z.boolean().optional().default(true),
+});
+
+/**
+ * POST /booking-requests/:id/convert
+ *
+ * Turn a request into a real job, then optionally dispatch it.
+ *
+ * Deliberately NOT automatic on submission: a public request has an
+ * unverified address, often no weight, and frequently no firm service
+ * type. Offering that to vets means offering a job whose location and
+ * payout aren't actually known, for something the client hasn't yet
+ * agreed to. This endpoint is the human confirmation step — it just
+ * removes the re-keying, rather than removing the check.
+ */
+router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = convertSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Please check the details.' });
+  }
+  const d = parsed.data;
+
+  const { rows: reqRows } = await query('SELECT * FROM booking_requests WHERE id = $1', [req.params.id]);
+  const request = reqRows[0];
+  if (!request) return res.status(404).json({ error: 'Request not found' });
+  if (request.converted_job_id) {
+    return res.status(409).json({ error: 'This request has already been turned into a booking.' });
+  }
+
+  const timeCategory = suggestTimeCategory(d.date, d.time);
+
+  const { rows: jobRows } = await query(
+    `INSERT INTO jobs (
+       client_name, client_phone, client_email, address, suburb, postcode, state, lat, lng,
+       pet_name, pet_type, pet_breed, pet_weight, pet_age,
+       service_id, service_type, job_date, job_time, time_category, notes
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19)
+     RETURNING *`,
+    [
+      request.client_name, request.client_phone, request.client_email,
+      d.address, d.suburb || null, d.postcode, d.state, d.lat ?? null, d.lng ?? null,
+      d.petName, d.petType, d.petBreed || null, d.petWeight || null, d.petAge || null,
+      d.serviceType, d.date, d.time, timeCategory,
+      // Carry the client's own words onto the job — context a vet
+      // genuinely benefits from, and it would otherwise be stranded on
+      // the request record.
+      [request.message, d.notes].filter(Boolean).join('\n\n') || null,
+    ]
+  );
+  const job = jobRows[0];
+
+  await query(
+    `UPDATE booking_requests
+     SET status = 'converted', converted_job_id = $1, handled_by = $2, handled_at = now()
+     WHERE id = $3`,
+    [job.id, req.user.sub, req.params.id]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'booking_request_converted',
+    targetType: 'booking_request',
+    targetId: req.params.id,
+    metadata: { jobId: job.id, dispatched: d.dispatch },
+  });
+
+  // Send the client their journey link exactly as a normal booking does.
+  sendJourneyLink(job).catch((e) => console.error('journey link failed:', e.message));
+
+  let dispatch = null;
+  if (d.dispatch) {
+    // Failing to dispatch must not lose the job that was just created —
+    // it's already saved, and admin can offer it manually.
+    try {
+      dispatch = await startOrRollDispatch(job.id);
+    } catch (err) {
+      console.error('dispatch after convert failed:', err.message);
+      dispatch = { state: 'error', message: err.message };
+    }
+  }
+
+  res.status(201).json({ job, dispatch });
 }));
 
 export default router;

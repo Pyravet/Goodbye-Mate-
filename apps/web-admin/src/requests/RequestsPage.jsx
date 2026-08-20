@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchRequests, updateRequest } from './requestsApi.js';
+import ConvertRequestForm from './ConvertRequestForm.jsx';
 
 const FILTERS = [
   { key: '', label: 'Open' },
@@ -16,6 +17,7 @@ export default function RequestsPage() {
   const [filter, setFilter] = useState('');
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
+  const [convertingId, setConvertingId] = useState(null);
 
   const load = useCallback(() => {
     fetchRequests(filter).then(setItems).catch((e) => { setError(e.message); setItems([]); });
@@ -98,7 +100,9 @@ export default function RequestsPage() {
                   {r.status !== 'contacted' && (
                     <button onClick={() => setStatus(r.id, 'contacted')} style={styles.btn}>Mark contacted</button>
                   )}
-                  <Link to="/jobs/new" style={styles.btnPrimary}>Create booking</Link>
+                  <button onClick={() => setConvertingId(r.id)} style={styles.btnPrimary}>
+                    Create booking
+                  </button>
                   {r.status !== 'declined' && (
                     <button onClick={() => setStatus(r.id, 'declined')} style={styles.btnQuiet}>Decline</button>
                   )}
@@ -106,6 +110,14 @@ export default function RequestsPage() {
                     <button onClick={() => setStatus(r.id, 'spam')} style={styles.btnQuiet}>Spam</button>
                   )}
                 </div>
+              )}
+
+              {convertingId === r.id && (
+                <ConvertRequestForm
+                  request={r}
+                  onCancel={() => setConvertingId(null)}
+                  onDone={() => { setConvertingId(null); load(); }}
+                />
               )}
             </div>
           ))
@@ -146,7 +158,7 @@ const styles = {
   rowValue: { flex: 1, minWidth: 0 },
   actions: { display: 'flex', flexWrap: 'wrap', gap: 8 },
   btn: { background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '8px 14px', fontSize: 12, fontWeight: 500 },
-  btnPrimary: { background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '8px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none' },
+  btnPrimary: { background: 'var(--gm-forest)', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: 'var(--gm-radius-sm)', padding: '8px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none' },
   btnQuiet: { background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 12, textDecoration: 'underline' },
   linkedJob: { fontSize: 13, color: 'var(--gm-forest)', fontWeight: 500, textDecoration: 'none' },
 };

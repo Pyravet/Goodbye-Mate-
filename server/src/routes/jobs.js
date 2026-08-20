@@ -111,7 +111,7 @@ async function getLineItems(jobId) {
 // Kicks off (or re-kicks) an auto-dispatch offer: ranks vets, offers to
 // the best match, sets the offer expiry. Called on job creation and by
 // the timeout-rollover worker.
-async function startOrRollDispatch(jobId) {
+export async function startOrRollDispatch(jobId) {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
   const job = rows[0];
   if (!job) return null;
@@ -340,7 +340,7 @@ function journeyLink(job) {
   return `${base.replace(/\/$/, '')}/${job.client_token}`;
 }
 
-async function sendJourneyLink(job) {
+export async function sendJourneyLink(job) {
   const link = journeyLink(job);
   const results = { email: null, sms: null };
 
@@ -1408,7 +1408,6 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
   res.status(201).json({ message: withSender[0] });
 }));
 
-export { startOrRollDispatch };
 
 // --- Refunds ---
 

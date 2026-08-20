@@ -117,6 +117,15 @@ async function startOrRollDispatch(jobId) {
       [next.vetId, expiresAt, jobId]
     );
 
+    // Append-only offer history. The job's dispatch_* columns are
+    // overwritten as soon as the offer moves on, so without this a
+    // decline or timeout leaves no trace and reliability can't be
+    // measured at all.
+    await query(
+      `INSERT INTO vet_job_offers (job_id, vet_id, outcome) VALUES ($1, $2, 'offered')`,
+      [jobId, next.vetId]
+    );
+
     // Notify the vet on their phone — this is the actual moment a job
     // offer needs to reach someone in the field, not just sit in a list.
     const { rows: vetUserRows } = await query(
@@ -877,6 +886,23 @@ router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
   const job = rows[0];
 
+  // Reassigning away from a vet who had ACCEPTED is a dropout: a job
+  // that looked covered suddenly isn't. Recorded separately from a
+  // decline, because short notice is what actually hurts operationally.
+  if (previousVetId) {
+    // INSERT ... SELECT so hours_before_visit can be computed from the
+    // job's own date/time in the same statement. job_date is a DATE and
+    // job_time a TIME, so they're combined before the comparison.
+    await query(
+      `INSERT INTO vet_job_dropouts (job_id, vet_id, hours_before_visit, reason, recorded_by)
+       SELECT j.id, $2,
+              EXTRACT(EPOCH FROM ((j.job_date + j.job_time) - now())) / 3600.0,
+              $3, $4
+       FROM jobs j WHERE j.id = $1`,
+      [req.params.id, previousVetId, req.body?.reason || 'Reassigned by admin', req.user.sub]
+    ).catch((e) => console.error('Could not record dropout:', e.message));
+  }
+
   await logAction({
     actorUserId: req.user.sub,
     action: previousVetId ? 'job_reassigned' : 'job_manually_assigned',
@@ -911,6 +937,30 @@ router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async
 }));
 
 // Vet accepts an offer made to them.
+/**
+ * Close out the open offer row for a vet on a job.
+ *
+ * Updates the most recent 'offered' row rather than inserting a new one,
+ * so the history reads as one offer with one outcome. response_seconds
+ * is computed here and stored, so response-time stats don't need a
+ * calculation per row later.
+ */
+async function recordOfferOutcome(jobId, vetId, outcome, declineReason) {
+  await query(
+    `UPDATE vet_job_offers
+     SET outcome = $1,
+         responded_at = now(),
+         response_seconds = EXTRACT(EPOCH FROM (now() - offered_at))::int,
+         decline_reason = COALESCE($2, decline_reason)
+     WHERE id = (
+       SELECT id FROM vet_job_offers
+       WHERE job_id = $3 AND vet_id = $4 AND outcome = 'offered'
+       ORDER BY offered_at DESC LIMIT 1
+     )`,
+    [outcome, declineReason || null, jobId, vetId]
+  );
+}
+
 router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const vetId = await getVetIdForUser(req.user.sub);
   if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
@@ -922,6 +972,7 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandle
     [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
+  await recordOfferOutcome(req.params.id, myVetId, 'accepted');
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_accepted', targetType: 'job', targetId: req.params.id });
 
@@ -964,6 +1015,7 @@ router.post('/:id/dispatch/decline', requireAuth, requireRole('vet'), asyncHandl
     [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
+  await recordOfferOutcome(req.params.id, myVetId, 'declined', req.body?.reason);
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_declined', targetType: 'job', targetId: req.params.id });
   const dispatch = await startOrRollDispatch(req.params.id);

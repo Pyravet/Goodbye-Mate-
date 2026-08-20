@@ -551,4 +551,66 @@ router.get('/:vetId/territory', requireAuth, asyncHandler(async (req, res) => {
   res.json({ geojson: rows[0].geojson ? JSON.parse(rows[0].geojson) : null });
 }));
 
+
+/**
+ * GET /vets/:vetId/reliability
+ *
+ * Offer response history and dropouts, so dispatch decisions can be
+ * based on who actually turns up rather than impression.
+ *
+ * Declines and dropouts are reported SEPARATELY and deliberately not
+ * combined into a single score. Declining an offer up front is normal
+ * and healthy — it's how a contractor manages their own diary. Dropping
+ * out after accepting is what actually costs the business a covered job
+ * at short notice. Collapsing both into one number would hide that
+ * difference and unfairly penalise a vet who simply says no early.
+ */
+router.get('/:vetId/reliability', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows: offerRows } = await query(
+    `SELECT
+       COUNT(*)::int                                                        AS total_offers,
+       COUNT(*) FILTER (WHERE outcome = 'accepted')::int                    AS accepted,
+       COUNT(*) FILTER (WHERE outcome = 'declined')::int                    AS declined,
+       COUNT(*) FILTER (WHERE outcome = 'expired')::int                     AS expired,
+       AVG(response_seconds) FILTER (WHERE outcome IN ('accepted','declined')) AS avg_response_seconds
+     FROM vet_job_offers
+     WHERE vet_id = $1 AND outcome <> 'offered'`,
+    [req.params.vetId]
+  );
+
+  const { rows: dropoutRows } = await query(
+    `SELECT COUNT(*)::int AS dropouts,
+            COUNT(*) FILTER (WHERE hours_before_visit < 24)::int AS short_notice_dropouts
+     FROM vet_job_dropouts WHERE vet_id = $1`,
+    [req.params.vetId]
+  );
+
+  const { rows: completedRows } = await query(
+    `SELECT COUNT(*)::int AS completed FROM jobs
+     WHERE assigned_vet_id = $1 AND status = 'completed'`,
+    [req.params.vetId]
+  );
+
+  const o = offerRows[0];
+  const responded = o.accepted + o.declined;
+
+  res.json({
+    totalOffers: o.total_offers,
+    accepted: o.accepted,
+    declined: o.declined,
+    // An expired offer is distinct from a decline: the vet never
+    // answered at all, which is a different (and usually worse) signal.
+    expired: o.expired,
+    // Share of offers the vet actually responded to, either way.
+    responseRate: o.total_offers > 0 ? Math.round((responded / o.total_offers) * 100) : null,
+    acceptanceRate: o.total_offers > 0 ? Math.round((o.accepted / o.total_offers) * 100) : null,
+    avgResponseMinutes: o.avg_response_seconds != null
+      ? Math.round(Number(o.avg_response_seconds) / 60)
+      : null,
+    dropouts: dropoutRows[0].dropouts,
+    shortNoticeDropouts: dropoutRows[0].short_notice_dropouts,
+    completedJobs: completedRows[0].completed,
+  });
+}));
+
 export default router;

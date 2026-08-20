@@ -13,9 +13,27 @@ export function startDispatchWorker() {
   setInterval(async () => {
     try {
       const { rows } = await query(
-        `SELECT id FROM jobs WHERE dispatch_state = 'offered' AND dispatch_expires_at < now()`
+        `SELECT id, dispatch_offered_vet_id FROM jobs
+         WHERE dispatch_state = 'offered' AND dispatch_expires_at < now()`
       );
       for (const job of rows) {
+        // Mark the lapsed offer BEFORE rolling on. startOrRollDispatch
+        // overwrites dispatch_offered_vet_id, so after that call there's
+        // no way to tell who let it expire — and an ignored offer is a
+        // reliability signal, not a non-event.
+        if (job.dispatch_offered_vet_id) {
+          await query(
+            `UPDATE vet_job_offers
+             SET outcome = 'expired', responded_at = now(),
+                 response_seconds = EXTRACT(EPOCH FROM (now() - offered_at))::int
+             WHERE id = (
+               SELECT id FROM vet_job_offers
+               WHERE job_id = $1 AND vet_id = $2 AND outcome = 'offered'
+               ORDER BY offered_at DESC LIMIT 1
+             )`,
+            [job.id, job.dispatch_offered_vet_id]
+          ).catch((e) => console.error('Could not record expired offer:', e.message));
+        }
         await startOrRollDispatch(job.id);
       }
     } catch (err) {

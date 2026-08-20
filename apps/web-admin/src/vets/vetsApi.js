@@ -7,6 +7,12 @@ export async function fetchVets() {
   return data.vets;
 }
 
+export async function fetchVetReliability(vetId) {
+  const res = await apiFetch(`/vets/${vetId}/reliability`);
+  if (!res.ok) throw new Error('Failed to load reliability');
+  return res.json();
+}
+
 export async function fetchVet(id) {
   const res = await apiFetch(`/vets/${id}`);
   if (!res.ok) throw new Error('Failed to load vet');

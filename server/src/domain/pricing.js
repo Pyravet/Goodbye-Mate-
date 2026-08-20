@@ -97,3 +97,36 @@ export function suggestTimeCategory(dateStr, timeStr) {
   if (hour >= 18 || hour < 7) return 'afterhours_weekend';
   return 'weekday';
 }
+
+/**
+ * Split a GST-inclusive client total into its components.
+ *
+ * Australian GST is 1/11th of a GST-INCLUSIVE amount. Prices in
+ * pricing_settings are what the client pays, i.e. already inclusive, so
+ * GST is extracted from the total rather than added on top — adding it
+ * would silently raise every price by 10%.
+ *
+ * Returns zero GST when the business isn't registered, so callers don't
+ * need to branch.
+ *
+ * @param {number} total GST-inclusive total in dollars.
+ * @param {object} pricing pricing_settings config.
+ * @returns {{subtotal: number, gst: number, total: number, isGstRegistered: boolean}}
+ */
+export function clientGstSplit(total, pricing) {
+  const rounded = Math.round(Number(total || 0) * 100) / 100;
+  const registered = pricing?.isGstRegistered === true;
+  if (!registered) {
+    return { subtotal: rounded, gst: 0, total: rounded, isGstRegistered: false };
+  }
+  const rate = Number(pricing?.gstPercent) || 10;
+  // divisor: 10% -> 11, i.e. (100 + rate) / rate
+  const divisor = (100 + rate) / rate;
+  const gst = Math.round((rounded / divisor) * 100) / 100;
+  return {
+    subtotal: Math.round((rounded - gst) * 100) / 100,
+    gst,
+    total: rounded,
+    isGstRegistered: true,
+  };
+}

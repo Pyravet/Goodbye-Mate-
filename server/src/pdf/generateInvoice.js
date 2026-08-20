@@ -12,7 +12,7 @@ function formatDate(d) {
 // Draws the document content onto an already-created PDFDocument — shared
 // by both the "stream straight to the browser" path and the "collect into
 // a Buffer for emailing" path, so the layout only lives in one place.
-function drawInvoiceDoc(doc, { job, bill, company, asQuote }) {
+function drawInvoiceDoc(doc, { job, bill, company, asQuote, gst }) {
   const isPaid = job.payment_status === 'paid';
   const docLabel = asQuote ? 'Quote' : isPaid ? 'Receipt' : 'Invoice';
 
@@ -60,8 +60,23 @@ function drawInvoiceDoc(doc, { job, bill, company, asQuote }) {
   doc.moveTo(50, tableY).lineTo(545, tableY).strokeColor(LINE).stroke();
   tableY += 10;
 
+  // GST breakdown. Only shown when the business is registered — an
+  // unregistered supplier must NOT display a GST component, and claiming
+  // one would misrepresent a tax position to the client. Prices are
+  // GST-inclusive, so the amount is extracted from the total rather than
+  // added to it; the total the client pays is unchanged either way.
+  if (gst && gst.isGstRegistered) {
+    doc.fontSize(10).fillColor(INK_SOFT);
+    doc.text('Subtotal (ex GST)', 50, tableY);
+    doc.text(formatMoney(gst.subtotal), 480, tableY, { width: 65, align: 'right' });
+    tableY += 15;
+    doc.text(`GST (${gst.ratePercent}%)`, 50, tableY);
+    doc.text(formatMoney(gst.gst), 480, tableY, { width: 65, align: 'right' });
+    tableY += 18;
+  }
+
   doc.fontSize(12).fillColor(FOREST);
-  doc.text('Total', 50, tableY);
+  doc.text(gst && gst.isGstRegistered ? 'Total (incl. GST)' : 'Total', 50, tableY);
   doc.text(formatMoney(bill.total), 480, tableY, { width: 65, align: 'right' });
 
   tableY += 40;
@@ -85,25 +100,25 @@ function docLabelFor(job, asQuote) {
 
 // Client-facing invoice/receipt/quote — streamed straight to an HTTP
 // response (browser download).
-export function generateInvoicePdf({ res, job, bill, company, asQuote = false }) {
+export function generateInvoicePdf({ res, job, bill, company, asQuote = false, gst = null }) {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${docLabelFor(job, asQuote)}-${job.job_number}.pdf"`);
   doc.pipe(res);
-  drawInvoiceDoc(doc, { job, bill, company, asQuote });
+  drawInvoiceDoc(doc, { job, bill, company, asQuote, gst });
   doc.end();
 }
 
 // Same document, collected into a Buffer instead — for attaching to an
 // email rather than streaming to a browser.
-export function generateInvoicePdfBuffer({ job, bill, company, asQuote = false }) {
+export function generateInvoicePdfBuffer({ job, bill, company, asQuote = false, gst = null }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    drawInvoiceDoc(doc, { job, bill, company, asQuote });
+    drawInvoiceDoc(doc, { job, bill, company, asQuote, gst });
     doc.end();
   });
 }

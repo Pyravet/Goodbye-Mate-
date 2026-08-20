@@ -97,6 +97,22 @@ export default function PricingTab() {
           <FieldInline label="GST %">
             <input type="number" value={pricing.gstPercent} onChange={(e) => updateField(['gstPercent'], e.target.value)} style={styles.numInput} />
           </FieldInline>
+          <FieldInline label="Business is GST registered">
+            <input
+              type="checkbox"
+              checked={pricing.isGstRegistered === true}
+              onChange={(e) => updateField(['isGstRegistered'], e.target.checked)}
+            />
+          </FieldInline>
+        </div>
+        <p style={styles.gstHint}>
+          When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
+          invoices. Prices stay exactly as entered — GST is shown as the portion already included in
+          the total, not added on top, so what the client pays doesn't change.
+          {' '}Leave unticked if the business isn't registered: showing GST when you're not
+          registered misstates a tax position. Check with your accountant if unsure.
+        </p>
+        <div>
         </div>
       </Card>
 
@@ -123,6 +139,7 @@ function FieldInline({ label, children }) {
 }
 
 const styles = {
+  gstHint: { fontSize: 11, color: 'var(--gm-ink-soft)', lineHeight: 1.5, marginTop: 10, fontStyle: 'italic' },
   serviceRow: { display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12 },
   input: { padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
   numInput: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { query } from '../db/pool.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { billBreakdown } from '../domain/pricing.js';
+import { billBreakdown, clientGstSplit } from '../domain/pricing.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { generateInvoicePdf } from '../pdf/generateInvoice.js';
 import { logAction } from '../audit/log.js';
@@ -277,7 +277,14 @@ router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="Receipt-${job.job_number}.pdf"`);
-  generateInvoicePdf({ res, job, bill, company, asQuote: false });
+  const { rows: gstPricing } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const split = clientGstSplit(bill.total, gstPricing[0].config);
+  generateInvoicePdf({
+    res, job, bill, company, asQuote: false,
+    gst: split.isGstRegistered
+      ? { ...split, ratePercent: Number(gstPricing[0].config?.gstPercent) || 10 }
+      : null,
+  });
 }));
 
 // Serves the uploaded brochure PDF for this job's cremation type, if one

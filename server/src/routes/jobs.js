@@ -89,6 +89,17 @@ const createJobSchema = z.object({
 // Line items (extra charges + discounts) for a job. Every bill/payout
 // calculation must include these or the client is quoted one figure and
 // invoiced another — so this is fetched everywhere billBreakdown is used.
+/**
+ * GST breakdown for a client-facing document, or null when the business
+ * isn't GST registered (in which case nothing GST-related is shown).
+ */
+function clientGst(total, pricing) {
+  const split = clientGstSplit(total, pricing);
+  return split.isGstRegistered
+    ? { ...split, ratePercent: Number(pricing?.gstPercent) || 10 }
+    : null;
+}
+
 async function getLineItems(jobId) {
   const { rows } = await query(
     'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
@@ -315,7 +326,7 @@ router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(a
   const bill = billBreakdown(job, pricing, await getLineItems(job.id));
   const asQuote = req.query.quote === '1';
 
-  generateInvoicePdf({ res, job, bill, company, asQuote });
+  generateInvoicePdf({ res, job, bill, company, asQuote, gst: clientGst(bill.total, pricingRows[0].config) });
 }));
 
 // Charge the client's card via eWay — server never receives raw card
@@ -470,7 +481,7 @@ router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireR
       const asQuote = type === 'quote';
       if (!job.client_email) return res.status(400).json({ error: 'Client has no email on file for this job' });
       const bill = billBreakdown(job, pricing, await getLineItems(job.id));
-      const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote });
+      const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote, gst: clientGst(bill.total, pricing) });
 
       await sendEmail({
         to: job.client_email,

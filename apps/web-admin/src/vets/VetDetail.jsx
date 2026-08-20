@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import TerritoryMap from '../maps/TerritoryMap.jsx';
 import WeeklyAvailabilityGrid from './WeeklyAvailabilityGrid.jsx';
-import { fetchVet, fetchTerritory, updateVetProfile, approveVet, deactivateVet } from './vetsApi.js';
+import { fetchVetReliability, fetchVet, fetchTerritory, updateVetProfile, approveVet, deactivateVet } from './vetsApi.js';
 
 const AU_STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
 
@@ -12,6 +12,85 @@ const TABS = [
   { key: 'availability', label: 'Availability' },
   { key: 'territory', label: 'Territory' },
 ];
+
+/**
+ * Offer response history and dropouts.
+ *
+ * Declines and dropouts are shown as separate figures rather than one
+ * combined score: declining up front is normal contractor behaviour,
+ * whereas dropping out after accepting leaves a job uncovered at short
+ * notice. Merging them would hide the distinction that actually matters.
+ */
+function ReliabilityCard({ vetId }) {
+  const [stats, setStats] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    fetchVetReliability(vetId).then(setStats).catch(() => setFailed(true));
+  }, [vetId]);
+
+  if (failed) return null;
+  if (!stats) return null;
+
+  if (stats.totalOffers === 0 && stats.completedJobs === 0) {
+    return (
+      <div style={{ marginBottom: 20 }}>
+        <h3 style={styles.cardTitle}>Reliability</h3>
+        <p style={styles.reliabilityEmpty}>No dispatch history yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h3 style={styles.cardTitle}>Reliability</h3>
+      <div style={styles.statRow}>
+        <Stat label="Offers" value={stats.totalOffers} />
+        <Stat label="Accepted" value={stats.accepted} />
+        <Stat label="Declined" value={stats.declined} />
+        <Stat
+          label="No response"
+          value={stats.expired}
+          warn={stats.expired > 0}
+        />
+      </div>
+      <div style={styles.statRow}>
+        <Stat
+          label="Acceptance"
+          value={stats.acceptanceRate != null ? `${stats.acceptanceRate}%` : '—'}
+        />
+        <Stat
+          label="Avg reply"
+          value={stats.avgResponseMinutes != null ? `${stats.avgResponseMinutes} min` : '—'}
+        />
+        <Stat label="Completed" value={stats.completedJobs} />
+        <Stat
+          label="Dropouts"
+          value={stats.dropouts}
+          warn={stats.dropouts > 0}
+        />
+      </div>
+      {stats.shortNoticeDropouts > 0 && (
+        <p style={styles.reliabilityWarn}>
+          {stats.shortNoticeDropouts} dropout{stats.shortNoticeDropouts === 1 ? '' : 's'} within 24
+          hours of the visit.
+        </p>
+      )}
+      <p style={styles.reliabilityEmpty}>
+        Declining an offer is normal. Dropouts are cancellations after accepting.
+      </p>
+    </div>
+  );
+}
+
+function Stat({ label, value, warn }) {
+  return (
+    <div style={styles.statBox}>
+      <div style={{ ...styles.statValue, ...(warn ? styles.statValueWarn : {}) }}>{value}</div>
+      <div style={styles.statLabel}>{label}</div>
+    </div>
+  );
+}
 
 export default function VetDetail() {
   const { id } = useParams();
@@ -110,6 +189,8 @@ function RegistrationCard({ vet, onSaved }) {
 
   return (
     <div className="gm-card" style={styles.card}>
+      <ReliabilityCard vetId={vetId} />
+
       <h3 style={styles.cardTitle}>Registration &amp; ABN</h3>
       <Field label="Registration number"><input value={form.regNumber} onChange={set('regNumber')} style={styles.input} /></Field>
       <Field label="Registration state">
@@ -230,6 +311,13 @@ function Field({ label, children }) {
 }
 
 const styles = {
+  statRow: { display: 'flex', gap: 8, marginBottom: 8 },
+  statBox: { flex: 1, background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '10px 8px', textAlign: 'center', minWidth: 0 },
+  statValue: { fontFamily: 'var(--gm-font-display)', fontSize: 18, fontWeight: 600, color: 'var(--gm-forest-dark)' },
+  statValueWarn: { color: 'var(--gm-brick)' },
+  statLabel: { fontSize: 10, color: 'var(--gm-ink-soft)', marginTop: 2 },
+  reliabilityEmpty: { fontSize: 11, color: 'var(--gm-ink-soft)', fontStyle: 'italic', marginTop: 6 },
+  reliabilityWarn: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 6, fontWeight: 500 },
   page: { padding: '32px 40px', maxWidth: 720 },
   back: { fontSize: 13, color: 'var(--gm-ink-soft)', textDecoration: 'none' },
   headerRow: { display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0 8px' },

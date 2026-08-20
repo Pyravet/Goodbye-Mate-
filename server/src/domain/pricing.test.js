@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billBreakdown, payoutBreakdown, extractGst, suggestTimeCategory } from './pricing.js';
+import { billBreakdown, payoutBreakdown, extractGst, suggestTimeCategory , clientGstSplit } from './pricing.js';
 
 const pricing = {
   services: [
@@ -124,4 +124,40 @@ test('payoutBreakdown: a client discount does not reduce the vet payout', () => 
     { label: 'Goodwill discount', amount: -50, vet_payout: 0 },
   ]);
   assert.equal(payout.total, without);
+});
+
+// --- Client-facing GST ---
+
+test('clientGstSplit: no GST when the business is not registered', () => {
+  const r = clientGstSplit(449, { isGstRegistered: false, gstPercent: 10 });
+  assert.equal(r.gst, 0);
+  assert.equal(r.subtotal, 449);
+  assert.equal(r.total, 449);
+});
+
+test('clientGstSplit: GST is EXTRACTED from an inclusive total, not added', () => {
+  // Prices in settings are what the client pays, so a $550 total must
+  // stay $550 — adding 10% on top would silently raise every price.
+  const r = clientGstSplit(550, { isGstRegistered: true, gstPercent: 10 });
+  assert.equal(r.total, 550);
+  assert.equal(r.gst, 50);
+  assert.equal(r.subtotal, 500);
+});
+
+test('clientGstSplit: components always re-add to the total exactly', () => {
+  for (const amt of [449, 498, 1234.55, 0.05, 987.65]) {
+    const r = clientGstSplit(amt, { isGstRegistered: true, gstPercent: 10 });
+    assert.equal(
+      Math.round((r.subtotal + r.gst) * 100),
+      Math.round(r.total * 100),
+      `must reconcile for ${amt}`
+    );
+  }
+});
+
+test('clientGstSplit: honours a non-default GST rate', () => {
+  const r = clientGstSplit(115, { isGstRegistered: true, gstPercent: 15 });
+  assert.equal(r.total, 115);
+  assert.equal(r.gst, 15);
+  assert.equal(r.subtotal, 100);
 });

@@ -1544,4 +1544,74 @@ router.post('/:id/refund', outboundMessageLimiter, requireAuth, requireRole('adm
   res.json({ ok: true, amount, totalRefunded, fullyRefunded });
 }));
 
+
+/**
+ * GET /jobs/:id/dispatch-debug
+ *
+ * Why did (or didn't) this job get offered to anyone?
+ *
+ * Dispatch silently producing no offer is close to undiagnosable from
+ * the outside: the job simply sits there and the vet sees nothing. This
+ * returns every active vet with their score and the specific reasons,
+ * so "no offers" becomes a readable answer rather than a mystery.
+ */
+router.get('/:id/dispatch-debug', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const vetsWithContext = await getVetsWithContextForJob(job);
+  const declined = job.dispatch_declined_vet_ids || [];
+  const ranked = rankVets(job, vetsWithContext);
+
+  const candidates = ranked.map((r) => {
+    const excludedReasons = [];
+    if (declined.includes(r.vetId)) excludedReasons.push('already declined this job');
+    if (r.score <= -150) excludedReasons.push(`score ${r.score} is below the -150 cutoff`);
+    if (r.conflict) excludedReasons.push('already booked at a clashing time');
+    if (!r.available) excludedReasons.push('not available at this date/time');
+    return {
+      vetId: r.vetId,
+      name: r.name,
+      score: r.score,
+      territory: r.label,
+      available: r.available,
+      conflict: r.conflict,
+      activeJobCount: r.activeJobCount,
+      eligible: excludedReasons.length === 0 || (!declined.includes(r.vetId) && r.score > -150),
+      excludedReasons,
+    };
+  });
+
+  const offerable = ranked.filter((r) => !declined.includes(r.vetId) && r.score > -150);
+
+  res.json({
+    job: {
+      id: job.id,
+      jobNumber: job.job_number,
+      status: job.status,
+      dispatchState: job.dispatch_state,
+      offeredVetId: job.dispatch_offered_vet_id,
+      dispatchExpiresAt: job.dispatch_expires_at,
+      assignedVetId: job.assigned_vet_id,
+      postcode: job.postcode,
+      // No coordinates means territory polygons can't be used at all and
+      // matching falls back to postcodes — a common cause of "nobody
+      // matched" when the address was typed manually.
+      hasCoordinates: job.lat != null && job.lng != null,
+    },
+    activeVetsConsidered: vetsWithContext.length,
+    declinedVetIds: declined,
+    wouldOfferTo: offerable[0]?.name || null,
+    summary: vetsWithContext.length === 0
+      ? 'No active vets exist, so nothing can be offered.'
+      : offerable.length === 0
+        ? 'Every vet was excluded — see excludedReasons below.'
+        : job.dispatch_state === 'accepted'
+          ? 'This job was assigned directly by admin, so it never went through the offer process.'
+          : `${offerable.length} vet(s) could be offered this job.`,
+    candidates,
+  });
+}));
+
 export default router;

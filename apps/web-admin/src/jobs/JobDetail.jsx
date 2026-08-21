@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
@@ -229,6 +229,7 @@ export default function JobDetail() {
                 </p>
               )}
               <AssignVetControl job={job} onAssigned={load} />
+              <DispatchDebug jobId={id} />
             </Card>
 
             <Card title="Notes for the vet">
@@ -384,6 +385,70 @@ function Card({ title, children }) {
     </div>
   );
 }
+/**
+ * Explains why a job was or wasn't offered to anyone.
+ *
+ * Collapsed by default — it's a troubleshooting tool, not part of the
+ * normal flow. Worth having because dispatch producing no offer is
+ * otherwise silent: the job just sits there and the vet sees nothing.
+ */
+function DispatchDebug({ jobId }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setOpen(true);
+    setError('');
+    try {
+      setData(await fetchDispatchDebug(jobId));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button onClick={load} style={styles.debugLink}>
+        Why isn&apos;t this offered to anyone?
+      </button>
+    );
+  }
+
+  return (
+    <div style={styles.debugBox}>
+      {error && <p style={styles.assignError}>{error}</p>}
+      {!data ? (
+        <p style={styles.docHint}>Checking…</p>
+      ) : (
+        <>
+          <p style={styles.debugSummary}>{data.summary}</p>
+          {!data.job.hasCoordinates && (
+            <p style={styles.docHint}>
+              This address has no map coordinates, so drawn territories can&apos;t be used — matching
+              falls back to postcode {data.job.postcode}.
+            </p>
+          )}
+          {data.candidates.map((c) => (
+            <div key={c.vetId} style={styles.debugRow}>
+              <span style={styles.debugName}>{c.name}</span>
+              <span style={styles.debugScore}>{c.score}</span>
+              <span style={styles.debugWhy}>
+                {c.territory}
+                {c.excludedReasons.length > 0 && ` — ${c.excludedReasons.join('; ')}`}
+              </span>
+            </div>
+          ))}
+          {data.candidates.length === 0 && (
+            <p style={styles.docHint}>No active vet accounts found.</p>
+          )}
+        </>
+      )}
+      <button onClick={() => setOpen(false)} style={styles.debugLink}>Hide</button>
+    </div>
+  );
+}
+
 function AssignVetControl({ job, onAssigned }) {
   const [vets, setVets] = useState(null);
   const [selected, setSelected] = useState('');
@@ -734,6 +799,13 @@ const styles = {
   cancelJobBtn: { flex: 1, width: '100%', background: 'var(--gm-brick)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   refundModeRow: { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, marginBottom: 10 },
   cancelledNote: { fontSize: 13, color: 'var(--gm-brick)', marginBottom: 10, fontWeight: 500 },
+  debugLink: { background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 11, textDecoration: 'underline', padding: '8px 0 0', cursor: 'pointer' },
+  debugBox: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--gm-line-soft)' },
+  debugSummary: { fontSize: 12, fontWeight: 500, marginBottom: 8 },
+  debugRow: { display: 'flex', gap: 8, fontSize: 11, padding: '4px 0', borderBottom: '1px solid var(--gm-line-soft)', alignItems: 'baseline' },
+  debugName: { fontWeight: 500, minWidth: 90 },
+  debugScore: { color: 'var(--gm-ink-soft)', minWidth: 30, textAlign: 'right' },
+  debugWhy: { flex: 1, color: 'var(--gm-ink-soft)', lineHeight: 1.4 },
   assignError: { fontSize: 12, color: 'var(--gm-brick)', marginBottom: 8 },
   docItemRow: { display: 'flex', alignItems: 'center', gap: 8 },
   docLabel: { fontSize: 13, fontWeight: 500, flex: 1 },

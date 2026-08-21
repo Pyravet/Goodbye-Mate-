@@ -173,6 +173,12 @@ export async function refundJob(jobId, { amount, reason, manual }) {
   return data;
 }
 
+export async function fetchDispatchDebug(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/dispatch-debug`);
+  if (!res.ok) throw new Error('Could not load dispatch details');
+  return res.json();
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

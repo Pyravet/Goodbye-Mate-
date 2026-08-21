@@ -167,6 +167,26 @@ export async function startOrRollDispatch(jobId) {
       `UPDATE jobs SET dispatch_state = 'unassigned', dispatch_offered_vet_id = NULL, dispatch_expires_at = NULL, updated_at = now() WHERE id = $1`,
       [jobId]
     );
+
+    // Tell admin. A job running out of vets is the single most
+    // time-critical state in the system — a client has a booking nobody
+    // is attending — and it happened SILENTLY: the job simply sat at
+    // 'unassigned' until someone noticed. Every other dispatch outcome
+    // notified somebody; this one, the one that actually needs a human,
+    // did not.
+    notifyAdmins({
+      title: 'No vet available',
+      body: `${job.pet_name} (${job.job_number}) on ${String(job.job_date).slice(0, 10)} `
+        + `at ${String(job.job_time).slice(0, 5)} has no vet — every eligible vet declined or timed out.`,
+      url: `/jobs/${jobId}`,
+      category: 'job',
+    }).catch((e) => console.error('unassigned notify failed:', e.message));
+
+    sendSlackMessage(
+      `⚠️ No vet available for ${job.pet_name} (${job.job_number}) — `
+      + `${String(job.job_date).slice(0, 10)} at ${String(job.job_time).slice(0, 5)}. Needs manual assignment.`
+    ).catch((e) => console.error('unassigned slack failed:', e.message));
+
     return { state: 'unassigned' };
   }
 }

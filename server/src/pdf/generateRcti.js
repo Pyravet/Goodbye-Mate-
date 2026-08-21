@@ -76,8 +76,13 @@ function drawRctiDoc(doc, { job, vet, payout, gst, company }) {
 
   tableY += 50;
   doc.fontSize(8).fillColor(INK_SOFT).text(
-    company.rctiDeclaration ||
-      'This is a recipient created tax invoice (RCTI). Goodbye Mate will retain the original copy of this tax invoice and a copy will be provided to the recipient.',
+    // Fallback wording uses the CONFIGURED company name rather than a
+    // hardcoded one: this is a legal declaration on a tax document, and
+    // naming the wrong entity on it would be a real problem if the
+    // business is ever renamed or the settings hold a trading name.
+    company.rctiDeclaration
+      || `This is a recipient created tax invoice (RCTI). ${company.name || 'The recipient'} `
+         + 'will retain the original copy of this tax invoice and a copy will be provided to the supplier.',
     50,
     tableY,
     { width: 495 }

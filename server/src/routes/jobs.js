@@ -898,15 +898,57 @@ router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyn
  * skips the offer/accept step entirely.
  */
 router.post('/:id/redispatch', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
-  const { rows } = await query('SELECT id, status FROM jobs WHERE id = $1', [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
-  if (rows[0].status === 'cancelled') {
+  const { rows } = await query(
+    'SELECT id, status, assigned_vet_id, dispatch_offered_vet_id, dispatch_state FROM jobs WHERE id = $1',
+    [req.params.id]
+  );
+  const existing = rows[0];
+  if (!existing) return res.status(404).json({ error: 'Job not found' });
+  if (existing.status === 'cancelled') {
     return res.status(409).json({ error: 'This job is cancelled.' });
+  }
+
+  // If someone already holds this job, re-offering must go to a
+  // DIFFERENT vet — otherwise ranking would simply hand it straight back
+  // to the same person, making the action look broken. The current
+  // holder is added to the declined list (which ranking already
+  // excludes) and the assignment cleared so the job is offerable again.
+  const currentVetId = existing.assigned_vet_id
+    || (existing.dispatch_state === 'offered' ? existing.dispatch_offered_vet_id : null);
+
+  if (currentVetId) {
+    await query(
+      `UPDATE jobs
+       SET assigned_vet_id = NULL,
+           status = CASE WHEN status IN ('assigned','in_route') THEN 'available'::job_status ELSE status END,
+           dispatch_declined_vet_ids =
+             CASE WHEN $1 = ANY(dispatch_declined_vet_ids)
+                  THEN dispatch_declined_vet_ids
+                  ELSE array_append(dispatch_declined_vet_ids, $1) END,
+           updated_at = now()
+       WHERE id = $2`,
+      [currentVetId, req.params.id]
+    );
   }
 
   try {
     const dispatch = await startOrRollDispatch(req.params.id);
-    await logAction({ actorUserId: req.user.sub, action: 'job_redispatched', targetType: 'job', targetId: req.params.id, metadata: { state: dispatch?.state } });
+    await logAction({
+      actorUserId: req.user.sub,
+      action: 'job_redispatched',
+      targetType: 'job',
+      targetId: req.params.id,
+      metadata: { state: dispatch?.state, skippedVetId: currentVetId || null },
+    });
+
+    // Say plainly when nobody could be found, rather than returning a
+    // success the UI shows as nothing happening.
+    if (!dispatch || dispatch.state === 'unassigned') {
+      return res.json({
+        dispatch,
+        message: 'No eligible vet could be found for this job — check the dispatch details below.',
+      });
+    }
     res.json({ dispatch });
   } catch (err) {
     console.error('Redispatch failed:', err.message, err.stack);

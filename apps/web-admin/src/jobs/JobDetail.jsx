@@ -249,8 +249,21 @@ export default function JobDetail() {
                 {job.dispatch_state === 'unassigned' && 'No vet available — needs manual assignment.'}
                 {job.dispatch_state === 'none' && 'Not yet dispatched — no vet has been offered this job.'}
               </p>
-              {(job.dispatch_state === 'none' || job.dispatch_state === 'unassigned') && !job.assigned_vet_id && (
-                <RedispatchButton jobId={id} onDone={load} />
+              {/* Always available while the job is live.
+                  This was previously gated to dispatch_state 'none' or
+                  'unassigned' with no assigned vet, which meant that in
+                  every other state — including a stale offer, or a job
+                  where dispatch silently never ran — there was simply NO
+                  way to offer it to anyone. Hiding the only recovery
+                  control precisely when it's needed is the wrong
+                  default; the button now adapts its wording instead. */}
+              {job.status !== 'completed' && job.status !== 'cancelled' && (
+                <RedispatchButton
+                  jobId={id}
+                  dispatchState={job.dispatch_state}
+                  hasVet={!!job.assigned_vet_id}
+                  onDone={load}
+                />
               )}
               {job.en_route_at && (
                 <p style={styles.enRouteNote}>
@@ -422,11 +435,23 @@ function Card({ title, children }) {
  * normal flow. Worth having because dispatch producing no offer is
  * otherwise silent: the job just sits there and the vet sees nothing.
  */
-function RedispatchButton({ jobId, onDone }) {
+function RedispatchButton({ jobId, dispatchState, hasVet, onDone }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // Wording follows the current state so the action is never ambiguous:
+  // re-offering a job that already has a vet is a meaningfully different
+  // decision from offering one nobody has seen.
+  const label = hasVet
+    ? 'Offer to a different vet'
+    : dispatchState === 'offered'
+      ? 'Re-offer (skip current vet)'
+      : 'Offer to vets now';
+
   const run = async () => {
+    if (hasVet && !window.confirm(
+      'This job already has a vet. Offering it again will look for another vet — continue?'
+    )) return;
     setBusy(true);
     setError('');
     try {
@@ -443,7 +468,7 @@ function RedispatchButton({ jobId, onDone }) {
     <>
       {error && <p style={styles.assignError}>{error}</p>}
       <button onClick={run} disabled={busy} style={styles.assignBtn}>
-        {busy ? 'Offering…' : 'Offer to vets now'}
+        {busy ? 'Offering…' : label}
       </button>
     </>
   );

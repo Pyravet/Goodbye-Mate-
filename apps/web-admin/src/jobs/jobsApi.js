@@ -183,6 +183,9 @@ export async function redispatchJob(jobId) {
   const res = await apiFetch(`/jobs/${jobId}/redispatch`, { method: 'POST' });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Dispatch failed');
+  // The server returns a message when it succeeded but found nobody —
+  // surfacing that as an error is clearer than a silent no-op.
+  if (data.message) throw new Error(data.message);
   return data.dispatch;
 }
 

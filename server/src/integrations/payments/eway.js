@@ -130,7 +130,8 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
     },
   };
 
-  const res = await fetch(`${ewayBase()}/Transaction`, {
+  const chargeUrl = `${ewayBase()}/Transaction`;
+  const res = await fetch(chargeUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -148,7 +149,19 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
   // Card details are never in this body (they were encrypted in the
   // browser), so there's nothing sensitive to leak.
   if (!success) {
-    console.error('eWay charge failed. HTTP', res.status, 'body:', JSON.stringify(data));
+    // Log the URL too. A 404 means we're posting to a path eWay doesn't
+    // serve, and without seeing the resolved URL there's no way to tell
+    // a wrong EWAY_ENDPOINT from a credentials problem. The URL contains
+    // no secrets — auth is a header.
+    console.error('eWay charge failed. HTTP', res.status, 'URL:', chargeUrl, 'body:', JSON.stringify(data));
+
+    if (res.status === 404) {
+      console.error(
+        'eWay 404: EWAY_ENDPOINT is wrong. It must be the Rapid API host — '
+        + 'https://api.sandbox.ewaypayments.com (sandbox) or https://api.ewaypayments.com (live). '
+        + 'A Rapid 3.1 style path such as /CreateAccessCode.json will 404 here.'
+      );
+    }
   }
 
   // eWay returns TransactionStatus: true/false regardless of HTTP status —
@@ -158,7 +171,12 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
     transactionId: data.TransactionID || null,
     responseMessage: success
       ? (data.ResponseMessage || 'Approved')
-      : describeEwayResult(data),
+      // A 404 is a configuration fault, not a declined card, and saying
+      // "declined" would send admin chasing the client for another card
+      // when nothing is wrong with the one they gave.
+      : res.status === 404
+        ? 'Payment gateway not reachable at the configured address — EWAY_ENDPOINT is wrong. No card was charged.'
+        : describeEwayResult(data),
     raw: data,
   };
 }

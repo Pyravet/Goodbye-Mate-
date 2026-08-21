@@ -309,7 +309,17 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
 
   if (!result.success) {
     await logAction({ actorUserId: null, action: 'payment_failed', targetType: 'job', targetId: job.id, metadata: { responseMessage: result.responseMessage, source: 'client_journey' } });
-    return res.status(402).json({ error: 'Payment declined', message: result.responseMessage });
+    // Only call it a DECLINE when the bank actually declined. A
+    // misconfigured gateway reported as "card declined" sends admin
+    // chasing the client for another card when their card was fine and
+    // was never even presented.
+    const isConfigFault = /EWAY_ENDPOINT|not reachable|credentials|could not be decrypted/i
+      .test(result.responseMessage || '');
+    return res.status(isConfigFault ? 503 : 402).json({
+      error: isConfigFault ? 'Payment could not be processed' : 'Payment declined',
+      message: result.responseMessage,
+      declined: !isConfigFault,
+    });
   }
 
   await query(`UPDATE jobs SET payment_status = 'paid', payment_reference = $1, updated_at = now() WHERE id = $2`, [result.transactionId, job.id]);

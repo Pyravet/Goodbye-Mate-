@@ -1004,7 +1004,21 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandle
         ...smsDateVars(job),
       }).catch((err) => console.error('Vet-assigned SMS (to vet) failed:', err.message));
     }
-    if (isTemplateConfigured('clientVetAssignedGeneric')) {
+    // Prefer the PERSONALISED template, which names the attending vet.
+    // It falls back to the generic wording only because
+    // clientVetAssignedNamed has no flowId configured yet — so as soon
+    // as that flow exists in MSG91, clients start getting the vet's name
+    // with no code change. Previously the generic version was the ONLY
+    // path, which is why the client was told a vet was assigned without
+    // being told who.
+    if (isTemplateConfigured('clientVetAssignedNamed')) {
+      sendTemplatedSms(job.client_phone, 'clientVetAssignedNamed', {
+        client_name: job.client_name,
+        vet_name: vetUser?.full_name || 'your vet',
+        pet_name: job.pet_name,
+        ...smsDateVars(job),
+      }).catch((err) => console.error('Vet-assigned SMS (named, to client) failed:', err.message));
+    } else if (isTemplateConfigured('clientVetAssignedGeneric')) {
       sendTemplatedSms(job.client_phone, 'clientVetAssignedGeneric', {}).catch(
         (err) => console.error('Vet-assigned SMS (to client) failed:', err.message)
       );

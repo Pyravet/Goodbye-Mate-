@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import { fetchJourney, submitConsent, submitPayment, submitReview, API_URL } from './api.js';
 import SignaturePad from './SignaturePad.jsx';
-import { formatTime, formatMoney } from '@goodbye-mate/web-shared/src/format.js';
+import { formatTime, formatMoney, formatExpiry } from '@goodbye-mate/web-shared/src/format.js';
 
 const SERVICE_LABELS = {
   euthanasia_only: 'Euthanasia visit',
@@ -227,6 +227,21 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
       setError('Payment form is still loading — try again in a moment.');
       return;
     }
+    // eWay's Client Side Encryption key is a long RSA public key (~400+
+    // characters). The eWay *API key* (epk-XXXX-...) is a different
+    // credential entirely and cannot encrypt anything — passing it here
+    // produces the cryptic "message too long for RSA", because the
+    // library derives a tiny modulus from it and any card number
+    // overflows. Checking the length turns that into an answer.
+    if (!publicKey || publicKey.length < 100) {
+      setError(
+        'Card payments are not configured correctly: the eWay Client Side Encryption key is missing '
+        + 'or is an API key rather than an encryption key. It should be a long block of characters, '
+        + 'not "epk-...". Get it from eWay under My Account > API Key > Client Side Encryption.'
+      );
+      setSubmitting(false);
+      return;
+    }
     const [expiryMonth, expiryYear] = expiry.split('/');
     if (!expiryMonth || !expiryYear) {
       setError('Enter expiry as MM/YY.');
@@ -281,7 +296,16 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
           <div style={styles.row}>
             <label style={{ ...styles.label, flex: 1 }}>
               Expiry (MM/YY)
-              <input value={expiry} onChange={(e) => setExpiry(e.target.value)} inputMode="numeric" placeholder="12/28" autoComplete="cc-exp" required style={styles.input} />
+              <input
+                value={expiry}
+                onChange={(e) => setExpiry(formatExpiry(e.target.value))}
+                inputMode="numeric"
+                placeholder="MM/YY"
+                autoComplete="cc-exp"
+                maxLength={5}
+                required
+                style={styles.input}
+              />
             </label>
             <label style={{ ...styles.label, flex: 1 }}>
               CVN

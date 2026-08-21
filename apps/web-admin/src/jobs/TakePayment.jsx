@@ -1,13 +1,9 @@
 import { useState } from 'react';
+import { formatExpiry } from '@goodbye-mate/web-shared/src/format.js';
 import { chargeJob } from './jobsApi.js';
 
 const PUBLIC_API_KEY = import.meta.env.VITE_EWAY_PUBLIC_API_KEY;
 
-function formatExpiry(value) {
-  const digits = value.replace(/\D/g, '').slice(0, 4);
-  if (digits.length <= 2) return digits;
-  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-}
 
 export default function TakePayment({ jobId, amount, onSuccess }) {
   const [cardName, setCardName] = useState('');
@@ -32,6 +28,21 @@ export default function TakePayment({ jobId, amount, onSuccess }) {
       return;
     }
 
+    // eWay's Client Side Encryption key is a long RSA public key (~400+
+    // characters). The eWay *API key* (epk-XXXX-...) is a different
+    // credential entirely and cannot encrypt anything — passing it here
+    // produces the cryptic "message too long for RSA", because the
+    // library derives a tiny modulus from it and any card number
+    // overflows. Checking the length turns that into an answer.
+    if (!PUBLIC_API_KEY || PUBLIC_API_KEY.length < 100) {
+      setError(
+        'Card payments are not configured correctly: the eWay Client Side Encryption key is missing '
+        + 'or is an API key rather than an encryption key. It should be a long block of characters, '
+        + 'not "epk-...". Get it from eWay under My Account > API Key > Client Side Encryption.'
+      );
+      setSubmitting(false);
+      return;
+    }
     const [expiryMonth, expiryYear] = expiry.split('/');
     if (!expiryMonth || !expiryYear) {
       setError('Enter expiry as MM/YY.');

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { verifyEmailConnection, sendEmail } from '../integrations/email/smtp.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 
 const router = Router();
@@ -208,6 +209,44 @@ router.delete('/content/resources/:id', requireAuth, requireRole('admin'), async
   await query('DELETE FROM client_resources WHERE id = $1', [req.params.id]);
   await logAction({ actorUserId: req.user.sub, action: 'client_resource_removed', targetType: 'client_resource', targetId: req.params.id });
   res.json({ ok: true });
+}));
+
+
+/**
+ * Email diagnostics. Admin only — the response includes the SMTP host,
+ * username and the provider's raw error, which is exactly what you'd
+ * want when configuring it and exactly what shouldn't be public.
+ */
+router.get('/email/verify', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const result = await verifyEmailConnection();
+  res.json(result);
+}));
+
+/** Send a real test email, so delivery is proven end to end. */
+router.post('/email/test', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const to = (req.body?.to || '').trim();
+  if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+    return res.status(400).json({ error: 'Enter a valid email address to send the test to.' });
+  }
+
+  const check = await verifyEmailConnection();
+  if (!check.ok) return res.status(503).json({ error: check.error });
+
+  try {
+    const info = await sendEmail({
+      to,
+      subject: 'Goodbye Mate — test email',
+      html: '<p>This is a test from your Goodbye Mate admin settings.</p>'
+        + '<p>If you can read this, outgoing email is working: quotes, invoices, '
+        + 'veterinary records and client journey links will all send.</p>',
+    });
+    await logAction({ actorUserId: req.user.sub, action: 'email_test_sent', targetType: 'settings', targetId: null, metadata: { to } });
+    res.json({ ok: true, to, messageId: info?.messageId || null });
+  } catch (err) {
+    // Surface the provider's message rather than a generic failure —
+    // "550 relay denied" and "535 auth failed" need different fixes.
+    res.status(502).json({ error: err.message });
+  }
 }));
 
 export default router;

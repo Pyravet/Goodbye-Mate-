@@ -71,3 +71,20 @@ export async function removeBrochurePdf(kind) {
   if (!res.ok) throw new Error('Failed to remove brochure');
   return res.json();
 }
+
+/** Check the SMTP connection and credentials without sending anything. */
+export async function verifyEmail() {
+  const res = await apiFetch('/settings/email/verify');
+  return res.json();
+}
+
+/** Send a real test email to prove delivery end to end. */
+export async function sendTestEmail(to) {
+  const res = await apiFetch('/settings/email/test', {
+    method: 'POST',
+    body: JSON.stringify({ to }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not send the test email');
+  return data;
+}

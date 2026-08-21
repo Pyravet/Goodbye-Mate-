@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
+import { verifyEmail, sendTestEmail, fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
 
 const TEXT_FIELDS = [
   { key: 'consentTemplate', label: 'Consent form text' },
@@ -74,6 +74,10 @@ export default function ContentTab() {
           </Field>
         ))}
         <p style={styles.hint}>Use placeholders like {'{petName}'}, {'{date}'}, {'{time}'}, {'{vetName}'}, {'{crematorium}'} — these get filled in automatically.</p>
+      </Card>
+
+      <Card title="Email delivery">
+        <EmailDiagnostics />
       </Card>
 
       <Card title="Public request form">
@@ -168,6 +172,92 @@ export default function ContentTab() {
   );
 }
 
+/**
+ * Two-step email check.
+ *
+ * "Check connection" verifies the SMTP handshake and login without
+ * sending, which distinguishes a bad password or blocked port from a
+ * delivery problem. "Send test email" then proves the whole path.
+ * Both surface the provider's own error, because "535 auth failed" and
+ * "550 relay denied" need completely different fixes and a generic
+ * failure message tells you nothing.
+ */
+function EmailDiagnostics() {
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState(null);
+  const [to, setTo] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState(null);
+
+  const check = async () => {
+    setChecking(true);
+    setResult(null);
+    try {
+      setResult(await verifyEmail());
+    } catch (err) {
+      setResult({ ok: false, error: err.message });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const test = async () => {
+    setSending(true);
+    setSendResult(null);
+    try {
+      const r = await sendTestEmail(to.trim());
+      setSendResult({ ok: true, to: r.to });
+    } catch (err) {
+      setSendResult({ ok: false, error: err.message });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <>
+      <p style={styles.hint}>
+        Outgoing email sends quotes, invoices, veterinary records and client journey links.
+        Check it here if any of those aren't arriving.
+      </p>
+
+      <button onClick={check} disabled={checking} style={styles.emailBtn}>
+        {checking ? 'Checking…' : 'Check connection'}
+      </button>
+
+      {result && (
+        <div style={result.ok ? styles.emailOk : styles.emailBad}>
+          {result.ok
+            ? `Connected to ${result.host}:${result.port} as ${result.user}.`
+            : `Failed: ${result.error}`}
+          {!result.ok && result.host && (
+            <div style={styles.hint}>Tried {result.host}:{result.port} as {result.user}</div>
+          )}
+        </div>
+      )}
+
+      <div style={styles.emailTestRow}>
+        <input
+          type="email"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          placeholder="you@example.com"
+          style={{ ...styles.input, marginBottom: 0 }}
+        />
+        <button onClick={test} disabled={sending || !to.trim()} style={styles.emailBtn}>
+          {sending ? 'Sending…' : 'Send test email'}
+        </button>
+      </div>
+
+      {sendResult && (
+        <div style={sendResult.ok ? styles.emailOk : styles.emailBad}>
+          {sendResult.ok ? `Sent to ${sendResult.to} — check the inbox (and spam).` : sendResult.error}
+        </div>
+      )}
+    </>
+  );
+}
+
 function BrochureUploader({ kind, label }) {
   const [doc, setDoc] = useState(undefined); // undefined = loading, null = none, object = present
   const [busy, setBusy] = useState(false);
@@ -247,6 +337,10 @@ function Field({ label, children }) {
 }
 
 const styles = {
+  emailBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px 16px', fontSize: 13, fontWeight: 500, flexShrink: 0 },
+  emailTestRow: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 },
+  emailOk: { fontSize: 12, color: 'var(--gm-forest)', background: '#E3E9E1', padding: '9px 11px', borderRadius: 'var(--gm-radius-sm)', marginTop: 10, lineHeight: 1.5 },
+  emailBad: { fontSize: 12, color: 'var(--gm-brick)', background: 'var(--gm-brick-soft)', padding: '9px 11px', borderRadius: 'var(--gm-radius-sm)', marginTop: 10, lineHeight: 1.5, wordBreak: 'break-word' },
   input: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff', fontFamily: 'inherit' },
   hint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic' },
   saveBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },

@@ -5,7 +5,7 @@ import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
-import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst } from '../domain/pricing.js';
+import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';

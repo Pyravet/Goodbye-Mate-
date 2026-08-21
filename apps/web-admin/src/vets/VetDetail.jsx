@@ -189,7 +189,7 @@ function RegistrationCard({ vet, onSaved }) {
 
   return (
     <div className="gm-card" style={styles.card}>
-      <ReliabilityCard vetId={vetId} />
+      <ReliabilityCard vetId={vet.id} />
 
       <h3 style={styles.cardTitle}>Registration &amp; ABN</h3>
       <Field label="Registration number"><input value={form.regNumber} onChange={set('regNumber')} style={styles.input} /></Field>

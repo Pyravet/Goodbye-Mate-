@@ -205,15 +205,18 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
 
   await logAction({ actorUserId: req.user.sub, action: 'job_created', targetType: 'job', targetId: job.id, metadata: { jobNumber: job.job_number } });
 
-  if (isMsg91Configured() && isTemplateConfigured('bookingReceived')) {
-    sendTemplatedSms(job.client_phone, 'bookingReceived', {
-      client_name: job.client_name,
-      pet_name: job.pet_name,
-      ...smsDateVars(job),
-    }).catch((err) => console.error('Booking-received SMS failed:', err.message));
-  }
-
-  sendJourneyLink(job).catch((err) => console.error('Journey link send failed:', err.message));
+  // NOTHING is sent to the client at booking time.
+  //
+  // A booking isn't real until a vet has accepted it: the time can move,
+  // and the job can end up uncovered entirely. Texting "your booking is
+  // confirmed" before anyone has agreed to attend sets an expectation
+  // the business may not be able to meet, to someone who has just
+  // decided to put their pet down. It also can't name the attending vet,
+  // because there isn't one yet.
+  //
+  // The client is contacted once a vet ACCEPTS (see the accept route),
+  // and admin can send the journey link manually at any point from the
+  // job page if they want it out earlier.
 
   // Kick off auto-dispatch immediately.
   //
@@ -249,7 +252,16 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     const myVetId = await getVetIdForUser(req.user.sub);
     if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
     params.push(myVetId);
-    conditions.push(`(assigned_vet_id = $${params.length} OR (dispatch_offered_vet_id = $${params.length} AND dispatch_state = 'offered'))`);
+    // Offers now live in vet_job_offers (one row per vet), so matching
+    // on the single dispatch_offered_vet_id column would hide jobs a vet
+    // was genuinely offered alongside others.
+    conditions.push(
+      `(assigned_vet_id = $${params.length} OR EXISTS (
+         SELECT 1 FROM vet_job_offers o
+         WHERE o.job_id = jobs.id AND o.vet_id = $${params.length}
+           AND o.outcome IN ('offered', 'proposed')
+       ))`
+    );
   }
 
   // "Today" must mean today in AUSTRALIA, not on the database server.
@@ -273,6 +285,28 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await query(`SELECT * FROM jobs ${where} ORDER BY job_date, job_time`, params);
+
+  // Strip client PII from jobs a vet has only been OFFERED.
+  //
+  // Offering one job to five vets meant handing the client's name,
+  // phone, email and street address to four people who will never
+  // attend. They need enough to judge the job — suburb, timing, pet,
+  // payout — not who the client is or where they live. Full details
+  // appear as soon as they accept.
+  if (req.user.role === 'vet') {
+    const myVetId = await getVetIdForUser(req.user.sub);
+    const safe = rows.map((job) => {
+      if (job.assigned_vet_id === myVetId) return job;
+      const {
+        client_name, client_phone, client_email, address,
+        client_token, medical_notes, admin_notes, consent_signature_name,
+        ...rest
+      } = job;
+      return { ...rest, isOffer: true };
+    });
+    return res.json({ jobs: safe });
+  }
+
   res.json({ jobs: rows });
 }));
 
@@ -318,8 +352,52 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   if (req.user.role === 'vet') {
     const myVetId = await getVetIdForUser(req.user.sub);
     const job = rows[0];
-    const isMine = job.assigned_vet_id === myVetId || (job.dispatch_offered_vet_id === myVetId && job.dispatch_state === 'offered');
-    if (!isMine) return res.status(403).json({ error: 'Forbidden' });
+
+    // Checking dispatch_offered_vet_id alone only ever recognised ONE
+    // vet, so with multi-vet offers a vet legitimately offered a job was
+    // refused access to it. Access is granted if they hold the job OR
+    // have a live offer row for it.
+    const { rows: offerRows } = await query(
+      `SELECT 1 FROM vet_job_offers
+       WHERE job_id = $1 AND vet_id = $2 AND outcome IN ('offered', 'proposed') LIMIT 1`,
+      [req.params.id, myVetId]
+    );
+    const holdsJob = job.assigned_vet_id === myVetId;
+    const hasOffer = offerRows.length > 0;
+    if (!holdsJob && !hasOffer) return res.status(403).json({ error: 'Forbidden' });
+
+    // A vet deciding whether to ACCEPT doesn't need the client's name,
+    // phone, email or exact street address — only enough to judge the
+    // job (suburb, timing, pet, payout). Withholding it until they
+    // commit limits how much personal data is exposed by broadcasting a
+    // job to several vets, most of whom will never attend.
+    if (!holdsJob) {
+      const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+      const items = await getLineItems(job.id);
+      return res.json({
+        job: {
+          id: job.id,
+          job_number: job.job_number,
+          job_date: job.job_date,
+          job_time: job.job_time,
+          suburb: job.suburb,
+          postcode: job.postcode,
+          state: job.state,
+          pet_name: job.pet_name,
+          pet_type: job.pet_type,
+          pet_breed: job.pet_breed,
+          pet_weight: job.pet_weight,
+          pet_age: job.pet_age,
+          pet_behaviour: job.pet_behaviour,
+          service_type: job.service_type,
+          time_category: job.time_category,
+          notes: job.notes,
+          status: job.status,
+          isOffer: true,
+        },
+        payout: payoutBreakdown(job, pricingRows[0].config, items),
+      });
+    }
   }
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
@@ -1170,6 +1248,13 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandle
         (err) => console.error('Vet-assigned SMS (to client) failed:', err.message)
       );
     }
+
+    // The journey link goes out HERE, not at booking. This is the first
+    // moment the booking is real — a vet has agreed to attend — so it's
+    // also the first point at which asking the client for consent and
+    // payment is appropriate. Sending it earlier would have asked them
+    // to pay for a visit nobody had committed to.
+    sendJourneyLink(job).catch((err) => console.error('Journey link send failed:', err.message));
   }
 
   res.json({ job: rows[0] });
@@ -1182,12 +1267,15 @@ router.post('/:id/dispatch/decline', requireAuth, requireRole('vet'), asyncHandl
 
   const { rows } = await query(
     `UPDATE jobs SET dispatch_declined_vet_ids = array_append(dispatch_declined_vet_ids, $1), updated_at = now()
-     WHERE id = $2 AND dispatch_offered_vet_id = $1 AND dispatch_state = 'offered'
+     WHERE id = $2 AND EXISTS (
+       SELECT 1 FROM vet_job_offers o
+       WHERE o.job_id = $2 AND o.vet_id = $1 AND o.outcome IN ('offered', 'proposed')
+     )
      RETURNING id`,
     [vetId, req.params.id]
   );
   if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
-  await recordOfferOutcome(req.params.id, myVetId, 'declined', req.body?.reason);
+  await recordOfferOutcome(req.params.id, vetId, 'declined', req.body?.reason);
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_declined', targetType: 'job', targetId: req.params.id });
   const dispatch = await startOrRollDispatch(req.params.id);

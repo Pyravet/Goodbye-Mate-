@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
@@ -179,6 +179,14 @@ export default function JobDetail() {
             <Card title="Task checklist">
               {actionError && <p style={styles.assignError}>{actionError}</p>}
               <TaskRow label="Vet assigned" done={!!job.assigned_vet_id} />
+              {job.consent_signed && (
+                <button
+                  onClick={() => openConsentPdf(id, job.job_number).catch((e) => setActionError(e.message))}
+                  style={styles.consentBtn}
+                >
+                  Download signed consent
+                </button>
+              )}
               <TaskRow label="Consent signed" done={job.consent_signed}
                 action={!job.consent_signed && <ActionBtn onClick={() => doAction(`/jobs/${id}/consent-signed`, { method: 'POST' })} busy={busy}>Mark signed</ActionBtn>} />
               <TaskRow label="Payment received" done={job.payment_status === 'paid'}
@@ -873,6 +881,7 @@ const styles = {
   completeBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   completeError: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   completedNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12 },
+  consentBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '8px', fontSize: 12, fontWeight: 500, marginBottom: 10 },
   editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },
   contactLink: { display: 'block', color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none', padding: '3px 0' },

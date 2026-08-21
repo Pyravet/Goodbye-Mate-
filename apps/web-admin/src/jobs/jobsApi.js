@@ -222,6 +222,10 @@ export async function acceptProposal(jobId, offerId) {
   return data.job;
 }
 
+export async function openConsentPdf(jobId, jobNumber) {
+  return downloadPdf(`/jobs/${jobId}/consent.pdf`, `Consent-${jobNumber}.pdf`);
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

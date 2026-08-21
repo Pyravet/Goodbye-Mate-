@@ -206,9 +206,19 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
         {expanded && (
           <>
             <p style={styles.bodyText}>{content.consentTemplate}</p>
-            <p style={styles.reviewHint}>You signed this. A copy is held with your booking.</p>
+            <p style={styles.reviewHint}>
+              You signed this. A copy was emailed to you, and is available here at any time.
+            </p>
           </>
         )}
+        <a
+          href={`${API_URL}/public/journey/${token}/consent.pdf`}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.pdfLink}
+        >
+          📄 Download signed consent
+        </a>
       </>
     );
   }
@@ -233,6 +243,23 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
       <p style={styles.bodyText}>{content.consentTemplate}</p>
       <form onSubmit={onSubmit}>
         {error && <p style={styles.errorText}>{error}</p>}
+        {/* Who will actually attend, and under what registration. A
+            client signing consent for this is entitled to know exactly
+            who is carrying it out — a name alone doesn't establish that
+            they're a registered vet. */}
+        {content.vet && (
+          <div style={styles.vetBox}>
+            <div style={styles.vetLabel}>Your attending veterinarian</div>
+            <div style={styles.vetName}>{content.vet.fullName}</div>
+            {content.vet.regNumber && (
+              <div style={styles.vetMeta}>
+                Veterinary registration no. {content.vet.regNumber}
+                {content.vet.regState ? ` (${content.vet.regState})` : ''}
+              </div>
+            )}
+          </div>
+        )}
+
         <label style={styles.label}>Sign here</label>
         <SignaturePad onChange={setSignature} />
         <label style={styles.label}>
@@ -594,6 +621,10 @@ const styles = {
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: 600, margin: 0 },
   sectionTick: { color: 'var(--gm-forest)', fontSize: 16, fontWeight: 700 },
+  vetBox: { background: 'var(--gm-line-soft)', borderRadius: 'var(--gm-radius-sm)', padding: '12px 14px', marginBottom: 16 },
+  vetLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', marginBottom: 4 },
+  vetName: { fontSize: 16, fontWeight: 600, color: 'var(--gm-ink)' },
+  vetMeta: { fontSize: 12, color: 'var(--gm-ink-soft)', marginTop: 3 },
   bodyText: { fontSize: 14, color: 'var(--gm-ink)', lineHeight: 1.6, marginBottom: 16 },
   label: { display: 'block', fontSize: 12, color: 'var(--gm-ink-soft)', marginBottom: 14 },
   input: { display: 'block', width: '100%', marginTop: 6, padding: '10px 11px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 15, background: '#fff' },

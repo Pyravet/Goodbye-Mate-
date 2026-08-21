@@ -10,6 +10,8 @@ import { asyncHandler } from '../middleware/asyncHandler.js';
 import { billBreakdown, clientGstSplit } from '../domain/pricing.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { generateInvoicePdf } from '../pdf/generateInvoice.js';
+import { generateConsentPdf, generateConsentPdfBuffer, consentFilename } from '../pdf/generateConsent.js';
+import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { logAction } from '../audit/log.js';
 
 const router = Router();
@@ -62,6 +64,43 @@ async function billForJob(job) {
   return billBreakdown(job, pricingRows[0].config, lineItems);
 }
 
+/**
+ * Everything the consent PDF needs: the job, the FULL vet details, the
+ * company, the exact consent wording shown, and the signature image.
+ *
+ * The consent wording is rebuilt from the same template and placeholder
+ * substitution the client saw, so the document records what they
+ * actually agreed to rather than a paraphrase.
+ */
+async function loadConsentContext(jobId) {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+  const job = rows[0];
+  if (!job) return null;
+
+  let vet = {};
+  let vetName = null;
+  if (job.assigned_vet_id) {
+    const { rows: vetRows } = await query(
+      `SELECT u.full_name, u.email, u.phone, v.abn, v.reg_number, v.reg_state
+       FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [job.assigned_vet_id]
+    );
+    vet = vetRows[0] || {};
+    vetName = vet.full_name || null;
+  }
+
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const content = contentRows[0].config;
+
+  return {
+    job,
+    vet,
+    company: content.company || {},
+    consentText: fillPlaceholders(content.consentTemplate, job, vetName),
+    signatureImage: job.consent_signature_image || null,
+  };
+}
+
 async function loadJobByToken(token) {
   const { rows } = await query('SELECT * FROM jobs WHERE client_token = $1', [token]);
   return rows[0] || null;
@@ -78,14 +117,29 @@ router.get('/:token', asyncHandler(async (req, res) => {
 
   const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
 
-  // Assigned vet's name, for {vetName} in the client-facing copy.
+  // The attending vet's details. The consent screen shows the FULL set —
+  // name, registration number and state — not just a name: a client
+  // signing consent for a procedure this serious is entitled to know
+  // exactly who will carry it out and under what registration.
   let vetName = null;
+  let vetDetails = null;
   if (job.assigned_vet_id) {
     const { rows: vetRows } = await query(
-      'SELECT u.full_name FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+      `SELECT u.full_name, v.reg_number, v.reg_state, v.abn
+       FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
       [job.assigned_vet_id]
     );
-    vetName = vetRows[0]?.full_name || null;
+    if (vetRows[0]) {
+      vetName = vetRows[0].full_name;
+      // Phone and email are deliberately NOT included: the client
+      // contacts the practice, not the contractor directly.
+      vetDetails = {
+        fullName: vetRows[0].full_name,
+        regNumber: vetRows[0].reg_number,
+        regState: vetRows[0].reg_state,
+        abn: vetRows[0].abn,
+      };
+    }
   }
   const content = contentRows[0].config;
   const bill = await billForJob(job);
@@ -142,6 +196,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
       consentTemplate: fillPlaceholders(content.consentTemplate, job, vetName),
       brochure,
       brochurePdf,
+      vet: vetDetails,
       resources: resourceRows.map((r) => ({
         id: r.id,
         title: r.title,
@@ -184,6 +239,36 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
     [parsed.data.signatureName, signatureBuffer, job.id]
   );
   await logAction({ actorUserId: null, action: 'consent_signed_by_client', targetType: 'job', targetId: job.id, metadata: { signatureName: parsed.data.signatureName } });
+
+  // Distribute the signed consent. Fire-and-forget: the consent is
+  // already recorded, and an email failure must not make the client
+  // think their submission didn't work.
+  (async () => {
+    const ctx = await loadConsentContext(job.id);
+    if (!ctx || !isEmailConfigured()) return;
+
+    const pdf = await generateConsentPdfBuffer(ctx);
+    const filename = consentFilename(ctx.job);
+
+    // One copy each to the client, the attending vet and the practice.
+    // Deduplicated, because admin and the practice address are often
+    // the same mailbox and nobody wants it twice.
+    const recipients = [...new Set([
+      ctx.job.client_email,
+      ctx.vet.email,
+      process.env.EMAIL_USER,
+    ].filter(Boolean))];
+
+    for (const to of recipients) {
+      await sendEmail({
+        to,
+        subject: `Signed consent — ${ctx.job.pet_name} (${ctx.job.job_number})`,
+        html: `<p>The consent form for ${ctx.job.pet_name} has been signed by `
+          + `${ctx.job.client_name}.</p><p>A copy is attached for your records.</p>`,
+        attachments: [{ filename, content: pdf }],
+      }).catch((err) => console.error(`Consent copy to ${to} failed:`, err.message));
+    }
+  })().catch((err) => console.error('Consent distribution failed:', err.message));
 
   res.json({ ok: true });
 }));
@@ -285,6 +370,25 @@ router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
       ? { ...split, ratePercent: Number(gstPricing[0].config?.gstPercent) || 10 }
       : null,
   });
+}));
+
+/**
+ * GET /:token/consent.pdf — the client's own signed consent.
+ *
+ * Gated on it actually being signed: a blank consent form isn't a
+ * record of anything.
+ */
+router.get('/:token/consent.pdf', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (!job.consent_signed) {
+    return res.status(409).json({ error: 'Consent has not been signed yet.' });
+  }
+
+  const ctx = await loadConsentContext(job.id);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(ctx.job)}"`);
+  generateConsentPdf({ res, ...ctx });
 }));
 
 // Serves the uploaded brochure PDF for this job's cremation type, if one

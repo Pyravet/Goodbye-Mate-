@@ -14,6 +14,7 @@ import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
 import { generateVetRecordPdf, generateVetRecordPdfBuffer, vetRecordFilename } from '../pdf/generateVetRecord.js';
+import { generateConsentPdf, consentFilename } from '../pdf/generateConsent.js';
 import { generateInvoicePdf, generateInvoicePdfBuffer, invoiceFilename } from '../pdf/generateInvoice.js';
 import { chargeCard, isEwayConfigured, refundTransaction } from '../integrations/payments/eway.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
@@ -2242,6 +2243,44 @@ router.post('/:id/offer/:offerId/accept-proposal', requireAuth, requireRole('adm
   sendJourneyLink(rows[0]).catch((e) => console.error('journey link failed:', e.message));
 
   res.json({ job: rows[0] });
+}));
+
+/**
+ * GET /jobs/:id/consent.pdf — the signed consent, for admin or the
+ * assigned vet. Same document the client receives.
+ */
+router.get('/:id/consent.pdf', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!(await canAccessRecord(req, job))) return res.status(403).json({ error: 'Not your job' });
+  if (!job.consent_signed) return res.status(409).json({ error: 'Consent has not been signed yet.' });
+
+  let vet = {};
+  let vetName = null;
+  if (job.assigned_vet_id) {
+    const { rows: vetRows } = await query(
+      `SELECT u.full_name, u.email, u.phone, v.abn, v.reg_number, v.reg_state
+       FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1`,
+      [job.assigned_vet_id]
+    );
+    vet = vetRows[0] || {};
+    vetName = vet.full_name || null;
+  }
+
+  const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
+  const content = contentRows[0].config;
+  const consentText = (content.consentTemplate || '')
+    .replaceAll('{vetName}', vetName || 'your vet')
+    .replaceAll('{petName}', job.pet_name || '')
+    .replaceAll('{clientName}', job.client_name || '');
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(job)}"`);
+  generateConsentPdf({
+    res, job, vet, company: content.company || {},
+    consentText, signatureImage: job.consent_signature_image || null,
+  });
 }));
 
 export default router;

@@ -276,6 +276,41 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   res.json({ jobs: rows });
 }));
 
+// MUST precede '/:id' — Express matches in declaration order, so
+// "offers" would otherwise be read as a job id and 404.
+/**
+ * GET /jobs/offers/mine — a vet's live offers.
+ *
+ * Kept as its own endpoint rather than folded into the jobs list so the
+ * vet app can show offers as a distinct area: an offer is a decision to
+ * make, not a job they hold, and mixing the two buries it.
+ */
+router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+  const myVetId = await getVetIdForUser(req.user.sub);
+  if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
+
+  const { rows } = await query(
+    `SELECT o.id AS offer_id, o.outcome, o.expires_at, o.offered_at,
+            o.proposed_date, o.proposed_time, o.proposal_note,
+            j.id, j.job_number, j.pet_name, j.pet_type, j.pet_breed, j.pet_weight,
+            j.suburb, j.postcode, j.state, j.address,
+            j.job_date, j.job_time, j.service_type, j.notes, j.status,
+            j.assigned_vet_id
+     FROM vet_job_offers o
+     JOIN jobs j ON j.id = o.job_id
+     WHERE o.vet_id = $1
+       AND o.outcome IN ('offered', 'proposed')
+       AND j.status NOT IN ('completed', 'cancelled')
+       -- Someone else accepting ends the offer for everyone; without
+       -- this the losers would keep seeing a job that's already gone.
+       AND j.assigned_vet_id IS NULL
+       AND (o.expires_at IS NULL OR o.expires_at > now())
+     ORDER BY j.job_date, j.job_time`,
+    [myVetId]
+  );
+  res.json({ offers: rows });
+}));
+
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
@@ -1064,14 +1099,38 @@ router.post('/:id/dispatch/accept', requireAuth, requireRole('vet'), asyncHandle
   const vetId = await getVetIdForUser(req.user.sub);
   if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
 
+  // Accept is valid if this vet holds a LIVE offer row — the old check
+  // against dispatch_offered_vet_id only ever recognised one vet, so a
+  // job offered to several could not be accepted by anyone but the last
+  // one written to that column.
+  //
+  // `assigned_vet_id IS NULL` makes this the race guard: when several
+  // vets tap Accept at once, exactly one UPDATE matches and the rest
+  // return no rows and are told the job has gone.
   const { rows } = await query(
-    `UPDATE jobs SET assigned_vet_id = $1, status = 'assigned', dispatch_state = 'accepted', dispatch_expires_at = NULL, updated_at = now()
-     WHERE id = $2 AND dispatch_offered_vet_id = $1 AND dispatch_state = 'offered'
+    `UPDATE jobs SET assigned_vet_id = $1, status = 'assigned', dispatch_state = 'accepted',
+       dispatch_offered_vet_id = $1, dispatch_expires_at = NULL, updated_at = now()
+     WHERE id = $2
+       AND assigned_vet_id IS NULL
+       AND status NOT IN ('completed', 'cancelled')
+       AND EXISTS (
+         SELECT 1 FROM vet_job_offers o
+         WHERE o.job_id = $2 AND o.vet_id = $1 AND o.outcome IN ('offered', 'proposed')
+       )
      RETURNING *`,
     [vetId, req.params.id]
   );
-  if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer available to you' });
-  await recordOfferOutcome(req.params.id, myVetId, 'accepted');
+  if (!rows[0]) {
+    return res.status(409).json({ error: 'This job has already been taken, or the offer has expired.' });
+  }
+  await recordOfferOutcome(req.params.id, vetId, 'accepted');
+  // Everyone else's offer is now dead — close them so the job stops
+  // showing in their list.
+  await query(
+    `UPDATE vet_job_offers SET outcome = 'withdrawn', responded_at = now()
+     WHERE job_id = $1 AND vet_id <> $2 AND outcome IN ('offered', 'proposed')`,
+    [req.params.id, vetId]
+  );
 
   await logAction({ actorUserId: req.user.sub, action: 'dispatch_accepted', targetType: 'job', targetId: req.params.id });
 
@@ -1714,6 +1773,165 @@ router.get('/:id/dispatch-debug', requireAuth, requireRole('admin'), asyncHandle
           : `${offerable.length} vet(s) could be offered this job.`,
     candidates,
   });
+}));
+
+
+// --- Offers to one or more vets ---
+
+const offerSchema = z.object({
+  vetIds: z.array(z.string().uuid()).min(1, 'Choose at least one vet.'),
+  expiryMinutes: z.number().int().min(5).max(1440).optional(),
+});
+
+/**
+ * POST /jobs/:id/offer — offer a job to one or several vets at once.
+ *
+ * Unlike auto-dispatch, which offers to the single best-ranked vet and
+ * rolls onward, this puts the job in front of everyone chosen
+ * simultaneously and the first to accept takes it. That's faster when a
+ * job needs covering, and it stops a job being invisible to vets who
+ * could have taken it.
+ */
+router.post('/:id/offer', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = offerSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid offer' });
+  }
+
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status === 'cancelled') return res.status(409).json({ error: 'This job is cancelled.' });
+  if (job.assigned_vet_id) {
+    return res.status(409).json({ error: 'A vet has already accepted this job. Reassign instead.' });
+  }
+
+  const minutes = parsed.data.expiryMinutes ?? Number(process.env.DISPATCH_TIMEOUT_MINUTES || 30);
+  const expiresAt = new Date(Date.now() + minutes * 60 * 1000);
+
+  const { rows: vets } = await query(
+    `SELECT v.id, u.id AS user_id, u.full_name, u.is_active
+     FROM vets v JOIN users u ON u.id = v.user_id
+     WHERE v.id = ANY($1::uuid[]) AND u.is_active = true`,
+    [parsed.data.vetIds]
+  );
+  if (vets.length === 0) {
+    return res.status(400).json({ error: 'None of those vets are available.' });
+  }
+
+  for (const vet of vets) {
+    // Supersede any live offer to this vet for this job rather than
+    // stacking duplicates, so "offers" always means one row per vet.
+    await query(
+      `UPDATE vet_job_offers SET outcome = 'withdrawn', responded_at = now()
+       WHERE job_id = $1 AND vet_id = $2 AND outcome IN ('offered', 'proposed')`,
+      [req.params.id, vet.id]
+    );
+    await query(
+      `INSERT INTO vet_job_offers (job_id, vet_id, outcome, expires_at)
+       VALUES ($1, $2, 'offered', $3)`,
+      [req.params.id, vet.id, expiresAt]
+    );
+
+    notifyUser(vet.user_id, {
+      title: 'New job offer',
+      body: `${job.pet_name} in ${job.suburb || job.postcode} on ${job.job_date} at ${job.job_time}.`,
+      url: `/offers`,
+      category: 'job',
+    }).catch((e) => console.error('offer notify failed:', e.message));
+  }
+
+  await query(
+    `UPDATE jobs SET dispatch_state = 'offered', dispatch_expires_at = $1, updated_at = now()
+     WHERE id = $2`,
+    [expiresAt, req.params.id]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'job_offered_to_vets',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { vetCount: vets.length, expiresAt },
+  });
+
+  res.json({ ok: true, offeredTo: vets.map((v) => v.full_name), expiresAt });
+}));
+
+
+const proposeSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a date.'),
+  time: z.string().regex(/^\d{2}:\d{2}$/, 'Choose a time.'),
+  note: z.string().trim().max(500).optional().nullable(),
+});
+
+/**
+ * POST /jobs/:id/offer/propose-time
+ *
+ * A vet who can't make the requested time can suggest another instead of
+ * declining outright. Deliberately does NOT change the booking: the
+ * client may have arranged family around the original time, so admin has
+ * to agree it with them first. The offer stays live so the vet can still
+ * be given it if the client accepts.
+ */
+router.post('/:id/offer/propose-time', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
+  const parsed = proposeSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid proposal' });
+  }
+  const myVetId = await getVetIdForUser(req.user.sub);
+  if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
+
+  const { rows } = await query(
+    `UPDATE vet_job_offers
+     SET outcome = 'proposed', responded_at = now(),
+         response_seconds = EXTRACT(EPOCH FROM (now() - offered_at))::int,
+         proposed_date = $1, proposed_time = $2, proposal_note = $3
+     WHERE job_id = $4 AND vet_id = $5 AND outcome IN ('offered', 'proposed')
+     RETURNING id`,
+    [parsed.data.date, parsed.data.time, parsed.data.note || null, req.params.id, myVetId]
+  );
+  if (!rows[0]) return res.status(409).json({ error: 'This offer is no longer open.' });
+
+  const { rows: jobRows } = await query('SELECT job_number, pet_name FROM jobs WHERE id = $1', [req.params.id]);
+  const { rows: meRows } = await query('SELECT full_name FROM users WHERE id = $1', [req.user.sub]);
+
+  notifyAdmins({
+    title: 'Vet proposed a different time',
+    body: `${meRows[0]?.full_name} can do ${jobRows[0]?.pet_name} (${jobRows[0]?.job_number}) on `
+      + `${parsed.data.date} at ${parsed.data.time}`
+      + `${parsed.data.note ? ` — ${parsed.data.note}` : ''}`,
+    url: `/jobs/${req.params.id}`,
+    category: 'job',
+  }).catch((e) => console.error('proposal notify failed:', e.message));
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'offer_time_proposed',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { date: parsed.data.date, time: parsed.data.time },
+  });
+
+  res.json({ ok: true });
+}));
+
+/**
+ * GET /jobs/:id/offer-status — who was offered this job and what they said.
+ */
+router.get('/:id/offer-status', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT o.outcome, o.offered_at, o.responded_at, o.expires_at,
+            o.proposed_date, o.proposed_time, o.proposal_note,
+            u.full_name AS vet_name, v.id AS vet_id
+     FROM vet_job_offers o
+     JOIN vets v ON v.id = o.vet_id
+     JOIN users u ON u.id = v.user_id
+     WHERE o.job_id = $1
+     ORDER BY o.offered_at DESC`,
+    [req.params.id]
+  );
+  res.json({ offers: rows });
 }));
 
 export default router;

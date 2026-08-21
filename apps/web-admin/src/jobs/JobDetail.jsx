@@ -208,8 +208,35 @@ export default function JobDetail() {
               {job.status === 'completed' && <p style={styles.completedNote}>This job is complete.</p>}
             </Card>
 
+            {/* The client's contact details were never shown anywhere on
+                this page — only their name, in the subtitle. Admin had no
+                way to see the phone number or email while looking at a
+                job, which is the single most-needed thing when handling
+                one. Phone and email are click-to-call / click-to-mail. */}
+            <Card title="Client">
+              <p style={styles.clientName}>{job.client_name}</p>
+              {job.client_phone ? (
+                <a href={`tel:${job.client_phone}`} style={styles.contactLink}>{job.client_phone}</a>
+              ) : (
+                <p style={styles.docHint}>No phone number on file.</p>
+              )}
+              {job.client_email ? (
+                <a href={`mailto:${job.client_email}`} style={styles.contactLink}>{job.client_email}</a>
+              ) : (
+                <p style={styles.docHint}>
+                  No email on file — quotes, invoices and the client journey link can&apos;t be
+                  emailed without one.
+                </p>
+              )}
+            </Card>
+
             <Card title="Address">
               <p style={styles.plain}>{job.address}</p>
+              {(job.suburb || job.postcode) && (
+                <p style={styles.plain}>
+                  {[job.suburb, job.state, job.postcode].filter(Boolean).join(' ')}
+                </p>
+              )}
               {job.notes && <p style={styles.notes}>{job.notes}</p>}
             </Card>
           </div>
@@ -771,6 +798,8 @@ const styles = {
   completeBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   completeError: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   completedNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12 },
+  clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },
+  contactLink: { display: 'block', color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none', padding: '3px 0' },
   plain: { fontSize: 14, margin: 0 },
   enRouteNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 10, lineHeight: 1.5 },
   notes: { fontSize: 13, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },

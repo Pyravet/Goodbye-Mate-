@@ -29,6 +29,10 @@ export default function JourneyPage() {
   const [aftercareAck, setAftercareAck] = useState(false);
   const [paymentSkipped, setPaymentSkipped] = useState(false);
   const [localRating, setLocalRating] = useState(null);
+  // Completed steps collapse to a tick. Clients want to look back at
+  // what they consented to or what they were charged, so a collapsed
+  // step can be reopened rather than being gone for good.
+  const [expandedStep, setExpandedStep] = useState(null);
 
   const load = () => {
     setState('loading');
@@ -91,16 +95,37 @@ export default function JourneyPage() {
         return (
           <section key={s.key} className="gm-card" style={{ ...styles.card, ...(isActive ? {} : styles.cardCollapsed) }}>
             {s.key === 'welcome' && (
-              <WelcomeSection content={content} isActive={isActive} onContinue={() => setWelcomeAck(true)} />
+              <WelcomeSection
+                content={content}
+                isActive={isActive}
+                expanded={expandedStep === 'welcome'}
+                onToggle={() => setExpandedStep(expandedStep === 'welcome' ? null : 'welcome')}
+                onContinue={() => setWelcomeAck(true)}
+              />
             )}
             {s.key === 'consent' && (
-              <ConsentSection token={token} content={content} job={job} isActive={isActive} onSigned={onConsentSigned} />
+              <ConsentSection
+                token={token} content={content} job={job} isActive={isActive}
+                onSigned={onConsentSigned}
+                expanded={expandedStep === 'consent'}
+                onToggle={() => setExpandedStep(expandedStep === 'consent' ? null : 'consent')}
+              />
             )}
             {s.key === 'payment' && (
-              <PaymentSection token={token} bill={bill} job={job} eway={eway} isActive={isActive} onPaid={onPaid} onSkip={() => setPaymentSkipped(true)} />
+              <PaymentSection
+                token={token} bill={bill} job={job} eway={eway} isActive={isActive}
+                onPaid={onPaid} onSkip={() => setPaymentSkipped(true)}
+                expanded={expandedStep === 'payment'}
+                onToggle={() => setExpandedStep(expandedStep === 'payment' ? null : 'payment')}
+              />
             )}
             {s.key === 'aftercare' && (
-              <AftercareSection token={token} content={content} isActive={isActive} onContinue={() => setAftercareAck(true)} />
+              <AftercareSection
+                token={token} content={content} isActive={isActive}
+                onContinue={() => setAftercareAck(true)}
+                expanded={expandedStep === 'aftercare'}
+                onToggle={() => setExpandedStep(expandedStep === 'aftercare' ? null : 'aftercare')}
+              />
             )}
             {s.key === 'review' && (
               <ReviewSection token={token} isActive={isActive} rating={reviewRating} onRated={setLocalRating} />
@@ -127,7 +152,20 @@ function Centered({ children }) {
   return <div style={styles.centeredWrap}>{children}</div>;
 }
 
-function SectionHeader({ label, done }) {
+function SectionHeader({ label, done, onToggle, expanded }) {
+  // Completed steps become a button so they can be reopened; the active
+  // step stays a plain heading, since there's nothing to toggle.
+  if (done && onToggle) {
+    return (
+      <button type="button" onClick={onToggle} style={styles.sectionHeaderBtn}>
+        <h3 style={styles.sectionTitle}>{label}</h3>
+        <span style={styles.headerRight}>
+          <span style={styles.reviewHint}>{expanded ? 'Hide' : 'View'}</span>
+          <span style={styles.sectionTick}>✓</span>
+        </span>
+      </button>
+    );
+  }
   return (
     <div style={styles.sectionHeader}>
       <h3 style={styles.sectionTitle}>{label}</h3>
@@ -136,8 +174,15 @@ function SectionHeader({ label, done }) {
   );
 }
 
-function WelcomeSection({ content, isActive, onContinue }) {
-  if (!isActive) return <SectionHeader label="About your visit" done />;
+function WelcomeSection({ content, isActive, onContinue, expanded, onToggle }) {
+  if (!isActive) {
+    return (
+      <>
+        <SectionHeader label="About your visit" done onToggle={onToggle} expanded={expanded} />
+        {expanded && <p style={styles.bodyText}>{content.educationalIntro}</p>}
+      </>
+    );
+  }
   return (
     <>
       <SectionHeader label="About your visit" done={false} />
@@ -147,14 +192,26 @@ function WelcomeSection({ content, isActive, onContinue }) {
   );
 }
 
-function ConsentSection({ token, content, job, isActive, onSigned }) {
+function ConsentSection({ token, content, job, isActive, onSigned, expanded, onToggle }) {
   const [name, setName] = useState('');
   const [agree, setAgree] = useState(false);
   const [signature, setSignature] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  if (job.consentSigned && !isActive) return <SectionHeader label="Consent" done />;
+  if (job.consentSigned && !isActive) {
+    return (
+      <>
+        <SectionHeader label="Consent" done onToggle={onToggle} expanded={expanded} />
+        {expanded && (
+          <>
+            <p style={styles.bodyText}>{content.consentTemplate}</p>
+            <p style={styles.reviewHint}>You signed this. A copy is held with your booking.</p>
+          </>
+        )}
+      </>
+    );
+  }
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -194,7 +251,7 @@ function ConsentSection({ token, content, job, isActive, onSigned }) {
   );
 }
 
-function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
+function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expanded, onToggle }) {
   const [cardName, setCardName] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
@@ -209,7 +266,17 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
   if (done && !isActive) {
     return (
       <>
-        <SectionHeader label="Payment" done />
+        <SectionHeader label="Payment" done onToggle={onToggle} expanded={expanded} />
+        {expanded && (
+          <div style={styles.billBox}>
+            {bill.lines.map((l, i) => (
+              <div key={i} style={styles.billLine}><span>{l.label}</span><span>{formatMoney(l.amount)}</span></div>
+            ))}
+            <div style={{ ...styles.billLine, ...styles.billTotal }}>
+              <span>Paid</span><span>{formatMoney(bill.total)}</span>
+            </div>
+          </div>
+        )}
         <a href={`${API_URL}/public/journey/${token}/receipt.pdf`} target="_blank" rel="noreferrer" style={styles.pdfLink}>
           📄 Download receipt
         </a>
@@ -321,8 +388,24 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip }) {
   );
 }
 
-function AftercareSection({ token, content, isActive, onContinue }) {
-  if (!isActive) return <SectionHeader label="Aftercare" done />;
+function AftercareSection({ token, content, isActive, onContinue, expanded, onToggle }) {
+  if (!isActive) {
+    return (
+      <>
+        <SectionHeader label="Aftercare" done onToggle={onToggle} expanded={expanded} />
+        {expanded && (
+          <>
+            <p style={styles.bodyText}>{content.brochure}</p>
+            {content.brochurePdf && (
+              <a href={`${API_URL}/public/journey/${token}/brochure.pdf`} target="_blank" rel="noreferrer" style={styles.pdfLink}>
+                📄 View brochure (PDF)
+              </a>
+            )}
+          </>
+        )}
+      </>
+    );
+  }
   return (
     <>
       <SectionHeader label="Aftercare" done={false} />
@@ -505,6 +588,9 @@ const styles = {
   trackerLabelActive: { color: 'var(--gm-ink)', fontWeight: 600 },
   card: { padding: 18, marginBottom: 14 },
   cardCollapsed: { padding: '12px 18px' },
+  sectionHeaderBtn: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' },
+  headerRight: { display: 'flex', alignItems: 'center', gap: 8 },
+  reviewHint: { fontSize: 11, color: 'var(--gm-ink-soft)' },
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: 600, margin: 0 },
   sectionTick: { color: 'var(--gm-forest)', fontSize: 16, fontWeight: 700 },

@@ -72,10 +72,15 @@ const EWAY_CODES = {
 function describeEwayResult(data) {
   // Errors can arrive as a comma-separated string or an array.
   const raw = data?.Errors ?? data?.ResponseCode ?? data?.ResponseMessage ?? '';
-  const codes = String(Array.isArray(raw) ? raw.join(',') : raw)
-    .split(',')
-    .map((c) => c.trim())
-    .filter(Boolean);
+  // Deduplicated: eWay repeats a code when the same field fails more
+  // than one check, which surfaced as "Invalid card expiry month.
+  // Invalid card expiry month." and read like two separate problems.
+  const codes = [...new Set(
+    String(Array.isArray(raw) ? raw.join(',') : raw)
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean)
+  )];
 
   const described = codes.map((c) => EWAY_CODES[c] || c);
   if (described.length > 0) return described.join(' ');

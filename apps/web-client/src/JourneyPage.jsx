@@ -336,9 +336,19 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expa
       setSubmitting(false);
       return;
     }
-    const [expiryMonth, expiryYear] = expiry.split('/');
-    if (!expiryMonth || !expiryYear) {
+    const [rawMonth, rawYear] = expiry.split('/');
+    if (!rawMonth || !rawYear) {
       setError('Enter expiry as MM/YY.');
+      return;
+    }
+    // eWay wants a zero-padded 2-digit month and a 2-digit year. A month
+    // typed as "1" rather than "01", or a year pasted as "2028", is
+    // rejected as an invalid expiry even though what the person entered
+    // was perfectly valid — so normalise rather than blame the input.
+    const expiryMonth = String(rawMonth).trim().padStart(2, '0');
+    const expiryYear = String(rawYear).trim().slice(-2);
+    if (!/^(0[1-9]|1[0-2])$/.test(expiryMonth)) {
+      setError('That expiry month doesn\u2019t look right — use MM/YY, e.g. 03/29.');
       return;
     }
 
@@ -346,8 +356,14 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expa
     try {
       const encryptedCard = {
         number: window.eCrypt.encryptValue(cardNumber.replace(/\s/g, ''), publicKey),
-        expiryMonth: window.eCrypt.encryptValue(expiryMonth, publicKey),
-        expiryYear: window.eCrypt.encryptValue(expiryYear, publicKey),
+        // eWay's Client Side Encryption encrypts the CARD NUMBER and CVN
+        // ONLY. Expiry month and year must be sent as plain values —
+        // encrypting them makes eWay unable to read them, which it
+        // reports as "Invalid card expiry month/year" even when the
+        // expiry entered was perfectly valid. The sensitive fields are
+        // still never sent in the clear.
+        expiryMonth,
+        expiryYear,
         cvn: window.eCrypt.encryptValue(cvn, publicKey),
       };
       await submitPayment(token, encryptedCard);

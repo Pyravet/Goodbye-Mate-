@@ -257,7 +257,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
     // on the single dispatch_offered_vet_id column would hide jobs a vet
     // was genuinely offered alongside others.
     conditions.push(
-      `(assigned_vet_id = $${params.length} OR EXISTS (
+      `(jobs.assigned_vet_id = $${params.length} OR EXISTS (
          SELECT 1 FROM vet_job_offers o
          WHERE o.job_id = jobs.id AND o.vet_id = $${params.length}
            AND o.outcome IN ('offered', 'proposed')
@@ -271,21 +271,33 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   // date — a job booked for today sat in "Upcoming" until ~10am AEST.
   // BUSINESS_TZ centralises this so the three views can't drift apart.
   if (view === 'today') {
-    conditions.push(`job_date = (now() AT TIME ZONE '${BUSINESS_TZ}')::date`);
+    conditions.push(`jobs.job_date = (now() AT TIME ZONE '${BUSINESS_TZ}')::date`);
   } else if (view === 'upcoming') {
-    conditions.push(`job_date > (now() AT TIME ZONE '${BUSINESS_TZ}')::date AND status NOT IN ('completed','cancelled')`);
+    conditions.push(`jobs.job_date > (now() AT TIME ZONE '${BUSINESS_TZ}')::date AND jobs.status NOT IN ('completed','cancelled')`);
   } else if (view === 'past') {
-    conditions.push(`(job_date < (now() AT TIME ZONE '${BUSINESS_TZ}')::date OR status IN ('completed','cancelled'))`);
+    conditions.push(`(jobs.job_date < (now() AT TIME ZONE '${BUSINESS_TZ}')::date OR jobs.status IN ('completed','cancelled'))`);
   }
   // 'board' (or no view param) = everything the conditions above already allow.
 
   if (search) {
     params.push(`%${search}%`);
-    conditions.push(`(client_name ILIKE $${params.length} OR pet_name ILIKE $${params.length} OR suburb ILIKE $${params.length} OR job_number ILIKE $${params.length})`);
+    conditions.push(`(jobs.client_name ILIKE $${params.length} OR jobs.pet_name ILIKE $${params.length} OR jobs.suburb ILIKE $${params.length} OR jobs.job_number ILIKE $${params.length})`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const { rows } = await query(`SELECT * FROM jobs ${where} ORDER BY job_date, job_time`, params);
+  // Join the vet's name in. The list previously returned only
+  // assigned_vet_id (a UUID), so every screen showing a job — the board,
+  // the calendar — could show WHETHER a vet was assigned but never WHO,
+  // which is the thing admin actually needs at a glance.
+  const { rows } = await query(
+    `SELECT jobs.*, u.full_name AS vet_name
+     FROM jobs
+     LEFT JOIN vets v ON v.id = jobs.assigned_vet_id
+     LEFT JOIN users u ON u.id = v.user_id
+     ${where}
+     ORDER BY jobs.job_date, jobs.job_time`,
+    params
+  );
 
   // Strip client PII from jobs a vet has only been OFFERED.
   //

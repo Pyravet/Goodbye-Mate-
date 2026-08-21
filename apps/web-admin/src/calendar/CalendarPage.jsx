@@ -13,6 +13,24 @@ const STATUS_COLOR = {
   cancelled: '#C9C2B4',
 };
 
+const STATUS_LABEL = {
+  available: 'Needs a vet',
+  assigned: 'Assigned',
+  in_route: 'On the way',
+  started: 'In progress',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+const STATUS_BADGE = {
+  available: 'gm-badge--brick',
+  assigned: 'gm-badge--forest',
+  in_route: 'gm-badge--forest',
+  started: 'gm-badge--honey',
+  completed: '',
+  cancelled: 'gm-badge--brick',
+};
+
 
 function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -23,6 +41,9 @@ export default function CalendarPage() {
   const [anchor, setAnchor] = useState(new Date()); // any date within the visible period
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Which day's jobs are listed underneath. Defaults to today so the
+  // screen is useful the moment it opens rather than after a click.
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
 
   useEffect(() => {
     fetchJobs('board').then(setJobs).catch(() => setJobs([])).finally(() => setLoading(false));
@@ -65,16 +86,25 @@ export default function CalendarPage() {
         {loading ? (
           <p style={{ color: 'var(--gm-ink-soft)', fontSize: 13 }}>Loading…</p>
         ) : view === 'month' ? (
-          <MonthView anchor={anchor} jobsByDate={jobsByDate} />
+          <MonthView
+            anchor={anchor}
+            jobsByDate={jobsByDate}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+          />
         ) : (
           <WeekView anchor={anchor} jobsByDate={jobsByDate} />
+        )}
+
+        {!loading && view === 'month' && (
+          <DayList date={selectedDate} jobs={jobsByDate[selectedDate] || []} />
         )}
       </div>
     </AppShell>
   );
 }
 
-function MonthView({ anchor, jobsByDate }) {
+function MonthView({ anchor, jobsByDate, selectedDate, onSelectDate }) {
   const year = anchor.getFullYear();
   const month = anchor.getMonth();
   const firstOfMonth = new Date(year, month, 1);
@@ -100,13 +130,23 @@ function MonthView({ anchor, jobsByDate }) {
           const dayJobs = jobsByDate[key] || [];
           const isToday = key === today;
           return (
-            <div key={i} className="gm-cal-day" style={{ ...styles.dayCell, ...(isToday ? styles.dayCellToday : {}) }}>
+            <div
+              key={i}
+              className="gm-cal-day"
+              onClick={() => onSelectDate(key)}
+              style={{
+                ...styles.dayCell,
+                ...(isToday ? styles.dayCellToday : {}),
+                ...(key === selectedDate ? styles.dayCellSelected : {}),
+              }}
+            >
               <div style={styles.dayNumber}>{date.getDate()}</div>
               <div style={styles.dayJobs}>
                 {dayJobs.slice(0, 3).map((j) => (
                   <Link key={j.id} to={`/jobs/${j.id}`} style={styles.jobChip}>
                     <span style={{ ...styles.jobDot, background: STATUS_COLOR[j.status] }} />
                     {formatTime(j.job_time)} {j.pet_name}
+                    {j.vet_name && <span style={styles.chipVet}> · {j.vet_name.split(' ')[0]}</span>}
                   </Link>
                 ))}
                 {dayJobs.length > 3 && <div style={styles.moreLabel}>+{dayJobs.length - 3} more</div>}
@@ -115,6 +155,65 @@ function MonthView({ anchor, jobsByDate }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The day's jobs, listed in full beneath the grid.
+ *
+ * A month cell can only hold a couple of truncated chips, so the
+ * calendar showed THAT something was booked without showing what: no
+ * vet, no location, no client. This lists the selected day properly —
+ * including who is attending and which state, since a nationwide roster
+ * makes "3pm" ambiguous without knowing the timezone it's in.
+ */
+function DayList({ date, jobs }) {
+  const label = new Date(`${date}T00:00:00`).toLocaleDateString('en-AU', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+
+  return (
+    <div style={styles.dayListWrap}>
+      <h2 style={styles.dayListTitle}>{label}</h2>
+
+      {jobs.length === 0 ? (
+        <p style={styles.dayListEmpty}>Nothing booked on this day.</p>
+      ) : (
+        jobs.map((j) => (
+          <Link key={j.id} to={`/jobs/${j.id}`} className="gm-card" style={styles.dayRow}>
+            <div style={styles.dayTime}>
+              {formatTime(j.job_time)}
+              {j.job_time_end && (
+                <span style={styles.dayTimeEnd}>–{formatTime(j.job_time_end)}</span>
+              )}
+            </div>
+
+            <div style={styles.dayMain}>
+              <div style={styles.dayPet}>
+                {j.pet_name}
+                <span style={styles.dayClient}> · {j.client_name}</span>
+              </div>
+              <div style={styles.dayMeta}>
+                {/* State is shown explicitly: with vets across multiple
+                    states, a bare time is ambiguous. */}
+                {[j.suburb, j.state, j.postcode].filter(Boolean).join(' ')}
+              </div>
+              <div style={styles.dayVet}>
+                {j.vet_name
+                  ? `Vet: ${j.vet_name}`
+                  : j.dispatch_state === 'offered'
+                    ? 'Offered — awaiting a vet'
+                    : 'No vet assigned yet'}
+              </div>
+            </div>
+
+            <span className={`gm-badge ${STATUS_BADGE[j.status] || ''}`}>
+              {STATUS_LABEL[j.status] || j.status}
+            </span>
+          </Link>
+        ))
+      )}
     </div>
   );
 }
@@ -169,6 +268,19 @@ function WeekView({ anchor, jobsByDate }) {
 }
 
 const styles = {
+  dayCellSelected: { outline: '2px solid var(--gm-forest)', outlineOffset: -2 },
+  chipVet: { opacity: 0.75 },
+  dayListWrap: { marginTop: 24 },
+  dayListTitle: { fontFamily: 'var(--gm-font-display)', fontSize: 18, fontWeight: 600, marginBottom: 12 },
+  dayListEmpty: { fontSize: 13, color: 'var(--gm-ink-soft)' },
+  dayRow: { display: 'flex', alignItems: 'flex-start', gap: 14, padding: 14, marginBottom: 8, textDecoration: 'none', color: 'inherit' },
+  dayTime: { fontFamily: 'var(--gm-font-display)', fontSize: 15, fontWeight: 600, minWidth: 92, flexShrink: 0 },
+  dayTimeEnd: { fontSize: 12, color: 'var(--gm-ink-soft)', fontWeight: 400 },
+  dayMain: { flex: 1, minWidth: 0 },
+  dayPet: { fontSize: 15, fontWeight: 600 },
+  dayClient: { fontWeight: 400, color: 'var(--gm-ink-soft)', fontSize: 13 },
+  dayMeta: { fontSize: 12, color: 'var(--gm-ink-soft)', marginTop: 2 },
+  dayVet: { fontSize: 12, color: 'var(--gm-forest)', marginTop: 3, fontWeight: 500 },
   page: { padding: '32px 40px', maxWidth: 1100 },
   headerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 },
   title: { fontSize: 26 },

@@ -132,10 +132,16 @@ export async function startOrRollDispatch(jobId) {
     // overwritten as soon as the offer moves on, so without this a
     // decline or timeout leaves no trace and reliability can't be
     // measured at all.
-    await query(
+    //
+    // Deliberately NOT awaited into the failure path: reliability
+    // reporting is secondary, and if this insert fails (missing table,
+    // constraint, anything) it must not take down the offer itself.
+    // The UPDATE above has already committed, so throwing here would
+    // leave a job offered but the request erroring - the worst of both.
+    query(
       `INSERT INTO vet_job_offers (job_id, vet_id, outcome) VALUES ($1, $2, 'offered')`,
       [jobId, next.vetId]
-    );
+    ).catch((e) => console.error('Could not record offer history:', e.message));
 
     // Notify the vet on their phone — this is the actual moment a job
     // offer needs to reach someone in the field, not just sit in a list.
@@ -210,7 +216,19 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
   sendJourneyLink(job).catch((err) => console.error('Journey link send failed:', err.message));
 
   // Kick off auto-dispatch immediately.
-  const dispatch = await startOrRollDispatch(job.id);
+  //
+  // Wrapped because the job is ALREADY saved by this point. An
+  // unhandled throw here returns a 500 to admin while leaving a real
+  // booking in the database with no offer made and no error surfaced
+  // anywhere — which presents exactly as "the booking exists but no vet
+  // ever sees it". Returning the failure lets admin see and retry.
+  let dispatch;
+  try {
+    dispatch = await startOrRollDispatch(job.id);
+  } catch (err) {
+    console.error('Dispatch failed for new job:', job.job_number, err.message, err.stack);
+    dispatch = { state: 'error', message: err.message };
+  }
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
@@ -868,6 +886,34 @@ router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyn
   await query('DELETE FROM job_line_items WHERE id = $1 AND job_id = $2', [req.params.itemId, req.params.id]);
   await logAction({ actorUserId: req.user.sub, action: 'line_item_removed', targetType: 'job', targetId: req.params.id });
   res.json({ ok: true });
+}));
+
+/**
+ * Re-run dispatch on a job that was never successfully offered.
+ *
+ * Needed because dispatch can fail after the job is saved (and now
+ * fails soft rather than erroring the whole request), leaving a real
+ * booking sitting at dispatch_state 'none' with no vet ever seeing it.
+ * Without this the only remedy was assigning someone manually, which
+ * skips the offer/accept step entirely.
+ */
+router.post('/:id/redispatch', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT id, status FROM jobs WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  if (rows[0].status === 'cancelled') {
+    return res.status(409).json({ error: 'This job is cancelled.' });
+  }
+
+  try {
+    const dispatch = await startOrRollDispatch(req.params.id);
+    await logAction({ actorUserId: req.user.sub, action: 'job_redispatched', targetType: 'job', targetId: req.params.id, metadata: { state: dispatch?.state } });
+    res.json({ dispatch });
+  } catch (err) {
+    console.error('Redispatch failed:', err.message, err.stack);
+    // Surface the real reason — this endpoint exists precisely because
+    // dispatch failures were invisible.
+    res.status(500).json({ error: `Dispatch failed: ${err.message}` });
+  }
 }));
 
 router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {

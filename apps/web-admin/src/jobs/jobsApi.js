@@ -179,6 +179,13 @@ export async function fetchDispatchDebug(jobId) {
   return res.json();
 }
 
+export async function redispatchJob(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/redispatch`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Dispatch failed');
+  return data.dispatch;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
@@ -247,8 +247,11 @@ export default function JobDetail() {
                 {job.dispatch_state === 'offered' && 'Offer sent, awaiting vet response.'}
                 {job.dispatch_state === 'accepted' && 'Vet confirmed.'}
                 {job.dispatch_state === 'unassigned' && 'No vet available — needs manual assignment.'}
-                {job.dispatch_state === 'none' && 'Not yet dispatched.'}
+                {job.dispatch_state === 'none' && 'Not yet dispatched — no vet has been offered this job.'}
               </p>
+              {(job.dispatch_state === 'none' || job.dispatch_state === 'unassigned') && !job.assigned_vet_id && (
+                <RedispatchButton jobId={id} onDone={load} />
+              )}
               {job.en_route_at && (
                 <p style={styles.enRouteNote}>
                   🚗 Vet notified the client they're on the way at {new Date(job.en_route_at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}
@@ -419,6 +422,33 @@ function Card({ title, children }) {
  * normal flow. Worth having because dispatch producing no offer is
  * otherwise silent: the job just sits there and the vet sees nothing.
  */
+function RedispatchButton({ jobId, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await redispatchJob(jobId);
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {error && <p style={styles.assignError}>{error}</p>}
+      <button onClick={run} disabled={busy} style={styles.assignBtn}>
+        {busy ? 'Offering…' : 'Offer to vets now'}
+      </button>
+    </>
+  );
+}
+
 function DispatchDebug({ jobId }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);

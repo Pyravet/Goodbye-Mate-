@@ -23,7 +23,10 @@ export default function JobsList() {
     return () => clearInterval(interval);
   }, [load]);
 
-  const offers = jobs.filter((j) => j.dispatch_state === 'offered');
+  // Offers live on their own Offers screen now. Filtering them OUT here
+  // avoids showing the same decision in two places, where one copy can
+  // go stale after the vet acts on the other.
+  const offers = [];
   const assigned = jobs
     .filter((j) => j.assigned_vet_id && j.status !== 'completed' && j.status !== 'cancelled')
     .sort((a, b) => (a.job_date + a.job_time).localeCompare(b.job_date + b.job_time));

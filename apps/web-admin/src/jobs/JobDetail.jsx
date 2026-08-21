@@ -4,6 +4,7 @@ import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
 import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
+import OfferControl from './OfferControl.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
 import { fetchVets } from '../vets/vetsApi.js';
@@ -257,6 +258,10 @@ export default function JobDetail() {
                   way to offer it to anyone. Hiding the only recovery
                   control precisely when it's needed is the wrong
                   default; the button now adapts its wording instead. */}
+              {job.status !== 'completed' && job.status !== 'cancelled' && !job.assigned_vet_id && (
+                <OfferControl job={job} onChanged={load} />
+              )}
+
               {job.status !== 'completed' && job.status !== 'cancelled' && (
                 <RedispatchButton
                   jobId={id}

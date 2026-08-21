@@ -20,6 +20,9 @@ export default function AppShell({ children }) {
         <NavLink to="/calendar" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Calendar</span>
         </NavLink>
+        <NavLink to="/offers" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
+          <span style={styles.tabLabel}>Offers</span>
+        </NavLink>
         <NavLink to="/messages" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Messages</span>
         </NavLink>
@@ -44,6 +47,7 @@ const styles = {
   wrap: { display: 'flex', flexDirection: 'column', minHeight: '100dvh', background: 'var(--gm-paper)' },
   main: { flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 72 },
   tabBar: {
+    overflowX: 'auto',
     position: 'fixed',
     bottom: 0,
     left: 0,
@@ -54,8 +58,10 @@ const styles = {
     paddingBottom: 'env(safe-area-inset-bottom)',
   },
   tab: {
-    flex: 1,
-    minWidth: 0, // five tabs now — shrink rather than overflow the screen
+    // Six tabs no longer fit a phone. Scrolling keeps every label
+    // readable instead of shrinking them all to an illegible width.
+    flex: '1 0 auto',
+    minWidth: '22vw',
     padding: '14px 2px',
     whiteSpace: 'nowrap',
     display: 'flex',

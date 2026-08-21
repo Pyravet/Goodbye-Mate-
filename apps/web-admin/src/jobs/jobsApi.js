@@ -189,6 +189,22 @@ export async function redispatchJob(jobId) {
   return data.dispatch;
 }
 
+export async function offerToVets(jobId, vetIds, expiryMinutes) {
+  const res = await apiFetch(`/jobs/${jobId}/offer`, {
+    method: 'POST',
+    body: JSON.stringify({ vetIds, expiryMinutes }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not send the offer');
+  return data;
+}
+
+export async function fetchOfferStatus(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/offer-status`);
+  if (!res.ok) throw new Error('Could not load offer status');
+  return (await res.json()).offers;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

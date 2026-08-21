@@ -16,6 +16,92 @@ export function isEwayConfigured() {
 
 // amount: dollars (e.g. 350.00) — eWay wants the total in the smallest
 // currency unit (cents for AUD), so it's converted here.
+
+/**
+ * eWay returns failures as terse codes, e.g. "V6021" or "D4406", and
+ * they're the whole diagnosis — a wrong endpoint, an unencrypted field
+ * and a genuinely declined card all look identical without decoding
+ * them. "Unknown response" told nobody anything.
+ *
+ * V-codes are VALIDATION errors (our request was wrong). D-codes come
+ * from the bank (the card itself was declined). That distinction matters:
+ * one is a bug to fix, the other is the client needing another card.
+ */
+const EWAY_CODES = {
+  V6021: 'Cardholder name is required.',
+  V6022: 'Card number is required.',
+  V6023: 'Card CVN (security code) is required.',
+  V6033: 'Card has expired, or the expiry date is invalid.',
+  V6034: 'Invoice reference is too long.',
+  V6039: 'Invalid card expiry month.',
+  V6040: 'Invalid card expiry year.',
+  V6041: 'Invalid card number.',
+  V6042: 'Cardholder first name is required.',
+  V6043: 'Cardholder last name is required.',
+  V6047: 'Invalid card start month.',
+  V6055: 'Invalid card number format.',
+  V6059: 'Redirect URL is invalid.',
+  V6060: 'Invalid API key or password for this endpoint.',
+  V6068: 'Payment total amount is invalid.',
+  V6084: 'Card details could not be decrypted — the Client Side Encryption key does not match this eWay account or endpoint.',
+  V6091: 'Unknown currency code.',
+  V6100: 'Invalid card number.',
+  V6101: 'Invalid card expiry month.',
+  V6102: 'Invalid card expiry year.',
+  V6106: 'Invalid card CVN.',
+  V6110: 'Invalid card number.',
+  D4401: 'Declined — refer to card issuer.',
+  D4404: 'Declined — pick up card.',
+  D4405: 'Declined — do not honour.',
+  D4406: 'Declined — insufficient funds.',
+  D4407: 'Declined — expired card.',
+  D4412: 'Declined — invalid transaction.',
+  D4414: 'Declined — invalid card number.',
+  D4415: 'Declined — no issuer found.',
+  D4451: 'Declined — insufficient funds.',
+  D4454: 'Declined — expired card.',
+  D4491: 'Declined — card issuer unavailable, try again shortly.',
+  A2000: 'Approved.',
+  A2008: 'Approved — honour with identification.',
+};
+
+/**
+ * Turn eWay's raw codes into something a person can act on.
+ * @param {object} data eWay response body.
+ */
+function describeEwayResult(data) {
+  // Errors can arrive as a comma-separated string or an array.
+  const raw = data?.Errors ?? data?.ResponseCode ?? data?.ResponseMessage ?? '';
+  const codes = String(Array.isArray(raw) ? raw.join(',') : raw)
+    .split(',')
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  const described = codes.map((c) => EWAY_CODES[c] || c);
+  if (described.length > 0) return described.join(' ');
+
+  // Nothing usable came back — say so honestly rather than pretending
+  // the card was declined.
+  return 'The payment gateway returned no reason. Check the eWay endpoint and API credentials.';
+}
+
+
+/**
+ * Normalise EWAY_ENDPOINT into a base URL.
+ *
+ * The charge path used EWAY_ENDPOINT verbatim (expecting it to already
+ * end in /Transaction) while the refund path appended
+ * "/Transaction/<id>/Refund" to it — so whichever way the variable was
+ * set, one of the two was wrong. If it's set with the full path, a
+ * refund would hit ".../Transaction/Transaction/<id>/Refund".
+ *
+ * Accepting either form removes a configuration trap that produces a
+ * 404 the gateway reports as an unhelpful generic failure.
+ */
+function ewayBase() {
+  return String(process.env.EWAY_ENDPOINT || '').replace(/\/+$/, '').replace(/\/Transaction$/i, '');
+}
+
 export async function chargeCard({ amountDollars, invoiceReference, customerName, encryptedCard }) {
   if (!isEwayConfigured()) {
     throw new Error('eWay is not configured — set EWAY_API_KEY, EWAY_API_PASSWORD, EWAY_ENDPOINT.');
@@ -44,7 +130,7 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
     },
   };
 
-  const res = await fetch(process.env.EWAY_ENDPOINT, {
+  const res = await fetch(`${ewayBase()}/Transaction`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -53,14 +139,26 @@ export async function chargeCard({ amountDollars, invoiceReference, customerName
     body: JSON.stringify(body),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  const success = data.TransactionStatus === true;
+
+  // Log the FULL response on failure. Payments failing with no
+  // server-side record of why is what made this undiagnosable — the
+  // response was parsed, reduced to "Unknown response" and thrown away.
+  // Card details are never in this body (they were encrypted in the
+  // browser), so there's nothing sensitive to leak.
+  if (!success) {
+    console.error('eWay charge failed. HTTP', res.status, 'body:', JSON.stringify(data));
+  }
 
   // eWay returns TransactionStatus: true/false regardless of HTTP status —
   // that's the real success/failure signal, not res.ok.
   return {
-    success: data.TransactionStatus === true,
+    success,
     transactionId: data.TransactionID || null,
-    responseMessage: (data.ResponseMessage || (data.Errors ? data.Errors : '')) || 'Unknown response',
+    responseMessage: success
+      ? (data.ResponseMessage || 'Approved')
+      : describeEwayResult(data),
     raw: data,
   };
 }
@@ -105,7 +203,7 @@ export async function refundTransaction({ transactionId, amountDollars, invoiceR
     },
   };
 
-  const res = await fetch(`${process.env.EWAY_ENDPOINT}/Transaction/${transactionId}/Refund`, {
+  const res = await fetch(`${ewayBase()}/Transaction/${transactionId}/Refund`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${auth}`,

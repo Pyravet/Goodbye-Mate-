@@ -5,10 +5,8 @@ import { fetchMyJobs } from '../jobs/jobsApi.js';
 import { fetchMe, setDateOverride } from '../vets/vetsApi.js';
 import WeeklyAvailability from '../vets/WeeklyAvailability.jsx';
 import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
+import { toDateKey } from '@goodbye-mate/web-shared/src/format.js';
 
-function toDateKey(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 export default function Calendar() {
   const [tab, setTab] = useState('calendar'); // 'calendar' | 'availability'

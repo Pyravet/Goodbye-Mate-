@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJobs } from '../jobs/jobsApi.js';
 import { formatHourCompact as formatTime } from '@goodbye-mate/web-shared/src/format.js';
+import { toDateKey } from '@goodbye-mate/web-shared/src/format.js';
 
 const STATUS_COLOR = {
   available: 'var(--gm-brick)',
@@ -32,9 +33,6 @@ const STATUS_BADGE = {
 };
 
 
-function toDateKey(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 export default function CalendarPage() {
   const [view, setView] = useState('month'); // 'month' | 'week'

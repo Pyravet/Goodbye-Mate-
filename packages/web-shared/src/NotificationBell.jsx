@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
+import { timeAgo } from './format.js';
 
 const SOUND_PREF_KEY = 'gm_notification_sound';
 
@@ -47,16 +48,6 @@ function playChime() {
   }
 }
 
-function timeAgo(iso) {
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-}
 
 /**
  * Notification bell with a dropdown of recent notifications.

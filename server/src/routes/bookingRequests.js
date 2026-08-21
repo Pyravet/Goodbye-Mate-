@@ -159,21 +159,33 @@ router.get('/form-content', asyncHandler(async (req, res) => {
 router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const status = req.query.status;
   const params = [];
-  let where = "WHERE status <> 'spam'";
+  // Qualified with r.* because the query joins users for the handler's
+  // name — an unqualified `status` would be ambiguous the moment users
+  // gains a column of the same name.
+  let where = "WHERE r.status <> 'spam'";
   if (status && status !== 'all') {
     params.push(status);
-    where = `WHERE status = $1`;
+    where = 'WHERE r.status = $1';
   } else if (status === 'all') {
     where = '';
   }
 
   const { rows } = await query(
-    `SELECT id, client_name, client_phone, client_email, address, suburb, postcode, state,
-            pet_name, pet_type, pet_breed, pet_weight, pet_age,
-            service_preference, preferred_timing, message, status,
-            converted_job_id, admin_notes, created_at
-     FROM booking_requests ${where}
-     ORDER BY (status = 'new') DESC, created_at DESC
+    // handled_at and handled_by were being written but never returned,
+    // so the Contacted tab showed cards with no evidence of the contact:
+    // no time, no person, no note. Whoever picked it up couldn't tell
+    // their own follow-up from a colleague's, or whether a call from
+    // three days ago had been chased since.
+    `SELECT r.id, r.client_name, r.client_phone, r.client_email,
+            r.address, r.suburb, r.postcode, r.state,
+            r.pet_name, r.pet_type, r.pet_breed, r.pet_weight, r.pet_age,
+            r.service_preference, r.preferred_timing, r.message, r.status,
+            r.converted_job_id, r.admin_notes, r.created_at,
+            r.handled_at, u.full_name AS handled_by_name
+     FROM booking_requests r
+     LEFT JOIN users u ON u.id = r.handled_by
+     ${where}
+     ORDER BY (r.status = 'new') DESC, r.created_at DESC
      LIMIT 200`,
     params
   );

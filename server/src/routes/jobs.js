@@ -80,7 +80,8 @@ const createJobSchema = z.object({
   serviceId: z.string().default('svc_euth'),
   serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']),
   date: z.string().min(1), // YYYY-MM-DD
-  time: z.string().min(1), // HH:MM
+  time: z.string().min(1), // HH:MM — start of the window when timeEnd is set
+  timeEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
   extraTravelFee: z.number().optional().default(0),
   isPublicHoliday: z.boolean().optional().default(false),
   notes: z.string().optional(),
@@ -192,13 +193,13 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
     `INSERT INTO jobs (
       client_name, client_phone, client_email, address, suburb, postcode, state, lat, lng,
       pet_name, pet_type, pet_breed, pet_weight, pet_age, pet_behaviour,
-      service_id, service_type, job_date, job_time, time_category, extra_travel_fee, notes, is_public_holiday
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+      service_id, service_type, job_date, job_time, job_time_end, time_category, extra_travel_fee, notes, is_public_holiday
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
     RETURNING *`,
     [
       d.clientName, d.clientPhone, d.clientEmail || null, d.address, d.suburb || null, d.postcode, d.state, d.lat ?? null, d.lng ?? null,
       d.petName, d.petType, d.petBreed || null, d.petWeight || null, d.petAge || null, d.petBehaviour || 'Friendly',
-      d.serviceId, d.serviceType, d.date, d.time, timeCategory, d.extraTravelFee || 0, d.notes || null, d.isPublicHoliday || false,
+      d.serviceId, d.serviceType, d.date, d.time, d.timeEnd || null, timeCategory, d.extraTravelFee || 0, d.notes || null, d.isPublicHoliday || false,
     ]
   );
   const job = rows[0];
@@ -2009,7 +2010,7 @@ router.post('/:id/offer/propose-time', requireAuth, requireRole('vet'), asyncHan
  */
 router.get('/:id/offer-status', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query(
-    `SELECT o.outcome, o.offered_at, o.responded_at, o.expires_at,
+    `SELECT o.id AS offer_id, o.outcome, o.offered_at, o.responded_at, o.expires_at,
             o.proposed_date, o.proposed_time, o.proposal_note,
             u.full_name AS vet_name, v.id AS vet_id
      FROM vet_job_offers o
@@ -2020,6 +2021,215 @@ router.get('/:id/offer-status', requireAuth, requireRole('admin'), asyncHandler(
     [req.params.id]
   );
   res.json({ offers: rows });
+}));
+
+
+const updateJobSchema = z.object({
+  clientName: z.string().trim().min(1).optional(),
+  clientPhone: z.string().trim().min(1).optional(),
+  clientEmail: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().email().nullable().optional()
+  ),
+  address: z.string().trim().min(1).optional(),
+  suburb: z.string().trim().optional().nullable(),
+  postcode: z.string().trim().min(1).optional(),
+  state: z.string().trim().min(1).optional(),
+  petName: z.string().trim().min(1).optional(),
+  petType: z.string().trim().min(1).optional(),
+  petBreed: z.string().trim().optional().nullable(),
+  petWeight: z.string().trim().optional().nullable(),
+  petAge: z.string().trim().optional().nullable(),
+  serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  // Empty string clears the window back to a fixed time.
+  timeEnd: z.union([z.string().regex(/^\d{2}:\d{2}$/), z.literal('')]).optional().nullable(),
+  notes: z.string().trim().optional().nullable(),
+});
+
+/**
+ * PUT /jobs/:id — amend a booking.
+ *
+ * Bookings were immutable once created: a wrong address, a corrected
+ * phone number or a client moving the time all meant cancelling and
+ * re-keying the whole job, which loses its history, its consent and its
+ * payment.
+ *
+ * Changing the DATE or TIME withdraws any live offers and notifies an
+ * assigned vet, because they agreed to a specific slot — silently moving
+ * a job under a vet who has already committed is how someone ends up at
+ * the wrong door.
+ */
+router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = updateJobSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid update' });
+  }
+  const d = parsed.data;
+
+  const { rows: before } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = before[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status === 'completed') {
+    return res.status(409).json({ error: 'This job is complete and can no longer be edited.' });
+  }
+
+  const newDate = d.date || String(job.job_date).slice(0, 10);
+  const newTime = d.time || String(job.job_time).slice(0, 5);
+  const timeChanged =
+    (d.date && d.date !== String(job.job_date).slice(0, 10))
+    || (d.time && d.time !== String(job.job_time).slice(0, 5));
+
+  // Recompute the rate band — moving a weekday booking to a Sunday
+  // changes what the client pays and what the vet earns, and leaving a
+  // stale category would quietly bill the wrong amount.
+  const timeCategory = suggestTimeCategory(newDate, newTime);
+
+  const { rows } = await query(
+    `UPDATE jobs SET
+       client_name   = COALESCE($1, client_name),
+       client_phone  = COALESCE($2, client_phone),
+       client_email  = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE client_email END,
+       address       = COALESCE($4, address),
+       suburb        = COALESCE($5, suburb),
+       postcode      = COALESCE($6, postcode),
+       state         = COALESCE($7, state),
+       pet_name      = COALESCE($8, pet_name),
+       pet_type      = COALESCE($9, pet_type),
+       pet_breed     = COALESCE($10, pet_breed),
+       pet_weight    = COALESCE($11, pet_weight),
+       pet_age       = COALESCE($12, pet_age),
+       service_type  = COALESCE($13::job_service_type, service_type),
+       job_date      = COALESCE($14::date, job_date),
+       job_time      = COALESCE($15::time, job_time),
+       -- '' clears the window; NULL leaves it unchanged.
+       job_time_end  = CASE WHEN $16::text = '' THEN NULL
+                            WHEN $16::text IS NOT NULL THEN $16::time
+                            ELSE job_time_end END,
+       time_category = $17::job_time_category,
+       notes         = CASE WHEN $18::text IS NOT NULL THEN $18 ELSE notes END,
+       updated_at    = now()
+     WHERE id = $19
+     RETURNING *`,
+    [
+      d.clientName ?? null, d.clientPhone ?? null, d.clientEmail ?? null,
+      d.address ?? null, d.suburb ?? null, d.postcode ?? null, d.state ?? null,
+      d.petName ?? null, d.petType ?? null, d.petBreed ?? null, d.petWeight ?? null, d.petAge ?? null,
+      d.serviceType ?? null,
+      d.date ?? null, d.time ?? null, d.timeEnd ?? null,
+      timeCategory,
+      d.notes ?? null,
+      req.params.id,
+    ]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'job_updated',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { fields: Object.keys(d), timeChanged },
+  });
+
+  if (timeChanged) {
+    // Live offers were for the OLD slot, so they're no longer what the
+    // vet agreed to consider.
+    await query(
+      `UPDATE vet_job_offers SET outcome = 'withdrawn', responded_at = now()
+       WHERE job_id = $1 AND outcome IN ('offered', 'proposed')`,
+      [req.params.id]
+    );
+
+    if (job.assigned_vet_id) {
+      const { rows: vetRows } = await query(
+        'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+        [job.assigned_vet_id]
+      );
+      if (vetRows[0]) {
+        notifyUser(vetRows[0].user_id, {
+          title: 'Booking time changed',
+          body: `${job.pet_name} (${job.job_number}) has moved to ${newDate} at ${newTime}.`,
+          url: `/jobs/${req.params.id}`,
+          category: 'job',
+        }).catch((e) => console.error('time change notify failed:', e.message));
+      }
+    }
+  }
+
+  res.json({ job: rows[0], offersWithdrawn: timeChanged });
+}));
+
+/**
+ * POST /jobs/:id/offer/:offerId/accept-proposal
+ *
+ * Take a vet up on the alternative time they suggested: move the job to
+ * that slot and give it to them.
+ *
+ * One action rather than "edit the time, then re-offer, then wait for
+ * them to accept again" — the vet has already said they can do it, so
+ * asking them to confirm twice is just latency. Admin is expected to
+ * have cleared it with the client first, which the UI states.
+ */
+router.post('/:id/offer/:offerId/accept-proposal', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows: offerRows } = await query(
+    `SELECT o.*, u.id AS user_id, u.full_name
+     FROM vet_job_offers o
+     JOIN vets v ON v.id = o.vet_id
+     JOIN users u ON u.id = v.user_id
+     WHERE o.id = $1 AND o.job_id = $2 AND o.outcome = 'proposed'`,
+    [req.params.offerId, req.params.id]
+  );
+  const offer = offerRows[0];
+  if (!offer) return res.status(404).json({ error: 'That suggestion is no longer available.' });
+
+  const newDate = String(offer.proposed_date).slice(0, 10);
+  const newTime = String(offer.proposed_time).slice(0, 5);
+  const timeCategory = suggestTimeCategory(newDate, newTime);
+
+  const { rows } = await query(
+    `UPDATE jobs SET job_date = $1, job_time = $2, time_category = $3,
+       assigned_vet_id = $4, status = 'assigned', dispatch_state = 'accepted',
+       dispatch_offered_vet_id = $4, dispatch_expires_at = NULL, updated_at = now()
+     WHERE id = $5 AND assigned_vet_id IS NULL
+     RETURNING *`,
+    [newDate, newTime, timeCategory, offer.vet_id, req.params.id]
+  );
+  if (!rows[0]) {
+    return res.status(409).json({ error: 'This job already has a vet assigned.' });
+  }
+
+  await query(
+    `UPDATE vet_job_offers SET outcome = 'accepted', responded_at = now() WHERE id = $1`,
+    [req.params.offerId]
+  );
+  // Everyone else's offer was for the old time and is now moot.
+  await query(
+    `UPDATE vet_job_offers SET outcome = 'withdrawn', responded_at = now()
+     WHERE job_id = $1 AND id <> $2 AND outcome IN ('offered', 'proposed')`,
+    [req.params.id, req.params.offerId]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'offer_proposal_accepted',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: { vetId: offer.vet_id, newDate, newTime },
+  });
+
+  notifyUser(offer.user_id, {
+    title: 'Your suggested time was accepted',
+    body: `${rows[0].pet_name} (${rows[0].job_number}) is confirmed for ${newDate} at ${newTime}.`,
+    url: `/jobs/${req.params.id}`,
+    category: 'job',
+  }).catch((e) => console.error('proposal accept notify failed:', e.message));
+
+  // The booking is real now, so the client gets their journey link —
+  // same trigger as a normal acceptance.
+  sendJourneyLink(rows[0]).catch((e) => console.error('journey link failed:', e.message));
+
+  res.json({ job: rows[0] });
 }));
 
 export default router;

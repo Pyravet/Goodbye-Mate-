@@ -205,6 +205,23 @@ export async function fetchOfferStatus(jobId) {
   return (await res.json()).offers;
 }
 
+export async function updateJob(jobId, fields) {
+  const res = await apiFetch(`/jobs/${jobId}`, {
+    method: 'PUT',
+    body: JSON.stringify(fields),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not save changes');
+  return data;
+}
+
+export async function acceptProposal(jobId, offerId) {
+  const res = await apiFetch(`/jobs/${jobId}/offer/${offerId}/accept-proposal`, { method: 'POST' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not accept that time');
+  return data.job;
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

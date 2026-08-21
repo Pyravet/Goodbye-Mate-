@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { fetchVets } from '../vets/vetsApi.js';
-import { offerToVets, fetchOfferStatus } from './jobsApi.js';
+import { offerToVets, fetchOfferStatus, acceptProposal } from './jobsApi.js';
 
 function timeLeft(expiresAt) {
   if (!expiresAt) return null;
@@ -65,6 +65,25 @@ export default function OfferControl({ job, onChanged }) {
     }
   };
 
+  const onAcceptProposal = async (p) => {
+    if (!window.confirm(
+      `Move this booking to ${String(p.proposed_date).slice(0, 10)} at `
+      + `${String(p.proposed_time).slice(0, 5)} and assign ${p.vet_name}?\n\n`
+      + 'Only do this once the client has agreed to the new time.'
+    )) return;
+    setBusy(true);
+    setError('');
+    try {
+      await acceptProposal(job.id, p.offer_id);
+      loadStatus();
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const live = (status || []).filter((o) => o.outcome === 'offered');
   const proposals = (status || []).filter((o) => o.outcome === 'proposed');
   const responded = (status || []).filter((o) => ['declined', 'accepted'].includes(o.outcome));
@@ -85,8 +104,16 @@ export default function OfferControl({ job, onChanged }) {
               at {String(p.proposed_time).slice(0, 5)}
               {p.proposal_note && <div style={styles.proposalNote}>“{p.proposal_note}”</div>}
               <div style={styles.proposalHint}>
-                Confirm with the client first, then change the job time and offer it to them.
+                Check this with the client first — accepting moves the booking and gives the job
+                to {p.vet_name}.
               </div>
+              <button
+                onClick={() => onAcceptProposal(p)}
+                disabled={busy}
+                style={styles.acceptProposalBtn}
+              >
+                {busy ? 'Saving…' : 'Accept this time'}
+              </button>
             </div>
           ))}
         </div>
@@ -204,5 +231,6 @@ const styles = {
   proposalTitle: { fontSize: 12, fontWeight: 600, color: '#7A5A22', marginBottom: 6 },
   proposalRow: { fontSize: 13, marginBottom: 8, lineHeight: 1.5 },
   proposalNote: { fontStyle: 'italic', color: 'var(--gm-ink-soft)', marginTop: 2 },
+  acceptProposalBtn: { marginTop: 8, background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '8px 14px', fontSize: 12, fontWeight: 500 },
   proposalHint: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 3 },
 };

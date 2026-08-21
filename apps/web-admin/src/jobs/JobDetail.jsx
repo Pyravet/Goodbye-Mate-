@@ -5,6 +5,7 @@ import { apiFetch } from '../api.js';
 import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
+import EditJobForm from './EditJobForm.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
 import { fetchVets } from '../vets/vetsApi.js';
@@ -38,6 +39,7 @@ export default function JobDetail() {
   useEffect(() => { load(); }, [load]);
 
   const [actionError, setActionError] = useState('');
+  const [editing, setEditing] = useState(false);
 
   /**
    * Run a checklist action and reload the job.
@@ -214,7 +216,15 @@ export default function JobDetail() {
                 way to see the phone number or email while looking at a
                 job, which is the single most-needed thing when handling
                 one. Phone and email are click-to-call / click-to-mail. */}
-            <Card title="Client">
+            <Card title={editing ? 'Edit booking' : 'Client'}>
+              {editing ? (
+                <EditJobForm
+                  job={job}
+                  onCancel={() => setEditing(false)}
+                  onSaved={() => { setEditing(false); load(); }}
+                />
+              ) : (
+                <>
               <p style={styles.clientName}>{job.client_name}</p>
               {job.client_phone ? (
                 <a href={`tel:${job.client_phone}`} style={styles.contactLink}>{job.client_phone}</a>
@@ -228,6 +238,11 @@ export default function JobDetail() {
                   No email on file — quotes, invoices and the client journey link can&apos;t be
                   emailed without one.
                 </p>
+              )}
+              {job.status !== 'completed' && (
+                <button onClick={() => setEditing(true)} style={styles.editBtn}>Edit booking</button>
+              )}
+                </>
               )}
             </Card>
 
@@ -858,6 +873,7 @@ const styles = {
   completeBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   completeError: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   completedNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12 },
+  editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },
   contactLink: { display: 'block', color: 'var(--gm-forest)', fontSize: 14, fontWeight: 500, textDecoration: 'none', padding: '3px 0' },
   plain: { fontSize: 14, margin: 0 },

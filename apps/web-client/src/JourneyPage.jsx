@@ -55,7 +55,6 @@ export default function JourneyPage() {
   // this session. Must NOT be its own useState down here — hooks can't
   // live after the early returns above.
   const reviewRating = localRating ?? job.reviewRating;
-
   const steps = [
     { key: 'welcome', label: 'About your visit', done: welcomeAck || job.consentSigned },
     { key: 'consent', label: 'Consent', done: job.consentSigned },
@@ -63,6 +62,10 @@ export default function JourneyPage() {
   ];
   if (hasAftercare) steps.push({ key: 'aftercare', label: 'Aftercare', done: aftercareAck });
   if (job.procedureDone) steps.push({ key: 'review', label: 'How did we do?', done: reviewRating != null });
+
+  // Every step the client can currently act on is finished. Declared
+  // AFTER steps — const isn't hoisted, so reading it earlier throws.
+  const allStepsDone = steps.every((st) => st.done);
 
   const activeIndex = steps.findIndex((s) => !s.done);
   const active = activeIndex === -1 ? steps.length - 1 : activeIndex;
@@ -138,6 +141,27 @@ export default function JourneyPage() {
           have no aftercare step — so surface them for every client once
           they've worked through the journey, not just cremation ones. */}
       {!hasAftercare && <ResourceLinks resources={content.resources} />}
+
+      {/* After the last available step, say what happens next. Without
+          this the journey simply stops on a "Got it" button with no
+          indication that a final step appears later, which reads as the
+          page being broken. The review step only exists once the vet has
+          marked the procedure done — asking someone to rate a visit that
+          hasn't happened would be worse than waiting. */}
+      {allStepsDone && !job.procedureDone && (
+        <div className="gm-card" style={styles.card}>
+          <h3 style={styles.sectionTitle}>That's everything for now</h3>
+          <p style={styles.bodyText}>
+            Thank you — there's nothing else you need to do before the visit.
+            {hasAftercare
+              ? " We'll be in touch about aftercare afterwards."
+              : ''}
+          </p>
+          <p style={styles.reviewHint}>
+            After the visit, this page will ask how we did — your feedback genuinely helps us.
+          </p>
+        </div>
+      )}
 
       {active === steps.length - 1 && steps[steps.length - 1].done && (
         <div style={styles.doneBanner}>

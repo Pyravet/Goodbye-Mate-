@@ -88,3 +88,27 @@ export async function sendTestEmail(to) {
   if (!res.ok) throw new Error(data.error || 'Could not send the test email');
   return data;
 }
+
+// --- Client resources (support & grief resources on the journey page) ---
+
+export async function fetchClientResources() {
+  const res = await apiFetch('/settings/content/resources');
+  if (!res.ok) throw new Error('Could not load resources');
+  return (await res.json()).resources;
+}
+
+export async function addClientResource(payload) {
+  const res = await apiFetch('/settings/content/resources', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not add that resource');
+  return data;
+}
+
+export async function removeClientResource(id) {
+  const res = await apiFetch(`/settings/content/resources/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Could not remove that resource');
+  return res.json();
+}

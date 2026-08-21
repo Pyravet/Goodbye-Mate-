@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
-import { fetchMyJobs, acceptOffer, declineOffer } from './jobsApi.js';
+import { fetchMyJobs } from './jobsApi.js';
 import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
 
 export default function JobsList() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -18,28 +17,19 @@ export default function JobsList() {
   useEffect(() => {
     load();
     // Offers expire on a timer server-side, so poll while this screen is open
-    // to keep pending offers accurate without the vet needing to pull-to-refresh.
+    // so a job accepted or reassigned elsewhere doesn't linger here.
     const interval = setInterval(load, 20000);
     return () => clearInterval(interval);
   }, [load]);
 
-  // Offers live on their own Offers screen now. Filtering them OUT here
-  // avoids showing the same decision in two places, where one copy can
-  // go stale after the vet acts on the other.
-  const offers = [];
+  // Offers live on their own Offers screen — see OffersPage. They are
+  // deliberately NOT shown here: the same decision in two places lets
+  // one copy go stale after the vet acts on the other.
   const assigned = jobs
     .filter((j) => j.assigned_vet_id && j.status !== 'completed' && j.status !== 'cancelled')
     .sort((a, b) => (a.job_date + a.job_time).localeCompare(b.job_date + b.job_time));
   const completed = jobs.filter((j) => j.status === 'completed');
 
-  const onAccept = async (id) => {
-    setBusyId(id);
-    try { await acceptOffer(id); load(); } finally { setBusyId(null); }
-  };
-  const onDecline = async (id) => {
-    setBusyId(id);
-    try { await declineOffer(id); load(); } finally { setBusyId(null); }
-  };
 
   return (
     <AppShell>
@@ -53,23 +43,6 @@ export default function JobsList() {
           <p style={styles.empty}>Loading…</p>
         ) : (
           <>
-            {offers.length > 0 && (
-              <Section title="New offers">
-                {offers.map((job) => (
-                  <div key={job.id} className="gm-card" style={styles.offerCard}>
-                    <Link to={`/jobs/${job.id}`} style={styles.offerLink}>
-                      <div style={styles.petName}>{job.pet_name}</div>
-                      <div style={styles.subline}>{job.suburb || job.postcode} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' })} at {formatTime(job.job_time)}</div>
-                    </Link>
-                    <div style={styles.offerActions}>
-                      <button onClick={() => onDecline(job.id)} disabled={busyId === job.id} style={styles.declineBtn}>Decline</button>
-                      <button onClick={() => onAccept(job.id)} disabled={busyId === job.id} style={styles.acceptBtn}>Accept</button>
-                    </div>
-                  </div>
-                ))}
-              </Section>
-            )}
-
             <Section title="Upcoming">
               {assigned.length === 0 ? (
                 <p style={styles.empty}>Nothing assigned right now.</p>

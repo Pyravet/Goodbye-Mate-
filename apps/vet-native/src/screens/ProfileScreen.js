@@ -12,7 +12,7 @@ function StatePicker({ value, onChange }) {
   return (
     <View style={styles.stateRow}>
       {AU_STATES.map((s) => (
-        <TouchableOpacity
+        <TouchableOpacity activeOpacity={0.7}
           key={s}
           onPress={() => onChange(s)}
           style={[styles.stateChip, value === s && styles.stateChipActive]}
@@ -90,7 +90,7 @@ export default function ProfileScreen() {
         {pushStatus === 'on' ? (
           <Text style={styles.onNote}>Push notifications are on.</Text>
         ) : (
-          <TouchableOpacity onPress={onEnablePush} disabled={pushStatus === 'enabling'} style={styles.btn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onEnablePush} disabled={pushStatus === 'enabling'} style={styles.btn}>
             <Text style={styles.btnText}>{pushStatus === 'enabling' ? 'Enabling…' : 'Enable push notifications'}</Text>
           </TouchableOpacity>
         )}
@@ -114,12 +114,12 @@ export default function ProfileScreen() {
           secureTextEntry
           style={styles.input}
         />
-        <TouchableOpacity onPress={onChangePassword} disabled={pwStatus === 'saving'} style={styles.btn}>
+        <TouchableOpacity activeOpacity={0.7} onPress={onChangePassword} disabled={pwStatus === 'saving'} style={styles.btn}>
           <Text style={styles.btnText}>{pwStatus === 'saving' ? 'Saving…' : pwStatus === 'saved' ? 'Saved' : 'Change password'}</Text>
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity onPress={logout} style={styles.logoutBtn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={logout} style={styles.logoutBtn}>
         <Text style={styles.logoutText}>Log out</Text>
       </TouchableOpacity>
     </ScrollView>
@@ -163,7 +163,7 @@ function PersonalDetailsCard({ vetId, initial, onSaved }) {
       </View>
       <Text style={styles.label}>State</Text>
       <StatePicker value={form.state} onChange={set('state')} />
-      <TouchableOpacity onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
         <Text style={styles.btnText}>{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save'}</Text>
       </TouchableOpacity>
     </View>
@@ -196,14 +196,14 @@ function RegistrationCard({ vetId, initial, onSaved }) {
       <StatePicker value={form.regState} onChange={set('regState')} />
       <Text style={styles.label}>ABN</Text>
       <TextInput value={form.abn} onChangeText={set('abn')} keyboardType="numeric" style={styles.input} />
-      <TouchableOpacity
+      <TouchableOpacity activeOpacity={0.7}
         onPress={() => set('isGstRegistered')(!form.isGstRegistered)}
         style={styles.checkboxRow}
       >
         <View style={[styles.checkbox, form.isGstRegistered && styles.checkboxChecked]} />
         <Text style={styles.checkboxLabel}>Registered for GST</Text>
       </TouchableOpacity>
-      <TouchableOpacity onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
         <Text style={styles.btnText}>{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save'}</Text>
       </TouchableOpacity>
     </View>
@@ -235,7 +235,7 @@ function TerritoryCard({ vetId, initial, onSaved }) {
         placeholder="3121, 3122, 3123…"
         style={styles.input}
       />
-      <TouchableOpacity onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
         <Text style={styles.btnText}>{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : 'Save'}</Text>
       </TouchableOpacity>
     </View>
@@ -281,7 +281,7 @@ function BankDetailsCard({ vetId, bankDetails, onSaved }) {
           <TextInput value={form.bankAccountNumber} onChangeText={set('bankAccountNumber')} placeholder="12345678" keyboardType="numeric" style={styles.input} />
         </View>
       </View>
-      <TouchableOpacity onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onSave} disabled={status === 'saving'} style={styles.btn}>
         <Text style={styles.btnText}>{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Updated' : 'Update bank details'}</Text>
       </TouchableOpacity>
       <Text style={styles.hint}>Encrypted before storage — only masked digits are ever shown again, including to admin.</Text>
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, color: colors.inkSoft, marginBottom: 6, marginTop: 10 },
   input: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 11, fontSize: 15 },
   row: { flexDirection: 'row', gap: 12 },
-  btn: { backgroundColor: colors.forest, borderRadius: 6, padding: 11, alignItems: 'center', marginTop: 14 },
+  btn: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.forest, borderRadius: 6, padding: 11, alignItems: 'center', marginTop: 14 },
   btnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   logoutBtn: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 13, alignItems: 'center', marginTop: 24, marginBottom: 8, backgroundColor: '#fff' },
   logoutText: { color: colors.brick, fontSize: 14, fontWeight: '600' },

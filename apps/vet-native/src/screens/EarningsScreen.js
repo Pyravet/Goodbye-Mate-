@@ -107,7 +107,7 @@ export default function EarningsScreen() {
               </Text>
             )}
 
-            <TouchableOpacity onPress={() => openRcti(p.id)} style={styles.outlineBtn}>
+            <TouchableOpacity activeOpacity={0.7} onPress={() => openRcti(p.id)} style={styles.outlineBtn}>
               <Text style={styles.outlineBtnText}>View RCTI</Text>
             </TouchableOpacity>
           </View>
@@ -147,6 +147,6 @@ const styles = StyleSheet.create({
   pillPaid: { backgroundColor: '#E3E9E1' },
   pillApproved: { backgroundColor: '#F3E6CB' },
   pillText: { fontSize: 11, color: colors.forestDark },
-  outlineBtn: { borderWidth: 1, borderColor: colors.forest, borderRadius: 8, paddingVertical: 9, alignItems: 'center', marginTop: 12 },
+  outlineBtn: { minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: colors.forest, borderRadius: 8, paddingVertical: 9, alignItems: 'center', marginTop: 12 },
   outlineBtnText: { color: colors.forest, fontSize: 13, fontWeight: '500' },
 });

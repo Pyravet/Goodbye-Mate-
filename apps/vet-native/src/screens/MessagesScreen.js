@@ -58,7 +58,7 @@ function Inbox({ onOpen, onCompose }) {
 
   return (
     <View style={styles.screen}>
-      <TouchableOpacity onPress={onCompose} style={styles.primaryBtn}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onCompose} style={styles.primaryBtn}>
         <Text style={styles.primaryBtnText}>+ New message</Text>
       </TouchableOpacity>
 
@@ -71,7 +71,7 @@ function Inbox({ onOpen, onCompose }) {
           <Text style={styles.empty}>No messages yet.</Text>
         ) : (
           items.map((c) => (
-            <TouchableOpacity key={c.id} onPress={() => onOpen(c.id)} style={styles.card}>
+            <TouchableOpacity activeOpacity={0.7} key={c.id} onPress={() => onOpen(c.id)} style={styles.card}>
               <View style={{ flex: 1 }}>
                 <View style={styles.rowTop}>
                   <Text style={[styles.cardTitle, c.unreadCount > 0 && styles.bold]} numberOfLines={1}>
@@ -162,7 +162,7 @@ function Thread({ conversationId, onBack }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={90}
     >
-      <TouchableOpacity onPress={onBack}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onBack}>
         <Text style={styles.back}>← All messages</Text>
       </TouchableOpacity>
 
@@ -218,7 +218,7 @@ function Thread({ conversationId, onBack }) {
           style={styles.input}
           multiline
         />
-        <TouchableOpacity onPress={send} disabled={sending || !draft.trim()} style={styles.sendBtn}>
+        <TouchableOpacity activeOpacity={0.7} onPress={send} disabled={sending || !draft.trim()} style={styles.sendBtn}>
           <Text style={styles.sendBtnText}>{sending ? '…' : 'Send'}</Text>
         </TouchableOpacity>
       </View>
@@ -262,7 +262,7 @@ function Compose({ onDone, onCancel }) {
 
   return (
     <ScrollView style={styles.screen}>
-      <TouchableOpacity onPress={onCancel}>
+      <TouchableOpacity activeOpacity={0.7} onPress={onCancel}>
         <Text style={styles.back}>← Cancel</Text>
       </TouchableOpacity>
       <Text style={styles.heading}>New message</Text>
@@ -276,7 +276,7 @@ function Compose({ onDone, onCancel }) {
       ) : (
         <View style={styles.chipRow}>
           {recipients.map((r) => (
-            <TouchableOpacity
+            <TouchableOpacity activeOpacity={0.7}
               key={r.id}
               onPress={() => toggle(r.id)}
               style={[styles.chip, selected.includes(r.id) && styles.chipOn]}
@@ -295,7 +295,7 @@ function Compose({ onDone, onCancel }) {
       <Text style={styles.label}>Message</Text>
       <TextInput value={body} onChangeText={setBody} style={[styles.input, { height: 120 }]} multiline />
 
-      <TouchableOpacity
+      <TouchableOpacity activeOpacity={0.7}
         onPress={send}
         disabled={sending || selected.length === 0 || !body.trim()}
         style={[styles.primaryBtn, (selected.length === 0 || !body.trim()) && styles.disabled]}

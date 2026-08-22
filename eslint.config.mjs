@@ -29,7 +29,6 @@ export default [
       '**/node_modules/**',
       '**/dist/**',
       '**/.expo/**',
-      'apps/vet-native/**',
     ],
   },
 
@@ -81,6 +80,29 @@ export default [
       // `styles` objects are conventionally declared at the bottom of a
       // component file and referenced above, so variables must be off
       // here — unlike the server, where that pattern doesn't apply.
+      'no-use-before-define': ['error', { functions: false, classes: false, variables: false }],
+    },
+  },
+
+  // --- React Native (Expo) ---
+  // Not browser globals: RN has no window/document, but does have
+  // fetch, console, setTimeout and __DEV__.
+  {
+    files: ['apps/vet-native/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node, ...globals.browser, __DEV__: 'readonly' },
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      'no-unused-vars': ['warn', { args: 'none', caughtErrors: 'none' }],
+      'no-undef': 'error',
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       'no-use-before-define': ['error', { functions: false, classes: false, variables: false }],
     },
   },

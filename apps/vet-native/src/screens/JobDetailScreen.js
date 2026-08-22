@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Linkin
 import { useFocusEffect } from '@react-navigation/native';
 import { fetchJob, acceptOffer, declineOffer, markProcedureDone, fetchMedicalNotes, addMedicalNote } from '../api/jobsApi.js';
 import Constants from 'expo-constants';
-import { Linking, Alert } from 'react-native';
+import { Alert } from 'react-native';
 import { getAccessToken } from '../api/client.js';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:4000/api';
@@ -83,10 +83,10 @@ export default function JobDetailScreen({ route, navigation }) {
 
       {isOffer && (
         <View style={styles.offerBar}>
-          <TouchableOpacity onPress={onDecline} disabled={busy} style={styles.declineBtn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onDecline} disabled={busy} style={styles.declineBtn}>
             <Text style={styles.declineText}>Decline</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onAccept} disabled={busy} style={styles.acceptBtn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onAccept} disabled={busy} style={styles.acceptBtn}>
             <Text style={styles.acceptText}>Accept offer</Text>
           </TouchableOpacity>
         </View>
@@ -94,7 +94,7 @@ export default function JobDetailScreen({ route, navigation }) {
 
       <Card title="Client">
         <Text style={styles.plain}>{job.client_name}</Text>
-        <TouchableOpacity onPress={() => Linking.openURL(`tel:${job.client_phone}`)}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => Linking.openURL(`tel:${job.client_phone}`)}>
           <Text style={styles.linkText}>{job.client_phone}</Text>
         </TouchableOpacity>
       </Card>
@@ -102,7 +102,7 @@ export default function JobDetailScreen({ route, navigation }) {
       <Card title="Address">
         <Text style={styles.plain}>{job.address}</Text>
         {job.notes ? <Text style={styles.notes}>{job.notes}</Text> : null}
-        <TouchableOpacity
+        <TouchableOpacity activeOpacity={0.7}
           onPress={() => Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`)}
         >
           <Text style={styles.linkText}>Get directions →</Text>
@@ -119,20 +119,21 @@ export default function JobDetailScreen({ route, navigation }) {
           {job.procedure_done ? (
             <Text style={styles.doneNote}>Marked as completed.</Text>
           ) : (
-            <TouchableOpacity onPress={onProcedureDone} disabled={busy} style={styles.doneBtn}>
+            <TouchableOpacity activeOpacity={0.7} onPress={onProcedureDone} disabled={busy} style={styles.doneBtn}>
               <Text style={styles.acceptText}>Mark procedure done</Text>
             </TouchableOpacity>
           )}
         </Card>
       )}
 
-      {!isOffer && (
-        {job.admin_notes ? (
-          <Card title="📌 Note from admin">
-            <Text style={styles.adminNote}>{job.admin_notes}</Text>
-          </Card>
-        ) : null}
+      {!isOffer && job.admin_notes ? (
+        <Card title="📌 Note from admin">
+          <Text style={styles.adminNote}>{job.admin_notes}</Text>
+        </Card>
+      ) : null}
 
+      {!isOffer && (
+        <>
         <Card title="Medical notes">
           {noteEntries === null ? (
             <Text style={styles.subtle}>Loading…</Text>
@@ -160,7 +161,7 @@ export default function JobDetailScreen({ route, navigation }) {
             placeholder="Add a note — it will be timestamped and attributed to you."
             style={styles.textarea}
           />
-          <TouchableOpacity onPress={onAddNote} disabled={busy || !noteDraft.trim()} style={styles.saveBtn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={onAddNote} disabled={busy || !noteDraft.trim()} style={styles.saveBtn}>
             <Text style={styles.saveBtnText}>{busy ? 'Saving…' : 'Add note'}</Text>
           </TouchableOpacity>
           <Text style={styles.noteHint}>
@@ -173,10 +174,11 @@ export default function JobDetailScreen({ route, navigation }) {
             A formal record of the visit — company and vet registration details, the pet's details and
             the clinical notes. Pet insurers often ask clients for this.
           </Text>
-          <TouchableOpacity onPress={openRecord} style={styles.saveBtn}>
+          <TouchableOpacity activeOpacity={0.7} onPress={openRecord} style={styles.saveBtn}>
             <Text style={styles.saveBtnText}>Open record</Text>
           </TouchableOpacity>
         </Card>
+        </>
       )}
     </ScrollView>
   );
@@ -220,5 +222,5 @@ const styles = StyleSheet.create({
   doneNote: { fontSize: 14, color: colors.forestDark },
   doneBtn: { backgroundColor: colors.forest, borderRadius: 6, padding: 12, alignItems: 'center' },
   textarea: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 12, fontSize: 15, minHeight: 100, textAlignVertical: 'top' },
-  saveBtn: { backgroundColor: colors.forest, borderRadius: 6, padding: 10, alignItems: 'center', marginTop: 10 },
+  saveBtn: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.forest, borderRadius: 6, padding: 10, alignItems: 'center', marginTop: 10 },
 });

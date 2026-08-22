@@ -45,7 +45,7 @@ export default function LoginScreen() {
           autoComplete="current-password"
           style={styles.input}
         />
-        <TouchableOpacity onPress={onSubmit} disabled={submitting} style={styles.button}>
+        <TouchableOpacity activeOpacity={0.7} onPress={onSubmit} disabled={submitting} style={styles.button}>
           <Text style={styles.buttonText}>{submitting ? 'Signing in…' : 'Sign in'}</Text>
         </TouchableOpacity>
       </View>

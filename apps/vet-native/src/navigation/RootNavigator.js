@@ -5,7 +5,26 @@ import JobDetailScreen from '../screens/JobDetailScreen.js';
 import ProfileScreen from '../screens/ProfileScreen.js';
 import MessagesScreen from '../screens/MessagesScreen.js';
 import EarningsScreen from '../screens/EarningsScreen.js';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme.js';
+
+/**
+ * Tab bar icons.
+ *
+ * HIG §7: match size, stroke weight and detail level across the whole
+ * set — one set (Ionicons), filled variants throughout, same size. A
+ * single heavier or more detailed icon stands out for the wrong reason.
+ *
+ * The bar previously had NO icons at all, which is unusual on both iOS
+ * and Android and made the sections harder to scan than a labelled row
+ * of glyphs.
+ */
+const TAB_ICONS = {
+  Jobs: 'briefcase',
+  Messages: 'chatbubble',
+  Earnings: 'cash',
+  Profile: 'person',
+};
 
 const Tab = createBottomTabNavigator();
 const JobsStack = createNativeStackNavigator();
@@ -22,11 +41,21 @@ function JobsStackNavigator() {
 export default function RootNavigator() {
   return (
     <Tab.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: colors.forestDark,
         tabBarInactiveTintColor: colors.inkSoft,
-      }}
+        // HIG §7: filled symbols throughout for platform consistency,
+        // one size, one set.
+        tabBarIcon: ({ color, size }) => (
+          <Ionicons name={TAB_ICONS[route.name] || 'ellipse'} size={size} color={color} />
+        ),
+        // HIG §5: one-word labels. All four already are.
+        tabBarLabelStyle: { fontSize: 11 },
+        // Keeps the whole tab (icon + label) inside a 44pt-tall region
+        // on devices without a home indicator.
+        tabBarStyle: { minHeight: 56 },
+      })}
     >
       <Tab.Screen name="Jobs" component={JobsStackNavigator} />
       <Tab.Screen name="Messages" component={MessagesScreen} options={{ headerShown: true, headerStyle: { backgroundColor: colors.forest }, headerTintColor: '#fff' }} />

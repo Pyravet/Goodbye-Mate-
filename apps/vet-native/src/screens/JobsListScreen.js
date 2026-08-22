@@ -64,10 +64,10 @@ export default function JobsListScreen({ navigation }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.tabRow}>
-        <TouchableOpacity onPress={() => onTabChange('upcoming')} style={[styles.tabBtn, tab === 'upcoming' && styles.tabBtnActive]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => onTabChange('upcoming')} style={[styles.tabBtn, tab === 'upcoming' && styles.tabBtnActive]}>
           <Text style={[styles.tabLabel, tab === 'upcoming' && styles.tabLabelActive]}>Upcoming</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => onTabChange('past')} style={[styles.tabBtn, tab === 'past' && styles.tabBtnActive]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={() => onTabChange('past')} style={[styles.tabBtn, tab === 'past' && styles.tabBtnActive]}>
           <Text style={[styles.tabLabel, tab === 'past' && styles.tabLabelActive]}>Past</Text>
         </TouchableOpacity>
       </View>
@@ -85,7 +85,7 @@ export default function JobsListScreen({ navigation }) {
             {section.data.length === 0 && <Text style={styles.empty}>Nothing right now.</Text>}
             {section.data.map((job) => (
               <View key={job.id} style={styles.card}>
-                <TouchableOpacity
+                <TouchableOpacity activeOpacity={0.7}
                   style={styles.cardMain}
                   onPress={() => navigation.navigate('JobDetail', { id: job.id })}
                 >
@@ -97,10 +97,10 @@ export default function JobsListScreen({ navigation }) {
                 </TouchableOpacity>
                 {section.isOffer && (
                   <View style={styles.actions}>
-                    <TouchableOpacity onPress={() => onDecline(job.id)} disabled={busyId === job.id} style={styles.declineBtn}>
+                    <TouchableOpacity activeOpacity={0.7} onPress={() => onDecline(job.id)} disabled={busyId === job.id} style={styles.declineBtn}>
                       <Text style={styles.declineText}>Decline</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => onAccept(job.id)} disabled={busyId === job.id} style={styles.acceptBtn}>
+                    <TouchableOpacity activeOpacity={0.7} onPress={() => onAccept(job.id)} disabled={busyId === job.id} style={styles.acceptBtn}>
                       <Text style={styles.acceptText}>Accept</Text>
                     </TouchableOpacity>
                   </View>
@@ -117,7 +117,7 @@ export default function JobsListScreen({ navigation }) {
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: colors.paper },
   tabRow: { flexDirection: 'row', gap: 4, backgroundColor: colors.lineSoft, borderRadius: 8, padding: 3, margin: 16, marginBottom: 4 },
-  tabBtn: { flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  tabBtn: { minHeight: 44, justifyContent: 'center', flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
   tabBtnActive: { backgroundColor: '#fff' },
   tabLabel: { fontSize: 13, fontWeight: '600', color: colors.inkSoft },
   tabLabelActive: { color: colors.forestDark },
@@ -129,8 +129,8 @@ const styles = StyleSheet.create({
   petName: { fontSize: 16, fontWeight: '700', color: colors.ink },
   subline: { fontSize: 13, color: colors.inkSoft, marginTop: 2 },
   actions: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  declineBtn: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 10, alignItems: 'center' },
+  declineBtn: { minHeight: 44, justifyContent: 'center', flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 10, alignItems: 'center' },
   declineText: { fontSize: 14, fontWeight: '600', color: colors.ink },
-  acceptBtn: { flex: 1, backgroundColor: colors.forest, borderRadius: 6, padding: 10, alignItems: 'center' },
+  acceptBtn: { minHeight: 44, justifyContent: 'center', flex: 1, backgroundColor: colors.forest, borderRadius: 6, padding: 10, alignItems: 'center' },
   acceptText: { fontSize: 14, fontWeight: '600', color: '#fff' },
 });

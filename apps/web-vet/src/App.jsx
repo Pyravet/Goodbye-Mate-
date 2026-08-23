@@ -11,6 +11,7 @@ import Earnings from './earnings/Earnings.jsx';
 import PastJobs from './jobs/PastJobs.jsx';
 import MessagesPage from './messages/MessagesPage.jsx';
 import OffersPage from './jobs/OffersPage.jsx';
+import DaySheet from './jobs/DaySheet.jsx';
 
 export default function App() {
   return (
@@ -19,11 +20,12 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-          <Route path="/" element={<RequireAuth><JobsList /></RequireAuth>} />
+          <Route path="/" element={<RequireAuth><DaySheet /></RequireAuth>} />
           <Route path="/jobs/past" element={<RequireAuth><PastJobs /></RequireAuth>} />
           <Route path="/jobs/:id" element={<RequireAuth><JobDetail /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><Calendar /></RequireAuth>} />
           <Route path="/earnings" element={<RequireAuth><Earnings /></RequireAuth>} />
+          <Route path="/jobs/all" element={<RequireAuth><JobsList /></RequireAuth>} />
           <Route path="/offers" element={<RequireAuth><OffersPage /></RequireAuth>} />
           <Route path="/messages" element={<RequireAuth><MessagesPage /></RequireAuth>} />
           <Route path="/messages/:id" element={<RequireAuth><MessagesPage /></RequireAuth>} />

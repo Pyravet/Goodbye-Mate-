@@ -15,10 +15,10 @@ export default function AppShell({ children }) {
       <main style={styles.main}>{children}</main>
       <nav style={styles.tabBar}>
         <NavLink to="/" end style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
-          <span style={styles.tabLabel}>Jobs</span>
+          <span style={styles.tabLabel}>Today</span>
         </NavLink>
-        <NavLink to="/calendar" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
-          <span style={styles.tabLabel}>Calendar</span>
+        <NavLink to="/jobs/all" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
+          <span style={styles.tabLabel}>Jobs</span>
         </NavLink>
         <NavLink to="/offers" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Offers</span>

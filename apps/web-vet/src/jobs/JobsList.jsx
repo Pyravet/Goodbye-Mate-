@@ -36,6 +36,7 @@ export default function JobsList() {
       <div style={styles.page}>
         <div style={styles.headerRow}>
           <h1 style={styles.title}>Your jobs</h1>
+          <Link to="/calendar" style={styles.pastLink}>Calendar</Link>
           <Link to="/jobs/past" style={styles.pastLink}>Past jobs →</Link>
         </div>
 

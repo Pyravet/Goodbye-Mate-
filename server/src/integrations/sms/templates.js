@@ -14,6 +14,15 @@
 // until then, the generic no-variable version below is used instead.
 
 export const SMS_TEMPLATES = {
+  vetAppointmentReminder: {
+    // No flowId yet — add it in MSG91 and the reminder SMS starts
+    // sending. Until then the push notification still goes out, so the
+    // feature works without it.
+    flowId: null,
+    senderId: 'GBM',
+    vars: ['vet_name', 'pet_name', 'job_time', 'suburb'],
+    description: 'Vet-facing: appointment starting shortly.',
+  },
   bookingReceived: {
     flowId: '687f2dc8d6fc053c7c39d9c2',
     senderId: 'GBM',

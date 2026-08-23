@@ -97,6 +97,21 @@ export default function PricingTab() {
           <FieldInline label="GST %">
             <input type="number" value={pricing.gstPercent} onChange={(e) => updateField(['gstPercent'], e.target.value)} style={styles.numInput} />
           </FieldInline>
+          <FieldInline label="Remind vets before appointments">
+            <input
+              type="checkbox"
+              checked={pricing.remindersEnabled !== false}
+              onChange={(e) => updateField(['remindersEnabled'], e.target.checked)}
+            />
+          </FieldInline>
+          <FieldInline label="Hours before appointment">
+            <input
+              type="number" min="0.5" max="48" step="0.5"
+              value={pricing.reminderHoursBefore ?? 2}
+              onChange={(e) => updateField(['reminderHoursBefore'], e.target.value)}
+              style={styles.numInput}
+            />
+          </FieldInline>
           <FieldInline label="Business is GST registered">
             <input
               type="checkbox"
@@ -105,6 +120,11 @@ export default function PricingTab() {
             />
           </FieldInline>
         </div>
+        <p style={styles.gstHint}>
+          Vets get a push notification (and an SMS once the MSG91 template is configured) this many
+          hours before each appointment they&apos;ve accepted. Reminders are sent once per job —
+          changing the hours won&apos;t re-notify anyone already reminded.
+        </p>
         <p style={styles.gstHint}>
           When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
           invoices. Prices stay exactly as entered — GST is shown as the portion already included in

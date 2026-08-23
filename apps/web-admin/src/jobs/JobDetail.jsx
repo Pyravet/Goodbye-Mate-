@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
@@ -763,12 +763,27 @@ function CancelCard({ job, onChanged }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [waive, setWaive] = useState(false);
+
+  // Fetched when the dialog opens, not on page load: it's only needed at
+  // the moment of deciding, and it's a live calculation against the
+  // clock.
+  const openConfirm = async () => {
+    setConfirming(true);
+    setError('');
+    try {
+      setPreview(await fetchCancellationPreview(job.id));
+    } catch {
+      setPreview(null); // fee unknown; cancelling still works
+    }
+  };
 
   const doCancel = async () => {
     setBusy(true);
     setError('');
     try {
-      await cancelJob(job.id, reason.trim());
+      await cancelJob(job.id, reason.trim(), { waiveFee: waive });
       setConfirming(false);
       onChanged();
     } catch (err) {
@@ -810,7 +825,7 @@ function CancelCard({ job, onChanged }) {
       <>
         <p style={styles.docHint}>Current status: <strong>{job.status.replace(/_/g, ' ')}</strong></p>
         {error && <p style={styles.assignError}>{error}</p>}
-        <button onClick={() => setConfirming(true)} style={styles.cancelJobBtn}>Cancel this job</button>
+        <button onClick={openConfirm} style={styles.cancelJobBtn}>Cancel this job</button>
       </>
     );
   }
@@ -911,6 +926,10 @@ const styles = {
   chargesBlock: { marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--gm-line-soft)' },
   notesArea: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', marginBottom: 8, background: '#fff' },
   cancelJobBtn: { flex: 1, width: '100%', background: 'var(--gm-brick)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
+  feeBox: { background: 'var(--gm-honey-soft)', borderRadius: 'var(--gm-radius-sm)', padding: '11px 13px', marginBottom: 12 },
+  feeAmount: { fontSize: 15, fontWeight: 600, color: '#7A5A22' },
+  feeDetail: { fontSize: 12, color: 'var(--gm-ink-soft)', marginTop: 3, lineHeight: 1.5 },
+  waiveRow: { display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, marginTop: 8 },
   refundModeRow: { display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, marginBottom: 10 },
   cancelledNote: { fontSize: 13, color: 'var(--gm-brick)', marginBottom: 10, fontWeight: 500 },
   debugLink: { background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 11, textDecoration: 'underline', padding: '8px 0 0', cursor: 'pointer' },

@@ -66,6 +66,34 @@ export default function PricingTab() {
         ))}
       </Card>
 
+      <Card title="Cancellation policy">
+        <p style={styles.gstHint}>
+          What a client is charged when a booking is cancelled, based on how much notice was
+          given. Admin can still waive or change the fee on any individual cancellation — this
+          sets the default, not a rule you can't depart from.
+        </p>
+
+        <FieldInline label="Charge for late cancellations">
+          <input
+            type="checkbox"
+            checked={pricing.cancellationPolicyEnabled === true}
+            onChange={(e) => updateField(['cancellationPolicyEnabled'], e.target.checked)}
+          />
+        </FieldInline>
+
+        {pricing.cancellationPolicyEnabled !== true && (
+          <p style={styles.gstHint}>
+            Currently off — no cancellation is charged. Turning this on affects future
+            cancellations only.
+          </p>
+        )}
+
+        <CancellationTiers
+          tiers={pricing.cancellationTiers || []}
+          onChange={(tiers) => updateField(['cancellationTiers'], tiers)}
+        />
+      </Card>
+
       <Card title="Transfer fee">
         <div style={styles.serviceRow}>
           <FieldInline label="Client pays">
@@ -178,7 +206,95 @@ function FieldInline({ label, children }) {
   );
 }
 
+/**
+ * Notice-period tiers. Each row is "with at least N hours notice, charge
+ * X% of the bill". The engine sorts by hours before matching, so an
+ * admin adding a row in the wrong place still gets sensible behaviour.
+ */
+function CancellationTiers({ tiers, onChange }) {
+  const update = (i, key, value) => {
+    const next = tiers.map((t, idx) => (idx === i ? { ...t, [key]: value } : t));
+    onChange(next);
+  };
+
+  const add = () => onChange([...tiers, { hoursBefore: 0, percent: 0, label: '' }]);
+  const remove = (i) => onChange(tiers.filter((_, idx) => idx !== i));
+
+  const sorted = [...tiers].sort((a, b) => Number(b.hoursBefore) - Number(a.hoursBefore));
+
+  return (
+    <div style={styles.tierBox}>
+      <div style={styles.tierHead}>
+        <span style={{ flex: 2 }}>At least this much notice</span>
+        <span style={{ flex: 1 }}>Charge</span>
+        <span style={{ width: 60 }} />
+      </div>
+
+      {tiers.length === 0 && (
+        <p style={styles.gstHint}>No tiers set — nothing will be charged.</p>
+      )}
+
+      {tiers.map((t, i) => (
+        <div key={i} style={styles.tierRow}>
+          <div style={{ flex: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="number" min="0" step="1"
+              value={t.hoursBefore ?? 0}
+              onChange={(e) => update(i, 'hoursBefore', Number(e.target.value))}
+              style={styles.numInput}
+            />
+            <span style={styles.tierUnit}>hours</span>
+          </div>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="number" min="0" max="100" step="5"
+              value={t.percent ?? 0}
+              onChange={(e) => update(i, 'percent', Number(e.target.value))}
+              style={styles.numInput}
+            />
+            <span style={styles.tierUnit}>%</span>
+          </div>
+          <button onClick={() => remove(i)} style={styles.tierRemove}>Remove</button>
+        </div>
+      ))}
+
+      <button onClick={add} style={styles.tierAdd}>+ Add a tier</button>
+
+      {/* Read back in plain words. A table of numbers is easy to
+          misread, and this is the sentence that will be quoted to a
+          client on the phone. */}
+      {sorted.length > 0 && (
+        <div style={styles.tierSummary}>
+          {sorted.map((t, i) => {
+            const next = sorted[i + 1];
+            const range = next
+              ? `${next.hoursBefore}–${t.hoursBefore} hours`
+              : `${t.hoursBefore} hours or more`;
+            const upper = i === 0 ? `More than ${t.hoursBefore} hours` : range;
+            return (
+              <div key={i}>
+                {upper} notice: <strong>{Number(t.percent) === 0 ? 'no charge' : `${t.percent}% of the bill`}</strong>
+              </div>
+            );
+          })}
+          <div>
+            Less than {sorted[sorted.length - 1].hoursBefore} hours, or after the appointment
+            time: <strong>{sorted[sorted.length - 1].percent}% of the bill</strong>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const styles = {
+  tierBox: { marginTop: 10 },
+  tierHead: { display: 'flex', gap: 8, fontSize: 11, color: 'var(--gm-ink-soft)', marginBottom: 6 },
+  tierRow: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 },
+  tierUnit: { fontSize: 12, color: 'var(--gm-ink-soft)' },
+  tierRemove: { width: 60, background: 'none', border: 'none', color: 'var(--gm-brick)', fontSize: 11, textDecoration: 'underline' },
+  tierAdd: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 14px', fontSize: 12, marginBottom: 12 },
+  tierSummary: { fontSize: 12, color: 'var(--gm-ink-soft)', lineHeight: 1.8, background: 'var(--gm-line-soft)', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)' },
   gstHint: { fontSize: 11, color: 'var(--gm-ink-soft)', lineHeight: 1.5, marginTop: 10, fontStyle: 'italic' },
   serviceRow: { display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12 },
   input: { padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },

@@ -127,14 +127,26 @@ export async function saveAdminNotes(jobId, notes) {
   return res.json();
 }
 
-export async function cancelJob(jobId, reason) {
+export async function fetchCancellationPreview(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/cancellation-preview`);
+  if (!res.ok) throw new Error('Could not work out the cancellation fee');
+  return res.json();
+}
+
+export async function cancelJob(jobId, reason, options = {}) {
   const res = await apiFetch(`/jobs/${jobId}/cancel`, {
     method: 'POST',
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({
+      reason,
+      // Explicit rather than inferred: waiving a fee and charging the
+      // calculated one must never be confused.
+      waiveFee: options.waiveFee === true,
+      feeOverride: options.feeOverride ?? null,
+    }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to cancel job');
-  return data.job;
+  if (!res.ok) throw new Error(data.error || 'Could not cancel this job');
+  return data;
 }
 
 export async function reinstateJob(jobId) {

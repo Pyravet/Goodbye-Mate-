@@ -7,6 +7,7 @@ import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
+import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -916,22 +917,83 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
 }
 
 // --- Cancel a job ---
+/**
+ * GET /jobs/:id/cancellation-preview
+ *
+ * What would cancelling cost right now? Admin is usually on the phone
+ * to the client when they need this, so the figure has to be visible
+ * BEFORE confirming — discovering a fee after the fact means ringing
+ * someone back to tell them they've been charged.
+ */
+router.get('/:id/cancellation-preview', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+
+  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
+  const hoursNotice = hoursUntilAppointment(job.job_date, job.job_time);
+  const result = cancellationFee({ billTotal: bill.total, hoursNotice, pricing });
+
+  res.json({
+    billTotal: bill.total,
+    hoursNotice: hoursNotice == null ? null : Math.round(hoursNotice * 10) / 10,
+    ...result,
+    alreadyPaid: job.payment_status === 'paid',
+  });
+}));
+
 router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const reason = (req.body?.reason || '').trim() || null;
 
+  // Work out the cancellation fee BEFORE the update, while the job
+  // still has its original date/time — the row is about to be marked
+  // cancelled and the notice period is relative to the appointment.
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const pricingConfig = pricingRows[0].config;
+  const { rows: existingRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const existingJob = existingRows[0];
+  if (!existingJob) return res.status(404).json({ error: 'Job not found' });
+
+  const bill = billBreakdown(existingJob, pricingConfig, await getLineItems(existingJob.id));
+  const notice = hoursUntilAppointment(existingJob.job_date, existingJob.job_time);
+  // Admin can override the calculated fee, or waive it entirely — the
+  // policy is a default, not a rule the person on the phone can't
+  // depart from when someone's pet died overnight.
+  const waived = req.body?.waiveFee === true;
+  const calculated = cancellationFee({ billTotal: bill.total, hoursNotice: notice, pricing: pricingConfig });
+  const fee = waived
+    ? 0
+    : (req.body?.feeOverride != null ? Number(req.body.feeOverride) : calculated.fee);
+
   const { rows } = await query(
-    `UPDATE jobs SET status = 'cancelled', cancelled_at = now(), cancellation_reason = $1,
+    `UPDATE jobs SET status = 'cancelled', cancelled_at = now(),
+       cancellation_fee = $2, cancellation_fee_waived = $3, cancellation_reason = $1,
        dispatch_state = 'none', dispatch_expires_at = NULL, updated_at = now()
-     WHERE id = $2 AND status <> 'cancelled' RETURNING *`,
-    [reason, req.params.id]
+     WHERE id = $4 AND status <> 'cancelled' RETURNING *`,
+    [reason, fee, waived, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found, or already cancelled.' });
 
-  await logAction({ actorUserId: req.user.sub, action: 'job_cancelled', targetType: 'job', targetId: req.params.id, metadata: { reason } });
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'job_cancelled',
+    targetType: 'job',
+    targetId: req.params.id,
+    // The calculated figure is logged alongside what was actually
+    // charged, so a waiver or override is visible as a decision someone
+    // made rather than looking like the policy simply didn't fire.
+    metadata: { reason, fee, waived, calculatedFee: calculated.fee, hoursNotice: notice },
+  });
   notifyStatusChange(rows[0], 'cancelled', { actorRole: 'admin', reason })
     .catch((e) => console.error('cancel notify failed:', e.message));
 
-  res.json({ job: rows[0] });
+  res.json({
+    job: rows[0],
+    cancellation: { fee, waived, calculated, hoursNotice: notice },
+  });
 }));
 
 // Reinstate a cancelled job — mistakes happen, and re-keying a whole

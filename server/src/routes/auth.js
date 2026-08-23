@@ -9,6 +9,37 @@ import { logAction } from '../audit/log.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { sendPushToAdmins } from '../integrations/push/webPush.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
+import crypto from 'node:crypto';
+import { generateTotpSecret, verifyTotp, totpUri, generateRecoveryCodes } from '../security/totp.js';
+import { encrypt, decrypt, isEncryptionConfigured } from '../security/encryption.js';
+import QRCode from 'qrcode';
+
+/**
+ * Issue everything a successful login returns.
+ *
+ * Extracted because the flow now has TWO exits — straight through when
+ * 2FA is off, and after code verification when it's on — and duplicating
+ * refresh-token creation across both is how the two paths drift apart.
+ */
+async function completeLogin(req, res, user) {
+  const accessToken = signAccessToken(user);
+  const { raw, hash, expiresAt } = generateRefreshToken();
+
+  await query(
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [user.id, hash, expiresAt, req.headers['user-agent'] || null, req.ip]
+  );
+
+  setRefreshCookie(res, raw, expiresAt);
+  await logAction({ actorUserId: user.id, action: 'login_success', targetType: 'user', targetId: user.id });
+
+  return res.json({
+    accessToken,
+    refreshToken: raw,
+    user: { id: user.id, email: user.email, role: user.role, fullName: user.full_name },
+  });
+}
 
 const router = Router();
 
@@ -84,28 +115,100 @@ router.post('/login', loginLimiter, asyncHandler(async (req, res) => {
     return genericError();
   }
 
-  const accessToken = signAccessToken(user);
-  const { raw, hash, expiresAt } = generateRefreshToken();
-
-  await query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [user.id, hash, expiresAt, req.headers['user-agent'] || null, req.ip]
+  // 2FA gate. The password was correct, but no tokens are issued yet —
+  // a short-lived challenge is returned instead, so the password isn't
+  // re-sent with the code and a half-finished login can't be resumed
+  // days later.
+  const { rows: totpRows } = await query(
+    'SELECT totp_enabled_at FROM users WHERE id = $1', [user.id]
   );
+  if (totpRows[0]?.totp_enabled_at) {
+    const challenge = crypto.randomBytes(32).toString('hex');
+    const challengeHash = crypto.createHash('sha256').update(challenge).digest('hex');
+    await query(
+      `INSERT INTO totp_challenges (user_id, token_hash, expires_at)
+       VALUES ($1, $2, now() + INTERVAL '5 minutes')`,
+      [user.id, challengeHash]
+    );
+    return res.json({ twoFactorRequired: true, challenge });
+  }
 
-  setRefreshCookie(res, raw, expiresAt);
-  await logAction({ actorUserId: user.id, action: 'login_success', targetType: 'user', targetId: user.id });
+  return completeLogin(req, res, user);
+}));
 
-  res.json({
-    accessToken,
-    // Returned for clients that can't rely on the httpOnly cookie:
-    // the native app (no cookie jar), and web clients on browsers that
-    // block third-party cookies — the API is on a different registrable
-    // domain from the frontends, so Safari/iOS drops the cookie entirely.
-    // Those clients store this and send it back in the refresh body.
-    refreshToken: raw,
-    user: { id: user.id, email: user.email, role: user.role, fullName: user.full_name },
-  });
+const totpLoginSchema = z.object({
+  challenge: z.string().min(1),
+  code: z.string().trim().min(6).max(20),
+});
+
+/**
+ * POST /auth/login/2fa — second step of login.
+ *
+ * Rate-limited with the same limiter as login: a 6-digit code is
+ * brute-forceable in minutes without one.
+ */
+router.post('/login/2fa', loginLimiter, asyncHandler(async (req, res) => {
+  const parsed = totpLoginSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+
+  const challengeHash = crypto.createHash('sha256')
+    .update(parsed.data.challenge).digest('hex');
+
+  // Consume the challenge atomically, so a replayed challenge can't be
+  // used for a second attempt.
+  const { rows: challengeRows } = await query(
+    `UPDATE totp_challenges SET consumed_at = now()
+     WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+     RETURNING user_id`,
+    [challengeHash]
+  );
+  if (!challengeRows[0]) {
+    return res.status(401).json({ error: 'That sign-in attempt has expired. Please start again.' });
+  }
+
+  const { rows: userRows } = await query(
+    `SELECT id, email, role, full_name, is_active, totp_secret_enc, totp_recovery_codes
+     FROM users WHERE id = $1`,
+    [challengeRows[0].user_id]
+  );
+  const user = userRows[0];
+  if (!user || !user.is_active) return res.status(401).json({ error: 'Invalid sign-in' });
+
+  const code = parsed.data.code.replace(/\s/g, '');
+  let ok = false;
+  let usedRecovery = false;
+
+  if (/^\d{6}$/.test(code)) {
+    ok = verifyTotp(decrypt(user.totp_secret_enc), code);
+  } else {
+    // Recovery code. Single use: matched by hash, then REMOVED, so a
+    // written-down code can't be replayed if the paper is found.
+    const stored = user.totp_recovery_codes || [];
+    for (const hash of stored) {
+      if (await bcrypt.compare(code.toUpperCase(), hash)) {
+        ok = true;
+        usedRecovery = true;
+        await query(
+          `UPDATE users SET totp_recovery_codes = $1 WHERE id = $2`,
+          [JSON.stringify(stored.filter((h) => h !== hash)), user.id]
+        );
+        break;
+      }
+    }
+  }
+
+  if (!ok) {
+    await logAction({ actorUserId: user.id, action: 'login_2fa_failed', targetType: 'user', targetId: user.id });
+    return res.status(401).json({ error: 'That code is not right. Check your authenticator app.' });
+  }
+
+  if (usedRecovery) {
+    await logAction({ actorUserId: user.id, action: 'login_2fa_recovery_used', targetType: 'user', targetId: user.id });
+    sendSlackMessage(`🔑 Recovery code used to sign in: ${user.email}`)
+      .catch((e) => console.error('recovery alert failed:', e.message));
+  }
+
+  return completeLogin(req, res, user);
 }));
 
 router.post('/refresh', asyncHandler(async (req, res) => {
@@ -255,6 +358,148 @@ router.post('/vet-signup', vetSignupLimiter, asyncHandler(async (req, res) => {
   } finally {
     client.release();
   }
+}));
+
+
+// --- Two-factor setup and management ---
+
+/**
+ * GET /auth/2fa/status — is 2FA on for this account?
+ */
+router.get('/2fa/status', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    'SELECT totp_enabled_at, totp_recovery_codes FROM users WHERE id = $1',
+    [req.user.sub]
+  );
+  res.json({
+    enabled: !!rows[0]?.totp_enabled_at,
+    enabledAt: rows[0]?.totp_enabled_at || null,
+    recoveryCodesRemaining: (rows[0]?.totp_recovery_codes || []).length,
+  });
+}));
+
+/**
+ * POST /auth/2fa/setup — generate a secret and QR code.
+ *
+ * Does NOT enable 2FA. The secret is stored but stays inert until a
+ * correct code is confirmed, so someone who scans the QR and then loses
+ * their phone mid-setup isn't locked out of their own account.
+ */
+router.post('/2fa/setup', requireAuth, asyncHandler(async (req, res) => {
+  if (!isEncryptionConfigured()) {
+    return res.status(503).json({
+      error: 'Encryption is not configured on the server, so a 2FA secret cannot be stored safely.',
+    });
+  }
+
+  const { rows } = await query('SELECT email, totp_enabled_at FROM users WHERE id = $1', [req.user.sub]);
+  if (rows[0]?.totp_enabled_at) {
+    return res.status(409).json({ error: 'Two-factor authentication is already on for this account.' });
+  }
+
+  const secret = generateTotpSecret();
+  await query('UPDATE users SET totp_secret_enc = $1 WHERE id = $2', [encrypt(secret), req.user.sub]);
+
+  const uri = totpUri(secret, rows[0].email);
+  const qrDataUrl = await QRCode.toDataURL(uri, { margin: 1, width: 240 });
+
+  res.json({
+    qrDataUrl,
+    // Shown so it can be typed by hand when a camera won't cooperate —
+    // a QR-only setup strands anyone on a desktop without a webcam.
+    secret,
+    uri,
+  });
+}));
+
+const confirmSchema = z.object({ code: z.string().trim().min(6).max(10) });
+
+/**
+ * POST /auth/2fa/confirm — prove the app works, then turn 2FA on.
+ *
+ * Returns the recovery codes exactly ONCE. They're stored hashed, so
+ * there is no way to show them again — the response says so.
+ */
+router.post('/2fa/confirm', requireAuth, asyncHandler(async (req, res) => {
+  const parsed = confirmSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Enter the 6-digit code.' });
+
+  const { rows } = await query(
+    'SELECT totp_secret_enc, totp_enabled_at FROM users WHERE id = $1', [req.user.sub]
+  );
+  if (!rows[0]?.totp_secret_enc) {
+    return res.status(400).json({ error: 'Start the setup again — no secret is pending.' });
+  }
+  if (rows[0].totp_enabled_at) {
+    return res.status(409).json({ error: 'Two-factor authentication is already on.' });
+  }
+
+  if (!verifyTotp(decrypt(rows[0].totp_secret_enc), parsed.data.code)) {
+    return res.status(400).json({
+      error: "That code isn't right. Check your phone's clock is set automatically, then try the current code.",
+    });
+  }
+
+  const recoveryCodes = generateRecoveryCodes(8);
+  const hashes = await Promise.all(recoveryCodes.map((c) => bcrypt.hash(c, 10)));
+
+  await query(
+    `UPDATE users SET totp_enabled_at = now(), totp_recovery_codes = $1 WHERE id = $2`,
+    [JSON.stringify(hashes), req.user.sub]
+  );
+
+  await logAction({ actorUserId: req.user.sub, action: '2fa_enabled', targetType: 'user', targetId: req.user.sub });
+
+  res.json({
+    enabled: true,
+    recoveryCodes,
+    warning: 'Save these now. They are stored hashed and cannot be shown again.',
+  });
+}));
+
+const disableSchema = z.object({
+  password: z.string().min(1),
+  code: z.string().trim().min(6).max(20),
+});
+
+/**
+ * POST /auth/2fa/disable
+ *
+ * Requires BOTH the password and a current code. Turning off a second
+ * factor from an already-authenticated session would mean anyone with a
+ * borrowed logged-in browser could strip the protection — which is
+ * exactly the scenario 2FA exists to cover.
+ */
+router.post('/2fa/disable', requireAuth, asyncHandler(async (req, res) => {
+  const parsed = disableSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Password and current code are both required.' });
+
+  const { rows } = await query(
+    'SELECT password_hash, totp_secret_enc, totp_enabled_at FROM users WHERE id = $1',
+    [req.user.sub]
+  );
+  if (!rows[0]?.totp_enabled_at) {
+    return res.status(400).json({ error: 'Two-factor authentication is not on.' });
+  }
+
+  if (!(await bcrypt.compare(parsed.data.password, rows[0].password_hash))) {
+    return res.status(401).json({ error: 'That password is not right.' });
+  }
+  if (!verifyTotp(decrypt(rows[0].totp_secret_enc), parsed.data.code)) {
+    return res.status(401).json({ error: 'That code is not right.' });
+  }
+
+  await query(
+    `UPDATE users SET totp_enabled_at = NULL, totp_secret_enc = NULL,
+       totp_recovery_codes = '[]'::jsonb WHERE id = $1`,
+    [req.user.sub]
+  );
+
+  await logAction({ actorUserId: req.user.sub, action: '2fa_disabled', targetType: 'user', targetId: req.user.sub });
+  sendSlackMessage(`⚠️ Two-factor authentication was turned OFF for ${req.user.email || req.user.sub}`)
+    .catch((e) => console.error('2fa disable alert failed:', e.message));
+
+  res.json({ enabled: false });
 }));
 
 export default router;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DuplicateWarning from './DuplicateWarning.jsx';
 import { useNavigate } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import AddressAutocomplete from '../maps/AddressAutocomplete.jsx';
@@ -93,6 +94,13 @@ export default function NewJobForm() {
 
           <Section title="Pet">
             <Row>
+              <DuplicateWarning
+                clientName={form.clientName}
+                clientPhone={form.clientPhone}
+                clientEmail={form.clientEmail}
+                petName={form.petName}
+                date={form.date}
+              />
               <Field label="Name" required><input value={form.petName} onChange={set('petName')} required style={styles.input} /></Field>
               <Field label="Type" required><input value={form.petType} onChange={set('petType')} placeholder="Dog, cat…" required style={styles.input} /></Field>
               <Field label="Breed"><input value={form.petBreed} onChange={set('petBreed')} style={styles.input} /></Field>

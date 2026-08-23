@@ -238,6 +238,15 @@ export async function openConsentPdf(jobId, jobNumber) {
   return downloadPdf(`/jobs/${jobId}/consent.pdf`, `Consent-${jobNumber}.pdf`);
 }
 
+export async function checkDuplicate(payload) {
+  const res = await apiFetch('/jobs/check-duplicate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return { matches: [] }; // advisory only — never block on a failed check
+  return res.json();
+}
+
 export async function assignVet(jobId, vetId) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',

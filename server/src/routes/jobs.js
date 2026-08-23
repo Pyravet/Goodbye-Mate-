@@ -8,6 +8,7 @@ import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
+import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -354,6 +355,77 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
  * vet app can show offers as a distinct area: an offer is a decision to
  * make, not a job they hold, and mixing the two buries it.
  */
+const duplicateCheckSchema = z.object({
+  clientName: z.string().trim().optional().nullable(),
+  clientPhone: z.string().trim().optional().nullable(),
+  clientEmail: z.string().trim().optional().nullable(),
+  petName: z.string().trim().optional().nullable(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  // Set when editing, so a job isn't flagged as a duplicate of itself.
+  excludeJobId: z.string().uuid().optional().nullable(),
+});
+
+/**
+ * POST /jobs/check-duplicate
+ *
+ * Called before creating a booking. A duplicate here means two vets
+ * dispatched to one grieving family, two charges and two sets of
+ * paperwork — so this warns BEFORE the job exists rather than leaving
+ * someone to notice afterwards.
+ *
+ * Deliberately advisory: it returns matches, it does not block. Two
+ * genuinely separate bookings for the same household do happen (a second
+ * pet, a rebooking after a cancellation), and refusing them outright
+ * would be worse than a warning someone can read and dismiss.
+ */
+router.post('/check-duplicate', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = duplicateCheckSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Invalid check' });
+  const d = parsed.data;
+
+  const phoneDigits = normalisePhone(d.clientPhone);
+  const email = (d.clientEmail || '').trim().toLowerCase();
+  if (!phoneDigits && !email) return res.json({ matches: [] });
+
+  // Narrow in SQL on the identifiers, then score in JS. Matching the
+  // phone in Postgres needs the same digits-only normalisation, so it's
+  // done with regexp_replace rather than assuming stored formatting.
+  const { rows } = await query(
+    `SELECT id, job_number, client_name, client_phone, client_email,
+            pet_name, job_date, job_time, status, assigned_vet_id
+     FROM jobs
+     WHERE status <> 'cancelled'
+       AND ($3::uuid IS NULL OR id <> $3)
+       AND (
+         ($1 <> '' AND right(regexp_replace(client_phone, '\\D', '', 'g'), 9) = $1)
+         OR ($2 <> '' AND lower(trim(client_email)) = $2)
+       )
+     ORDER BY job_date DESC
+     LIMIT 20`,
+    [phoneDigits, email, d.excludeJobId || null]
+  );
+
+  const matches = rows
+    .map((job) => {
+      const score = duplicateScore(d, job);
+      if (!score.level) return null;
+      return {
+        jobId: job.id,
+        jobNumber: job.job_number,
+        clientName: job.client_name,
+        petName: job.pet_name,
+        jobDate: job.job_date,
+        jobTime: job.job_time,
+        status: job.status,
+        hasVet: !!job.assigned_vet_id,
+        ...score,
+      };
+    })
+    .filter(Boolean);
+
+  res.json({ matches: sortByConfidence(matches) });
+}));
+
 router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const myVetId = await getVetIdForUser(req.user.sub);
   if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });

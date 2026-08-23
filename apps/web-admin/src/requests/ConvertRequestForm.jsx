@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import DuplicateWarning from '../jobs/DuplicateWarning.jsx';
 import { useNavigate } from 'react-router';
 import { convertRequest } from './requestsApi.js';
 
@@ -89,6 +90,16 @@ export default function ConvertRequestForm({ request, onCancel, onDone }) {
           {request.message && <div style={{ marginTop: 4 }}>{request.message}</div>}
         </div>
       )}
+
+      {/* This is the likeliest source of duplicates: a distressed
+          person rings the office AND submits the web form. */}
+      <DuplicateWarning
+        clientName={request.client_name}
+        clientPhone={request.client_phone}
+        clientEmail={request.client_email}
+        petName={form.petName}
+        date={form.date}
+      />
 
       <Field label="Address" required>
         <input value={form.address} onChange={set('address')} required style={styles.input} />

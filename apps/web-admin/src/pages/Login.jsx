@@ -8,7 +8,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, loginWithTwoFactor } = useAuth();
+  // Set once the password is accepted and a code is needed. Its presence
+  // is what switches this form into the second step.
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState('');
   const navigate = useNavigate();
 
   const onSubmit = async (e) => {
@@ -16,7 +20,13 @@ export default function Login() {
     setError('');
     setSubmitting(true);
     try {
-      await login(email, password);
+      const result = await login(email, password);
+      // Needing a second factor is not an error — the password was
+      // correct, there's just another step.
+      if (result?.twoFactorRequired) {
+        setChallenge(result.challenge);
+        return;
+      }
       navigate('/');
     } catch (err) {
       setError(err.message);
@@ -24,6 +34,64 @@ export default function Login() {
       setSubmitting(false);
     }
   };
+
+  const onSubmitCode = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      await loginWithTwoFactor(challenge, code);
+      navigate('/');
+    } catch (err) {
+      setError(err.message);
+      setCode('');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (challenge) {
+    return (
+      <div style={styles.wrap}>
+        <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.logo} />
+        <form onSubmit={onSubmitCode} style={styles.form}>
+          <p style={styles.subtitle}>Two-step verification</p>
+          {error && <p style={styles.error}>{error}</p>}
+          <p style={styles.hint}>
+            Enter the 6-digit code from your authenticator app.
+          </p>
+          <label style={styles.label}>
+            Code
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required
+              autoFocus
+              // inputMode numeric brings up the number pad on a phone,
+              // but the field stays text so a recovery code still works.
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              style={{ ...styles.input, letterSpacing: 4, fontSize: 20, textAlign: 'center' }}
+            />
+          </label>
+          <button type="submit" disabled={submitting || !code.trim()} style={styles.button}>
+            {submitting ? 'Checking…' : 'Verify'}
+          </button>
+          <p style={styles.hint}>
+            Lost your phone? Enter one of your recovery codes instead.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setChallenge(null); setCode(''); setError(''); }}
+            style={styles.linkBtn}
+          >
+            Back to sign in
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.wrap}>
@@ -48,6 +116,8 @@ export default function Login() {
 }
 
 const styles = {
+  hint: { fontSize: 13, color: 'var(--gm-ink-soft)', lineHeight: 1.5, marginBottom: 14, textAlign: 'center' },
+  linkBtn: { background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 12, textDecoration: 'underline', marginTop: 10, cursor: 'pointer', width: '100%' },
   wrap: { display: 'flex', flexDirection: 'column', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--gm-forest)', padding: 24 },
   logo: { width: 260, height: 'auto', marginBottom: 32 },
   form: { width: 340, padding: '32px 32px 36px', background: '#fff', borderRadius: 14 },

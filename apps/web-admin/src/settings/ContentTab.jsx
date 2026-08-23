@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import TwoFactorCard from './TwoFactorCard.jsx';
 import { fetchClientResources, addClientResource, removeClientResource, verifyEmail, sendTestEmail, fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
 
 const TEXT_FIELDS = [
@@ -78,6 +79,10 @@ export default function ContentTab() {
 
       <Card title="Support & grief resources">
         <ClientResources />
+      </Card>
+
+      <Card title="Security — two-step verification">
+        <TwoFactorCard />
       </Card>
 
       <Card title="Email delivery">

@@ -93,3 +93,74 @@ export function startReminderWorker() {
 
   console.log(`Appointment reminder worker started (checking every ${CHECK_INTERVAL_MS / 1000}s)`);
 }
+
+// Checked hourly, not every minute: the delay is measured in DAYS, so
+// minute precision would be pointless load. It also keeps the nudge
+// landing at a civil hour rather than whenever the visit happened to be.
+const REVIEW_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+// Never text someone about a review before 9am or after 7pm local time.
+// This message follows a euthanasia; arriving at 6am would be careless
+// in a way that matters more than the review does.
+const CIVIL_START_HOUR = 9;
+const CIVIL_END_HOUR = 19;
+
+/**
+ * Ask clients to leave feedback a few days after the visit.
+ *
+ * Most people never reopen the journey link once the visit is done, so
+ * without a nudge reviews only come from the handful who happen to.
+ */
+export function startReviewReminderWorker() {
+  setInterval(async () => {
+    try {
+      const { rows: settingsRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+      const config = settingsRows[0]?.config || {};
+      if (config.reviewRemindersEnabled === false) return;
+
+      const configured = Number(config.reviewReminderDays);
+      const days = Number.isFinite(configured) && configured > 0 ? configured : 2;
+
+      const localHour = Number(
+        new Intl.DateTimeFormat('en-AU', { hour: 'numeric', hour12: false, timeZone: BUSINESS_TZ })
+          .format(new Date())
+      );
+      if (localHour < CIVIL_START_HOUR || localHour >= CIVIL_END_HOUR) return;
+
+      const { rows: jobs } = await query(
+        `SELECT j.id, j.client_name, j.client_phone, j.pet_name, j.client_token
+         FROM jobs j
+         LEFT JOIN job_reviews r ON r.job_id = j.id
+         WHERE j.review_reminder_sent_at IS NULL
+           AND j.status = 'completed'
+           AND j.procedure_done_at IS NOT NULL
+           AND j.procedure_done_at <= now() - ($1 || ' days')::interval
+           -- Don't chase someone who has already reviewed.
+           AND r.job_id IS NULL
+           AND j.client_phone IS NOT NULL
+         LIMIT 25`,
+        [String(days)]
+      );
+
+      for (const job of jobs) {
+        // Marked first for the same reason as the appointment reminder:
+        // a send failure after marking costs one message, whereas
+        // marking after sending would re-text a grieving client every
+        // hour until it succeeded.
+        await query('UPDATE jobs SET review_reminder_sent_at = now() WHERE id = $1', [job.id]);
+
+        if (isMsg91Configured() && isTemplateConfigured('clientReviewReminder')) {
+          sendTemplatedSms(job.client_phone, 'clientReviewReminder', {
+            client_name: job.client_name,
+            pet_name: job.pet_name,
+            link: `${process.env.CLIENT_APP_URL || ''}/${job.client_token}`,
+          }).catch((e) => console.error('review reminder SMS failed:', e.message));
+        }
+      }
+    } catch (err) {
+      console.error('Review reminder worker error:', err.message);
+    }
+  }, REVIEW_CHECK_INTERVAL_MS);
+
+  console.log(`Review reminder worker started (checking hourly)`);
+}

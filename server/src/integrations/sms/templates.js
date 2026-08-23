@@ -14,6 +14,15 @@
 // until then, the generic no-variable version below is used instead.
 
 export const SMS_TEMPLATES = {
+  clientReviewReminder: {
+    // Add the flow id in MSG91 to switch this on. Suggested wording:
+    // "Hi {client_name}, we hope you're doing okay. When you're ready,
+    //  you can finalise {pet_name}'s booking and share how we did: {link}"
+    flowId: null,
+    senderId: 'GBM',
+    vars: ['client_name', 'pet_name', 'link'],
+    description: 'Client-facing: gentle nudge to finalise the booking and leave feedback.',
+  },
   vetAppointmentReminder: {
     // No flowId yet — add it in MSG91 and the reminder SMS starts
     // sending. Until then the push notification still goes out, so the

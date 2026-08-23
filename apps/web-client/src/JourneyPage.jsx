@@ -536,6 +536,10 @@ function ReviewSection({ token, isActive, rating, onRated }) {
       await submitReview(token, { rating: value, comment: withComment ? comment.trim() : undefined });
       onRated(value);
       if (withComment) setCommentSent(true);
+      // Re-rating reopens the feedback prompt: someone who corrects 5
+      // stars down to 2 has something to tell us, and the box would
+      // otherwise stay closed from the earlier submission.
+      else setCommentSent(false);
       // Five stars: hand off to Google. Opened synchronously-ish right
       // after the await; if a popup blocker stops it, the fallback link
       // below still gets them there.
@@ -552,7 +556,10 @@ function ReviewSection({ token, isActive, rating, onRated }) {
   // Save the rating immediately on tap so it's never lost, then invite
   // detail separately.
   const onStarClick = (value) => {
-    if (submitting || rating != null) return;
+    if (submitting) return;
+    // Deliberately NOT blocked when a rating already exists — changing
+    // your mind is the whole point.
+    if (value === rating) return;
     submit(value, false);
   };
 
@@ -562,11 +569,28 @@ function ReviewSection({ token, isActive, rating, onRated }) {
       <>
         <SectionHeader label="How did we do?" done={isHigh || commentSent} />
 
-        <div style={styles.starRowStatic}>
+        {/* Stays tappable after submitting. A mis-tap on a 5-point
+            scale is easy and was previously permanent from the client's
+            side, even though the server already accepts a changed
+            rating. Nobody should be stuck having told us their goodbye
+            was 1 star when they meant 5. */}
+        <div style={styles.starRow}>
           {[1, 2, 3, 4, 5].map((n) => (
-            <span key={n} style={styles.starStatic}>{n <= rating ? '\u2605' : '\u2606'}</span>
+            <button
+              key={n}
+              type="button"
+              disabled={submitting}
+              onClick={() => onStarClick(n)}
+              onMouseEnter={() => setHoverStar(n)}
+              onMouseLeave={() => setHoverStar(0)}
+              style={styles.starBtn}
+              aria-label={`Change rating to ${n} star${n === 1 ? '' : 's'}`}
+            >
+              {n <= (hoverStar || rating) ? '\u2605' : '\u2606'}
+            </button>
           ))}
         </div>
+        <p style={styles.reviewHint}>Tap a different star if that wasn&apos;t what you meant.</p>
 
         {isHigh ? (
           <>

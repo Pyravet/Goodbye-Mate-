@@ -20,7 +20,7 @@ import notificationRoutes from './routes/notifications.js';
 import bookingRequestRoutes from './routes/bookingRequests.js';
 import exportRoutes from './routes/exports.js';
 import { startDispatchWorker } from './workers/dispatchWorker.js';
-import { startReminderWorker } from './workers/reminderWorker.js';
+import { startReminderWorker, startReviewReminderWorker } from './workers/reminderWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
 import { closePool } from './db/pool.js';
 
@@ -149,6 +149,7 @@ const server = app.listen(port, () => {
   console.log(`API listening on :${port}`);
   startDispatchWorker();
   startReminderWorker();
+  startReviewReminderWorker();
   seedTestVet().catch((err) => console.error('Test vet seed error:', err.message));
 });
 

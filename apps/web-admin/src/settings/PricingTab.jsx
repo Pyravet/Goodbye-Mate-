@@ -112,6 +112,21 @@ export default function PricingTab() {
               style={styles.numInput}
             />
           </FieldInline>
+          <FieldInline label="Ask clients for feedback">
+            <input
+              type="checkbox"
+              checked={pricing.reviewRemindersEnabled !== false}
+              onChange={(e) => updateField(['reviewRemindersEnabled'], e.target.checked)}
+            />
+          </FieldInline>
+          <FieldInline label="Days after the visit">
+            <input
+              type="number" min="1" max="30" step="1"
+              value={pricing.reviewReminderDays ?? 2}
+              onChange={(e) => updateField(['reviewReminderDays'], e.target.value)}
+              style={styles.numInput}
+            />
+          </FieldInline>
           <FieldInline label="Business is GST registered">
             <input
               type="checkbox"
@@ -120,6 +135,11 @@ export default function PricingTab() {
             />
           </FieldInline>
         </div>
+        <p style={styles.gstHint}>
+          Clients who haven&apos;t left feedback get one text this many days after the visit, asking
+          them to finalise their booking. Sent once, only between 9am and 7pm, and never to someone
+          who has already reviewed.
+        </p>
         <p style={styles.gstHint}>
           Vets get a push notification (and an SMS once the MSG91 template is configured) this many
           hours before each appointment they&apos;ve accepted. Reminders are sent once per job —

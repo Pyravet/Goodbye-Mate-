@@ -1470,7 +1470,12 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
   if (isMsg91Configured() && isTemplateConfigured('genericMessage') && job.client_phone) {
     try {
       await sendTemplatedSms(job.client_phone, 'genericMessage', {
-        message: `Hi ${job.client_name}, ${vetName} is on the way to see ${job.pet_name} and expects to arrive in about ${etaMinutes} minute${etaMinutes === 1 ? '' : 's'}.`,
+        // Link included so the estimate stays checkable. The SMS is a
+        // snapshot from one moment; without a link the client's only way
+        // to find out more is to phone someone who is currently driving.
+        message: `Hi ${job.client_name}, ${vetName} is on the way to see ${job.pet_name}`
+          + ` and expects to arrive in about ${etaMinutes} minute${etaMinutes === 1 ? '' : 's'}.`
+          + `${process.env.CLIENT_APP_URL ? ` Track it here: ${process.env.CLIENT_APP_URL}/${job.client_token}` : ''}`,
       });
       smsSent = true;
     } catch (err) {

@@ -15,6 +15,25 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
+/**
+ * Turn a stored ETA into something true right now.
+ *
+ * en_route_eta_minutes is a snapshot from when the vet set off, so
+ * showing it verbatim would still read "25 minutes" an hour later. This
+ * counts down from when it was recorded and stops claiming a number once
+ * the estimate has lapsed — "arriving any moment" is honest, a negative
+ * or stale figure is not.
+ */
+function etaText(enRoute) {
+  if (enRoute.etaMinutes == null) return 'On the way now.';
+  const elapsedMin = Math.floor((Date.now() - new Date(enRoute.at).getTime()) / 60000);
+  const remaining = enRoute.etaMinutes - elapsedMin;
+  if (remaining <= 0) return 'Arriving any moment.';
+  if (remaining === 1) return 'About 1 minute away.';
+  if (remaining < 60) return `About ${remaining} minutes away.`;
+  return 'On the way.';
+}
+
 export default function JourneyPage() {
   const { token } = useParams();
   const [state, setState] = useState('loading'); // loading | error | ready
@@ -34,6 +53,21 @@ export default function JourneyPage() {
   // step can be reopened rather than being gone for good.
   const [expandedStep, setExpandedStep] = useState(null);
 
+  // Refresh while the vet is en route so the estimate stays current.
+  // Reads from `data` rather than the destructured content/job, because
+  // those are defined AFTER the early returns below and a hook cannot
+  // live after an early return.
+  useEffect(() => {
+    if (!data?.content?.enRoute || data?.job?.procedureDone) return undefined;
+    const t = setInterval(() => {
+      fetchJourney(token).then(setData).catch(() => {});
+    }, 60000);
+    return () => clearInterval(t);
+  }, [data?.content?.enRoute, data?.job?.procedureDone, token]);
+
+  // Refresh while the vet is en route so the arrival estimate stays
+  // current. Only then: the rest of the journey is static, and polling
+  // it would be load for nothing.
   const load = () => {
     setState('loading');
     fetchJourney(token)
@@ -91,6 +125,23 @@ export default function JourneyPage() {
           </div>
         ))}
       </div>
+
+      {content.enRoute && !job.procedureDone && (
+        <div style={styles.enRouteBanner}>
+          <div style={styles.enRouteTitle}>
+            {content.vet?.fullName || 'Your vet'} is on the way
+          </div>
+          <div style={styles.enRouteEta}>
+            {etaText(content.enRoute)}
+          </div>
+          {content.enRoute.distanceText && (
+            <div style={styles.enRouteMeta}>{content.enRoute.distanceText} away</div>
+          )}
+          <div style={styles.enRouteMeta}>
+            There's nothing you need to do — this updates on its own.
+          </div>
+        </div>
+      )}
 
       {steps.map((s, i) => {
         if (i > active) return null; // future steps stay hidden until reached
@@ -685,6 +736,10 @@ const styles = {
   sectionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   sectionTitle: { fontSize: 15, fontWeight: 600, margin: 0 },
   sectionTick: { color: 'var(--gm-forest)', fontSize: 16, fontWeight: 700 },
+  enRouteBanner: { background: 'var(--gm-forest)', color: '#fff', borderRadius: 'var(--gm-radius)', padding: '16px 18px', marginBottom: 18 },
+  enRouteTitle: { fontFamily: 'var(--gm-font-display)', fontSize: 18, fontWeight: 600, marginBottom: 4 },
+  enRouteEta: { fontSize: 15, marginBottom: 4 },
+  enRouteMeta: { fontSize: 12, opacity: 0.85, marginTop: 2 },
   vetBox: { background: 'var(--gm-line-soft)', borderRadius: 'var(--gm-radius-sm)', padding: '12px 14px', marginBottom: 16 },
   vetLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', marginBottom: 4 },
   vetName: { fontSize: 16, fontWeight: 600, color: 'var(--gm-ink)' },

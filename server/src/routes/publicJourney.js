@@ -197,6 +197,16 @@ router.get('/:token', asyncHandler(async (req, res) => {
       brochure,
       brochurePdf,
       vet: vetDetails,
+      // En-route state. The SMS gives a snapshot at one moment; a client
+      // watching the door wants to check without texting anyone, and the
+      // page is the one place they can.
+      enRoute: job.en_route_at
+        ? {
+            at: job.en_route_at,
+            etaMinutes: job.en_route_eta_minutes,
+            distanceText: job.en_route_distance_text,
+          }
+        : null,
       resources: resourceRows.map((r) => ({
         id: r.id,
         title: r.title,

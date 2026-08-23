@@ -2,13 +2,12 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, fetchSuggestedVets, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
-import { fetchVets } from '../vets/vetsApi.js';
 import TakePayment from './TakePayment.jsx';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
@@ -566,19 +565,25 @@ function AssignVetControl({ job, onAssigned }) {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
 
+  const [reason, setReason] = useState('');
+
   useEffect(() => {
     if (!open || vets) return;
-    fetchVets()
-      .then((list) => setVets(list.filter((v) => v.is_active)))
-      .catch(() => setError('Could not load the vet list.'));
-  }, [open, vets]);
+    // Ranked for THIS job, not an alphabetical roster. Choosing well
+    // otherwise means remembering who covers the postcode, who's free
+    // and who's double-booked — judgement the dispatch engine already
+    // encodes but never showed a human.
+    fetchSuggestedVets(job.id)
+      .then(setVets)
+      .catch(() => setError('Could not load suggested vets.'));
+  }, [open, vets, job.id]);
 
   const onSubmit = async () => {
     if (!selected) return;
     setBusy(true);
     setError('');
     try {
-      await assignVet(job.id, selected);
+      await assignVet(job.id, selected, reason.trim() || null);
       setOpen(false);
       onAssigned();
     } catch (err) {
@@ -605,23 +610,55 @@ function AssignVetControl({ job, onAssigned }) {
         <p style={styles.docHint}>No active vets to assign yet.</p>
       ) : (
         <>
-          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={styles.assignSelect}>
-            <option value="">Choose a vet…</option>
-            {vets.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.full_name}{v.suburb ? ` — ${v.suburb}` : ''}
-              </option>
-            ))}
-          </select>
+          {vets.map((v) => (
+            <button
+              key={v.vetId}
+              onClick={() => setSelected(v.vetId)}
+              disabled={v.isCurrent}
+              style={{
+                ...styles.vetOption,
+                ...(selected === v.vetId ? styles.vetOptionOn : {}),
+                ...(v.isCurrent ? styles.vetOptionCurrent : {}),
+              }}
+            >
+              <div style={styles.vetOptionMain}>
+                <span style={styles.vetOptionName}>
+                  {v.name}
+                  {v.isCurrent && ' — currently assigned'}
+                </span>
+                <span style={styles.vetOptionMeta}>
+                  {v.territory}
+                  {v.activeJobCount > 0 && ` · ${v.activeJobCount} other job${v.activeJobCount === 1 ? '' : 's'}`}
+                </span>
+                {/* Reasons, not just a score. A clash and a quiet diary
+                    look identical as a number. */}
+                {v.warnings.length > 0 && (
+                  <span style={styles.vetOptionWarn}>{v.warnings.join(' · ')}</span>
+                )}
+              </div>
+            </button>
+          ))}
+
+          {job.assigned_vet_id && (
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why the change? (recorded against the outgoing vet)"
+              style={styles.assignSelect}
+            />
+          )}
+
           <div style={styles.assignActions}>
             <button onClick={() => setOpen(false)} style={styles.assignCancel}>Cancel</button>
             <button onClick={onSubmit} disabled={busy || !selected} style={styles.assignConfirm}>
-              {busy ? 'Assigning…' : 'Assign'}
+              {busy ? 'Assigning…' : job.assigned_vet_id ? 'Reassign' : 'Assign'}
             </button>
           </div>
+
           <p style={styles.docHint}>
-            Assigning manually skips the offer/accept step — the vet is booked straight in, and their
-            details appear on the client's consent form.
+            {job.assigned_vet_id
+              ? "The outgoing vet is notified and this is recorded on their reliability history. The new vet is booked straight in — no offer step."
+              : "Assigning manually skips the offer/accept step — the vet is booked straight in, and their details appear on the client's consent form."}
           </p>
         </>
       )}
@@ -918,6 +955,13 @@ const styles = {
   journeySendBtn: { width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   journeySentNote: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 8, fontStyle: 'italic' },
   assignBtn: { marginTop: 12, width: '100%', background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
+  vetOption: { display: 'block', width: '100%', textAlign: 'left', background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '10px 12px', marginBottom: 6, cursor: 'pointer' },
+  vetOptionOn: { borderColor: 'var(--gm-forest)', background: '#F2F5F1' },
+  vetOptionCurrent: { opacity: 0.55, cursor: 'default' },
+  vetOptionMain: { display: 'flex', flexDirection: 'column', gap: 2 },
+  vetOptionName: { fontSize: 14, fontWeight: 500 },
+  vetOptionMeta: { fontSize: 11, color: 'var(--gm-ink-soft)' },
+  vetOptionWarn: { fontSize: 11, color: 'var(--gm-brick)' },
   assignBox: { marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--gm-line)' },
   assignSelect: { width: '100%', padding: '9px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
   assignActions: { display: 'flex', gap: 8, marginTop: 10 },

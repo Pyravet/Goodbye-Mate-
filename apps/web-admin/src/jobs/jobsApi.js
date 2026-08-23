@@ -238,6 +238,12 @@ export async function openConsentPdf(jobId, jobNumber) {
   return downloadPdf(`/jobs/${jobId}/consent.pdf`, `Consent-${jobNumber}.pdf`);
 }
 
+export async function fetchSuggestedVets(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/suggested-vets`);
+  if (!res.ok) throw new Error('Could not load suggested vets');
+  return (await res.json()).vets;
+}
+
 export async function checkDuplicate(payload) {
   const res = await apiFetch('/jobs/check-duplicate', {
     method: 'POST',
@@ -247,14 +253,14 @@ export async function checkDuplicate(payload) {
   return res.json();
 }
 
-export async function assignVet(jobId, vetId) {
+export async function assignVet(jobId, vetId, reason) {
   const res = await apiFetch(`/jobs/${jobId}/assign`, {
     method: 'POST',
-    body: JSON.stringify({ vetId }),
+    body: JSON.stringify({ vetId, reason: reason || null }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to assign vet');
-  return data.job;
+  if (!res.ok) throw new Error(data.error || 'Could not assign that vet');
+  return data;
 }
 
 export async function sendJourneyLink(jobId) {

@@ -1239,6 +1239,49 @@ router.post('/:id/redispatch', requireAuth, requireRole('admin'), asyncHandler(a
   }
 }));
 
+/**
+ * GET /jobs/:id/suggested-vets
+ *
+ * Vets ranked for THIS job, using the same engine auto-dispatch uses.
+ *
+ * The manual assign list was a flat alphabetical roster: to reassign
+ * well, admin had to remember who covers that postcode, who is free,
+ * and who is already double-booked. That's the exact judgement the
+ * ranking engine already encodes — it was simply never surfaced to a
+ * human. Unlike /vets/matching this needs no coordinates, which most
+ * jobs lack while the Maps keys are invalid.
+ */
+router.get('/:id/suggested-vets', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const vetsWithContext = await getVetsWithContextForJob(job);
+  const declined = job.dispatch_declined_vet_ids || [];
+
+  const ranked = rankVets(job, vetsWithContext).map((r) => ({
+    vetId: r.vetId,
+    name: r.name,
+    score: r.score,
+    territory: r.label,
+    available: r.available,
+    conflict: r.conflict,
+    activeJobCount: r.activeJobCount,
+    isCurrent: r.vetId === job.assigned_vet_id,
+    hasDeclined: declined.includes(r.vetId),
+    // Surfaced so admin can see WHY someone is ranked low rather than
+    // just seeing a number — a conflict and a quiet diary look the same
+    // otherwise.
+    warnings: [
+      r.conflict && 'already booked at a clashing time',
+      !r.available && 'not available at this time',
+      declined.includes(r.vetId) && 'declined this job',
+    ].filter(Boolean),
+  }));
+
+  res.json({ vets: ranked, currentVetId: job.assigned_vet_id });
+}));
+
 router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { vetId } = req.body;
   if (!vetId) return res.status(400).json({ error: 'vetId required' });
@@ -1303,8 +1346,12 @@ router.post('/:id/assign', requireAuth, requireRole('admin'), asyncHandler(async
       if (!prev) return;
 
       const body = `${job.pet_name} on ${job.job_date} has been reassigned to another vet. It's been removed from your schedule.`;
-      await sendPushToUser(prev.user_id, { title: 'Job reassigned', body, url: '/' }).catch((e) => console.error('reassign push failed:', e.message));
-      await sendExpoPushToUser(prev.user_id, { title: 'Job reassigned', body, url: '/' }).catch((e) => console.error('reassign expo push failed:', e.message));
+      // Via notifyUser, not raw push: push is fire-and-forget and can be
+      // disabled or missed entirely. Losing a job you'd committed to is
+      // exactly the message that must survive that, so it lands in the
+      // bell as well.
+      await notifyUser(prev.user_id, { title: 'Job reassigned', body, url: '/', category: 'job' })
+        .catch((e) => console.error('reassign notify failed:', e.message));
       if (prev.phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
         await sendTemplatedSms(prev.phone, 'genericMessage', {
           message: `Hi ${prev.full_name}, ${body}`,

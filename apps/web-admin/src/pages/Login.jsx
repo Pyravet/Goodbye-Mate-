@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
 
@@ -116,6 +116,7 @@ export default function Login() {
 }
 
 const styles = {
+  forgotLink: { display: 'block', textAlign: 'center', marginTop: 14, fontSize: 13, color: 'var(--gm-ink-soft)' },
   hint: { fontSize: 13, color: 'var(--gm-ink-soft)', lineHeight: 1.5, marginBottom: 14, textAlign: 'center' },
   linkBtn: { background: 'none', border: 'none', color: 'var(--gm-ink-soft)', fontSize: 12, textDecoration: 'underline', marginTop: 10, cursor: 'pointer', width: '100%' },
   wrap: { display: 'flex', flexDirection: 'column', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--gm-forest)', padding: 24 },

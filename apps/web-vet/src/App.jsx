@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router';
+import ResetPassword from './pages/ResetPassword.jsx';
 import { AuthProvider } from './AuthContext.jsx';
 import RequireAuth from './RequireAuth.jsx';
 import Login from './pages/Login.jsx';
@@ -18,6 +19,8 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/forgot-password" element={<ResetPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/" element={<RequireAuth><DaySheet /></RequireAuth>} />

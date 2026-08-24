@@ -14,12 +14,15 @@ import ActivityPage from './activity/ActivityPage.jsx';
 import PayoutsPage from './payouts/PayoutsPage.jsx';
 import RequestsPage from './requests/RequestsPage.jsx';
 import ReviewsPage from './reviews/ReviewsPage.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/forgot-password" element={<ResetPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<RequireAuth><JobsBoard /></RequireAuth>} />
           <Route path="/jobs/new" element={<RequireAuth><NewJobForm /></RequireAuth>} />

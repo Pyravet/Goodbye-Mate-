@@ -42,6 +42,7 @@ export default function Login() {
         <button type="submit" disabled={submitting} style={styles.button}>
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
+        <Link to="/forgot-password" style={styles.forgotLink}>Forgot your password?</Link>
         <Link to="/signup" style={styles.link}>New vet? Apply here</Link>
       </form>
     </div>
@@ -49,6 +50,7 @@ export default function Login() {
 }
 
 const styles = {
+  forgotLink: { display: 'block', textAlign: 'center', marginTop: 14, fontSize: 13, color: 'var(--gm-ink-soft)' },
   wrap: { display: 'flex', flexDirection: 'column', minHeight: '100dvh', alignItems: 'center', justifyContent: 'center', background: 'var(--gm-forest)', padding: 24 },
   logo: { width: 220, height: 'auto', marginBottom: 28 },
   form: { width: '100%', maxWidth: 340, padding: '28px 24px 32px', background: '#fff', borderRadius: 14 },

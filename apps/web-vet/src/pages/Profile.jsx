@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import LeaveCard from '../vets/LeaveCard.jsx';
 import AppShell from '../layout/AppShell.jsx';
 import { useAuth } from '../AuthContext.jsx';
 import { apiFetch } from '../api.js';
@@ -65,6 +66,7 @@ export default function Profile() {
           <>
             <PersonalDetailsCard vetId={vet.id} initial={vet} onSaved={load} />
             <RegistrationCard vetId={vet.id} initial={vet} onSaved={load} />
+            <LeaveCard vetId={vet.id} />
             <TerritoryCard vetId={vet.id} initial={vet} onSaved={load} />
             <TerritoryMapCard vetId={vet.id} />
             <BankDetailsCard vetId={vet.id} bankDetails={bankDetails} onSaved={load} />

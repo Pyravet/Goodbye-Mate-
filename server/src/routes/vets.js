@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { query, pool } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
+import { notifyAdmins } from '../notifications/notify.js';
 import { rankVetsByLocation } from '../domain/dispatch.js';
 import { getVetsWithContextForJob } from '../domain/vetContext.js';
 import { encrypt, decrypt, isEncryptionConfigured, maskTail } from '../security/encryption.js';
@@ -611,6 +612,88 @@ router.get('/:vetId/reliability', requireAuth, requireRole('admin'), asyncHandle
     shortNoticeDropouts: dropoutRows[0].short_notice_dropouts,
     completedJobs: completedRows[0].completed,
   });
+}));
+
+
+// --- Leave ---
+
+const leaveSchema = z.object({
+  startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a start date.'),
+  endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose an end date.'),
+  reason: z.string().trim().max(200).optional().nullable(),
+});
+
+/**
+ * Leave for a vet. A vet manages their own; admin can manage anyone's,
+ * since leave often gets mentioned on the phone rather than entered.
+ */
+router.get('/:vetId/leave', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
+  const { rows } = await query(
+    `SELECT id, starts_on, ends_on, reason, created_at
+     FROM vet_leave WHERE vet_id = $1 AND ends_on >= (now() AT TIME ZONE 'Australia/Melbourne')::date
+     ORDER BY starts_on`,
+    [req.params.vetId]
+  );
+  res.json({ leave: rows });
+}));
+
+router.post('/:vetId/leave', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
+
+  const parsed = leaveSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid leave dates' });
+  }
+  if (parsed.data.endsOn < parsed.data.startsOn) {
+    return res.status(400).json({ error: 'The end date is before the start date.' });
+  }
+
+  // Jobs already accepted inside the period. Booking leave does NOT
+  // cancel them — someone has to decide what happens to each, and
+  // silently dropping a commitment a client is expecting would be far
+  // worse than the vet having to say so.
+  const { rows: clashes } = await query(
+    `SELECT id, job_number, pet_name, job_date, job_time FROM jobs
+     WHERE assigned_vet_id = $1
+       AND status NOT IN ('completed', 'cancelled')
+       AND job_date BETWEEN $2 AND $3
+     ORDER BY job_date`,
+    [req.params.vetId, parsed.data.startsOn, parsed.data.endsOn]
+  );
+
+  const { rows } = await query(
+    `INSERT INTO vet_leave (vet_id, starts_on, ends_on, reason, created_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [req.params.vetId, parsed.data.startsOn, parsed.data.endsOn, parsed.data.reason || null, req.user.sub]
+  );
+
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'vet_leave_added',
+    targetType: 'vet',
+    targetId: req.params.vetId,
+    metadata: { startsOn: parsed.data.startsOn, endsOn: parsed.data.endsOn, clashingJobs: clashes.length },
+  });
+
+  if (clashes.length > 0) {
+    notifyAdmins({
+      title: 'Leave booked over existing jobs',
+      body: `A vet has booked leave covering ${clashes.length} job${clashes.length === 1 ? '' : 's'} they are assigned to. These need reassigning.`,
+      url: '/jobs',
+      category: 'job',
+      exceptUserId: req.user.sub,
+    }).catch((e) => console.error('leave clash notify failed:', e.message));
+  }
+
+  res.status(201).json({ leave: rows[0], clashingJobs: clashes });
+}));
+
+router.delete('/:vetId/leave/:leaveId', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
+  await query('DELETE FROM vet_leave WHERE id = $1 AND vet_id = $2', [req.params.leaveId, req.params.vetId]);
+  await logAction({ actorUserId: req.user.sub, action: 'vet_leave_removed', targetType: 'vet', targetId: req.params.vetId });
+  res.json({ ok: true });
 }));
 
 export default router;

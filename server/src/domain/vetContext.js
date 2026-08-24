@@ -36,6 +36,19 @@ export async function getVetsWithContextForJob(job) {
   }
   const territoryById = Object.fromEntries(territoryRows.map((r) => [r.id, r.contains]));
 
+  // Leave covering this job's date. Fetched in ONE query filtered to the
+  // date rather than pulling every vet's whole leave history — the
+  // ranking only ever asks about this one day.
+  const { rows: leaveRows } = await query(
+    `SELECT vet_id, starts_on, ends_on FROM vet_leave
+     WHERE vet_id = ANY($1) AND $2::date BETWEEN starts_on AND ends_on`,
+    [vetIds, job.job_date]
+  );
+  const leaveByVet = {};
+  for (const l of leaveRows) {
+    (leaveByVet[l.vet_id] ||= []).push(l);
+  }
+
   // Every non-completed/cancelled job currently assigned to any of these vets.
   const { rows: activeJobs } = await query(
     `SELECT id, assigned_vet_id, job_date, job_time
@@ -53,5 +66,6 @@ export async function getVetsWithContextForJob(job) {
     territoryContainsPoint: v.id in territoryById ? territoryById[v.id] : null,
     activeJobCount: activeJobs.filter((j) => j.assigned_vet_id === v.id).length,
     otherActiveJobs: activeJobs.filter((j) => j.assigned_vet_id === v.id),
+    leave: leaveByVet[v.id] || [],
   }));
 }

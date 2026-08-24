@@ -7,6 +7,36 @@
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // aligned to Date.getDay()
 
+/**
+ * Is this vet on leave on this date?
+ *
+ * Leave periods are inclusive of both end dates, matching how people
+ * describe them ("away the 14th to the 28th" includes the 28th).
+ * Compared as plain 'YYYY-MM-DD' strings rather than Date objects,
+ * because date arithmetic here shifts under timezone and a vet returning
+ * "on the 28th" must not be treated as available on the 27th.
+ *
+ * @param {object} vet with a `leave` array of { starts_on, ends_on }
+ * @param {string|Date} dateStr
+ */
+function toDateStr(value) {
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+}
+
+export function isVetOnLeave(vet, dateStr) {
+  const leave = vet?.leave;
+  if (!Array.isArray(leave) || leave.length === 0) return false;
+  // Every value goes through the same normaliser. String(someDate)
+  // gives "Mon Sep 14 2026 ..." — slicing that yields "Mon Sep 14",
+  // which compares as nonsense against "2026-09-21". node-postgres
+  // returns DATE columns as Date objects, so this is the normal case,
+  // not an edge one.
+  const d = toDateStr(dateStr);
+  return leave.some((l) => d >= toDateStr(l.starts_on) && d <= toDateStr(l.ends_on));
+}
+
 export function isVetAvailableAtDateTime(vet, dateStr, timeStr) {
   const override = vet.date_overrides ? vet.date_overrides[dateStr] : undefined;
   if (override === false) return false;
@@ -71,7 +101,19 @@ export function rankVets(job, vetsWithContext) {
       const conflict = hasTimeConflict(job, v.otherActiveJobs || []);
       if (conflict) score -= 200;
 
-      return { vetId: v.id, name: v.full_name, score, label, available, activeJobCount: v.activeJobCount, conflict };
+      // Leave EXCLUDES rather than penalises. -40 for "unavailable" sits
+      // well above the -150 cutoff, so an unavailable vet was still
+      // being offered jobs — and every offer they let lapse counted
+      // against their reliability stats. They were being penalised for
+      // the system not knowing they were away. -1000 puts them
+      // decisively below any cutoff.
+      const onLeave = isVetOnLeave(v, job.job_date);
+      if (onLeave) score -= 1000;
+
+      return {
+        vetId: v.id, name: v.full_name, score, label, available,
+        activeJobCount: v.activeJobCount, conflict, onLeave,
+      };
     })
     .sort((a, b) => b.score - a.score);
 }

@@ -6,6 +6,7 @@ import {
   hasTimeConflict,
   rankVets,
   rankVetsByLocation,
+  isVetOnLeave,
 } from './dispatch.js';
 
 test('isVetAvailableAtDateTime: reads the weekly hours grid for that day/hour', () => {
@@ -73,4 +74,52 @@ test('rankVetsByLocation: same territory/postcode rules, no availability scoring
   assert.equal(ranked[0].vetId, 'v1');
   assert.equal(ranked[0].label, 'Within drawn territory');
   assert.equal(ranked[1].label, 'Nearby region');
+});
+
+// --- Vet leave ---
+
+test('isVetOnLeave: both end dates are INCLUSIVE', () => {
+  // "Away the 14th to the 28th" includes the 28th. Treating the end date
+  // as exclusive would offer a vet a job on their last day away.
+  const vet = { leave: [{ starts_on: '2026-09-14', ends_on: '2026-09-28' }] };
+  assert.equal(isVetOnLeave(vet, '2026-09-13'), false, 'day before');
+  assert.equal(isVetOnLeave(vet, '2026-09-14'), true, 'first day');
+  assert.equal(isVetOnLeave(vet, '2026-09-21'), true, 'middle');
+  assert.equal(isVetOnLeave(vet, '2026-09-28'), true, 'last day');
+  assert.equal(isVetOnLeave(vet, '2026-09-29'), false, 'day after');
+});
+
+test('isVetOnLeave: handles no leave, and Date objects from Postgres', () => {
+  assert.equal(isVetOnLeave({ leave: [] }, '2026-09-14'), false);
+  assert.equal(isVetOnLeave({}, '2026-09-14'), false, 'missing field must not throw');
+  // node-postgres returns DATE columns as Date objects.
+  const vet = { leave: [{ starts_on: new Date('2026-09-14T00:00:00Z'), ends_on: new Date('2026-09-28T00:00:00Z') }] };
+  assert.equal(isVetOnLeave(vet, '2026-09-21'), true);
+  assert.equal(isVetOnLeave(vet, new Date('2026-09-21T00:00:00Z')), true);
+});
+
+test('isVetOnLeave: several separate periods', () => {
+  const vet = { leave: [
+    { starts_on: '2026-09-01', ends_on: '2026-09-05' },
+    { starts_on: '2026-10-10', ends_on: '2026-10-20' },
+  ] };
+  assert.equal(isVetOnLeave(vet, '2026-09-03'), true);
+  assert.equal(isVetOnLeave(vet, '2026-09-20'), false, 'the gap between them');
+  assert.equal(isVetOnLeave(vet, '2026-10-15'), true);
+});
+
+test('a vet on leave scores below the dispatch cutoff', () => {
+  // The point of the feature: -40 for "unavailable" sat well above the
+  // -150 cutoff, so unavailable vets were still offered jobs and were
+  // penalised on reliability for offers they could never accept.
+  const job = { postcode: '2300', job_date: '2026-09-14', job_time: '13:00', lat: null, lng: null };
+  const onLeave = {
+    id: 'v1', full_name: 'Away Vet', postcodes: ['2300'],
+    weekly_hours: {}, date_overrides: {}, territoryContainsPoint: null,
+    activeJobCount: 0, otherActiveJobs: [],
+    leave: [{ starts_on: '2026-09-14', ends_on: '2026-09-28' }],
+  };
+  const [ranked] = rankVets(job, [onLeave]);
+  assert.equal(ranked.onLeave, true);
+  assert.ok(ranked.score <= -150, `score ${ranked.score} must be at or below the -150 cutoff`);
 });

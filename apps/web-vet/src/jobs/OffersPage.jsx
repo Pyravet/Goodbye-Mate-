@@ -102,6 +102,12 @@ export default function OffersPage() {
                 <Row label="Where" value={[o.suburb, o.state, o.postcode].filter(Boolean).join(' ')} />
                 <Row label="Service" value={SERVICE_LABELS[o.service_type] || o.service_type} />
                 {o.notes && <Row label="Notes" value={o.notes} />}
+                {/* What it pays. A vet was previously accepting without
+                    knowing the amount — agreeing to drive somewhere for
+                    a figure they'd only discover afterwards. */}
+                {o.payout != null && (
+                  <Row label="You'd earn" value={`$${Number(o.payout).toFixed(2)}`} />
+                )}
               </div>
 
               {o.outcome === 'proposed' ? (

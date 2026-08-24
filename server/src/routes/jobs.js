@@ -442,7 +442,11 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
             -- address appears once a vet accepts.
             j.suburb, j.postcode, j.state,
             j.job_date, j.job_time, j.service_type, j.notes, j.status,
-            j.assigned_vet_id
+            j.assigned_vet_id,
+            -- Needed by payoutBreakdown. Without time_category the
+            -- after-hours rate silently falls back to weekday, showing a
+            -- vet a lower figure than they'd actually be paid.
+            j.service_id, j.time_category, j.extra_travel_fee
      FROM vet_job_offers o
      JOIN jobs j ON j.id = o.job_id
      WHERE o.vet_id = $1
@@ -455,7 +459,37 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
      ORDER BY j.job_date, j.job_time`,
     [myVetId]
   );
-  res.json({ offers: rows });
+
+  // What each job pays. A vet deciding whether to accept needs to know
+  // what it's worth — otherwise they're agreeing to drive somewhere for
+  // an amount they only discover afterwards. Job detail already returned
+  // this for offers; the LIST didn't, which is the screen they actually
+  // decide from.
+  //
+  // Line items are fetched in ONE query for all offered jobs rather than
+  // per job, since this runs on every poll of the offers screen.
+  const jobIds = rows.map((r) => r.id);
+  const itemsByJob = new Map();
+  if (jobIds.length > 0) {
+    const { rows: allItems } = await query(
+      'SELECT job_id, label, amount, vet_payout FROM job_line_items WHERE job_id = ANY($1::uuid[])',
+      [jobIds]
+    );
+    for (const item of allItems) {
+      if (!itemsByJob.has(item.job_id)) itemsByJob.set(item.job_id, []);
+      itemsByJob.get(item.job_id).push(item);
+    }
+  }
+
+  const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const pricing = pricingRows[0].config;
+
+  const offers = rows.map((r) => ({
+    ...r,
+    payout: payoutBreakdown(r, pricing, itemsByJob.get(r.id) || []).total,
+  }));
+
+  res.json({ offers });
 }));
 
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {

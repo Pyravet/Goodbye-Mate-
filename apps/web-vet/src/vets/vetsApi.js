@@ -89,3 +89,27 @@ export async function removeLeave(vetId, leaveId) {
   if (!res.ok) throw new Error('Could not remove that leave');
   return res.json();
 }
+
+// --- Note templates (saved snippets for medical notes) ---
+
+export async function fetchNoteTemplates(vetId) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates`);
+  if (!res.ok) throw new Error('Could not load your templates');
+  return (await res.json()).templates;
+}
+
+export async function addNoteTemplate(vetId, { label, text }) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates`, {
+    method: 'POST',
+    body: JSON.stringify({ label, text }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not save that template');
+  return data.template;
+}
+
+export async function removeNoteTemplate(vetId, templateId) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates/${templateId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Could not remove that template');
+  return res.json();
+}

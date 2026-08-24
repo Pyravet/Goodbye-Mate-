@@ -615,6 +615,22 @@ router.get('/:vetId/reliability', requireAuth, requireRole('admin'), asyncHandle
 }));
 
 
+/**
+ * Remove a saved note template.
+ *
+ * There was no delete route, so a template saved with a typo was
+ * permanent — and these get inserted into clinical records, where a
+ * wrong one is worse than none.
+ */
+router.delete('/:vetId/note-templates/:templateId', requireAuth, asyncHandler(async (req, res) => {
+  if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
+  await query(
+    'DELETE FROM vet_note_templates WHERE id = $1 AND vet_id = $2',
+    [req.params.templateId, req.params.vetId]
+  );
+  res.json({ ok: true });
+}));
+
 // --- Leave ---
 
 const leaveSchema = z.object({

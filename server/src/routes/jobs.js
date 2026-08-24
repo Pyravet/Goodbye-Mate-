@@ -434,7 +434,13 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
     `SELECT o.id AS offer_id, o.outcome, o.expires_at, o.offered_at,
             o.proposed_date, o.proposed_time, o.proposal_note,
             j.id, j.job_number, j.pet_name, j.pet_type, j.pet_breed, j.pet_weight,
-            j.suburb, j.postcode, j.state, j.address,
+            -- Street address deliberately EXCLUDED. This endpoint feeds
+            -- the offers screen, which several vets see for the same
+            -- job; handing one family's address to four people who will
+            -- never attend is the exact leak the jobs list was fixed
+            -- for. Suburb is enough to judge the travel. The full
+            -- address appears once a vet accepts.
+            j.suburb, j.postcode, j.state,
             j.job_date, j.job_time, j.service_type, j.notes, j.status,
             j.assigned_vet_id
      FROM vet_job_offers o

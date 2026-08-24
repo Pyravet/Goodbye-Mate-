@@ -13,6 +13,7 @@ const navItems = [
   { to: '/calendar', label: 'Calendar', short: 'Cal' },
   { to: '/payouts', label: 'Payouts', short: 'Pay' },
   { to: '/activity', label: 'Activity', short: 'Inbox' },
+  { to: '/reviews', label: 'Feedback', short: 'Stars' },
   { to: '/settings', label: 'Settings', short: 'More' },
 ];
 

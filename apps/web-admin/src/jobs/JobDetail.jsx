@@ -153,7 +153,7 @@ export default function JobDetail() {
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
 
-  const { job, bill } = data;
+  const { job, bill, review } = data;
   const clientAppBase = import.meta.env.VITE_CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
   const journeyLink = `${clientAppBase.replace(/\/$/, '')}/${job.client_token}`;
   const isCommunalOrPrivate = job.service_type !== 'euthanasia_only';
@@ -313,6 +313,24 @@ export default function JobDetail() {
             {(job.payment_status === 'paid' || job.payment_status === 'refunded') && (
               <Card title="Refund">
                 <RefundCard job={job} onChanged={load} />
+              </Card>
+            )}
+
+            {review && (
+              <Card title="Client feedback">
+                <div style={styles.reviewStars}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <span key={n} style={styles.reviewStar}>{n <= review.rating ? '\u2605' : '\u2606'}</span>
+                  ))}
+                  <span style={styles.reviewDate}>
+                    {new Date(review.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+                {review.comment ? (
+                  <p style={styles.reviewComment}>&ldquo;{review.comment}&rdquo;</p>
+                ) : (
+                  <p style={styles.docHint}>No written comment.</p>
+                )}
               </Card>
             )}
 
@@ -933,6 +951,10 @@ const styles = {
   completeBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
   completeError: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   completedNote: { fontSize: 13, color: 'var(--gm-forest-dark)', marginTop: 12 },
+  reviewStars: { display: 'flex', alignItems: 'center', gap: 3, marginBottom: 8 },
+  reviewStar: { fontSize: 20, color: 'var(--gm-honey)' },
+  reviewDate: { fontSize: 11, color: 'var(--gm-ink-soft)', marginLeft: 8 },
+  reviewComment: { fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' },
   consentBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '8px', fontSize: 12, fontWeight: 500, marginBottom: 10 },
   editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },

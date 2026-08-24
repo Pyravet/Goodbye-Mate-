@@ -244,6 +244,12 @@ export async function fetchSuggestedVets(jobId) {
   return (await res.json()).vets;
 }
 
+export async function fetchAllReviews(lowOnly) {
+  const res = await apiFetch(`/jobs/reviews/all${lowOnly ? '?lowOnly=true' : ''}`);
+  if (!res.ok) throw new Error('Could not load reviews');
+  return res.json();
+}
+
 export async function checkDuplicate(payload) {
   const res = await apiFetch('/jobs/check-duplicate', {
     method: 'POST',

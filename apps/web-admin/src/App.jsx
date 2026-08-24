@@ -13,6 +13,7 @@ import SettingsPage from './settings/SettingsPage.jsx';
 import ActivityPage from './activity/ActivityPage.jsx';
 import PayoutsPage from './payouts/PayoutsPage.jsx';
 import RequestsPage from './requests/RequestsPage.jsx';
+import ReviewsPage from './reviews/ReviewsPage.jsx';
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/vets/:id" element={<RequireAuth><VetDetail /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+          <Route path="/reviews" element={<RequireAuth><ReviewsPage /></RequireAuth>} />
           <Route path="/requests" element={<RequireAuth><RequestsPage /></RequireAuth>} />
           <Route path="/payouts" element={<RequireAuth><PayoutsPage /></RequireAuth>} />
           <Route path="/activity" element={<RequireAuth><ActivityPage /></RequireAuth>} />

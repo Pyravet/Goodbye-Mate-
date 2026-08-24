@@ -426,6 +426,45 @@ router.post('/check-duplicate', requireAuth, requireRole('admin'), asyncHandler(
   res.json({ matches: sortByConfidence(matches) });
 }));
 
+/**
+ * GET /jobs/reviews/all — every client review.
+ *
+ * Reviews were being collected and read by nobody: there was no admin
+ * route or screen for them anywhere. That's worst for the low ratings,
+ * where the client was specifically asked "what could we have done
+ * better" and took the trouble to answer.
+ *
+ * Sorted lowest-rating first by default, because a 2-star with a comment
+ * is the one that needs acting on, and it's the one that would otherwise
+ * sit unread behind a page of 5-stars.
+ */
+router.get('/reviews/all', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const onlyLow = req.query.lowOnly === 'true';
+
+  const { rows } = await query(
+    `SELECT r.rating, r.comment, r.created_at,
+            j.id AS job_id, j.job_number, j.pet_name, j.client_name, j.job_date,
+            u.full_name AS vet_name
+     FROM job_reviews r
+     JOIN jobs j ON j.id = r.job_id
+     LEFT JOIN vets v ON v.id = j.assigned_vet_id
+     LEFT JOIN users u ON u.id = v.user_id
+     ${onlyLow ? 'WHERE r.rating <= 3' : ''}
+     ORDER BY r.rating ASC, r.created_at DESC
+     LIMIT 200`
+  );
+
+  const { rows: statsRows } = await query(
+    `SELECT COUNT(*)::int AS total,
+            ROUND(AVG(rating)::numeric, 2) AS average,
+            COUNT(*) FILTER (WHERE rating <= 3)::int AS low,
+            COUNT(*) FILTER (WHERE comment IS NOT NULL AND trim(comment) <> '')::int AS with_comment
+     FROM job_reviews`
+  );
+
+  res.json({ reviews: rows, stats: statsRows[0] });
+}));
+
 router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const myVetId = await getVetIdForUser(req.user.sub);
   if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
@@ -552,7 +591,16 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const bill = billBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
   const payout = payoutBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
 
-  res.json({ job: rows[0], bill, payout });
+  // The client's review. Written into job_reviews but never read by any
+  // admin route — so feedback, including the "what could we have done
+  // better" a client took the trouble to write after a 1-4 star rating,
+  // was collected and seen by nobody.
+  const { rows: reviewRows } = await query(
+    'SELECT rating, comment, created_at FROM job_reviews WHERE job_id = $1',
+    [req.params.id]
+  );
+
+  res.json({ job: rows[0], review: reviewRows[0] || null, bill, payout });
 }));
 
 // RCTI PDF — what the vet is owed for this job. Admin can view any job's

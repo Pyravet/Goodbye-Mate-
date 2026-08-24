@@ -35,12 +35,6 @@ export default function ContentTab() {
     setContent((c) => ({ ...c, [key]: value }));
     setSaved(false);
   };
-  // Defaults to {} so the form renders even before migration 029 has
-  // populated the block, rather than throwing on undefined.
-  const rf = content.requestForm || {};
-  const setRf = (key) => (e) =>
-    setContent((c) => ({ ...c, requestForm: { ...c.requestForm, [key]: e.target.value } }));
-
   const setCompanyField = (key, value) => {
     setContent((c) => ({ ...c, company: { ...c.company, [key]: value } }));
     setSaved(false);
@@ -48,6 +42,15 @@ export default function ContentTab() {
 
   if (loading) return <p style={{ color: 'var(--gm-ink-soft)', fontSize: 13 }}>Loading…</p>;
   if (!content) return <p style={{ color: 'var(--gm-brick)', fontSize: 13 }}>Failed to load content settings.</p>;
+
+  // Must sit AFTER the null guard above: content starts as null while
+  // the settings load, and reading content.requestForm before that guard
+  // threw on every render — which blanked the entire Content tab.
+  // Defaults to {} so the form still renders if the requestForm block
+  // hasn't been populated yet.
+  const rf = content.requestForm || {};
+  const setRf = (key) => (e) =>
+    setContent((c) => ({ ...c, requestForm: { ...c.requestForm, [key]: e.target.value } }));
 
   return (
     <div>

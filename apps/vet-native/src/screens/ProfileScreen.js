@@ -24,7 +24,7 @@ function StatePicker({ value, onChange }) {
   );
 }
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ navigation }) {
   const { user, logout } = useAuth();
   const [pushStatus, setPushStatus] = useState('idle');
   const [pwForm, setPwForm] = useState({ currentPassword: '', newPassword: '' });
@@ -68,6 +68,17 @@ export default function ProfileScreen() {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
+      {/* Entry point for Leave. Without this the screen exists in the
+          navigator and is unreachable. */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('Leave')}
+        style={styles.leaveLink}
+      >
+        <Text style={styles.leaveLinkText}>Time off</Text>
+        <Text style={styles.leaveLinkChevron}>›</Text>
+      </TouchableOpacity>
+
       <Text style={styles.title}>Profile</Text>
       <Text style={styles.name}>{user?.fullName}</Text>
       <Text style={styles.email}>{user?.email}</Text>
@@ -290,6 +301,9 @@ function BankDetailsCard({ vetId, bankDetails, onSaved }) {
 }
 
 const styles = StyleSheet.create({
+  leaveLink: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 16, marginBottom: 14 },
+  leaveLinkText: { fontSize: 16, fontWeight: '500', color: colors.ink },
+  leaveLinkChevron: { fontSize: 22, color: colors.inkSoft },
   wrap: { flex: 1, backgroundColor: colors.paper },
   content: { padding: 16, paddingBottom: 40 },
   title: { fontSize: 22, fontWeight: '700', color: colors.forestDark },

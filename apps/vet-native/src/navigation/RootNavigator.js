@@ -6,6 +6,8 @@ import ProfileScreen from '../screens/ProfileScreen.js';
 import MessagesScreen from '../screens/MessagesScreen.js';
 import EarningsScreen from '../screens/EarningsScreen.js';
 import OffersScreen from '../screens/OffersScreen.js';
+import DaySheetScreen from '../screens/DaySheetScreen.js';
+import LeaveScreen from '../screens/LeaveScreen.js';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme.js';
 
@@ -21,6 +23,7 @@ import { colors } from '../theme.js';
  * of glyphs.
  */
 const TAB_ICONS = {
+  Today: 'today',
   Jobs: 'briefcase',
   Offers: 'hand-left',
   Messages: 'chatbubble',
@@ -30,6 +33,22 @@ const TAB_ICONS = {
 
 const Tab = createBottomTabNavigator();
 const JobsStack = createNativeStackNavigator();
+
+const ProfileStack = createNativeStackNavigator();
+
+/**
+ * Profile as a stack so Leave is reachable without a sixth tab — six
+ * would crowd the bar, and time off is something a vet sets occasionally
+ * rather than every day.
+ */
+function ProfileStackNavigator() {
+  return (
+    <ProfileStack.Navigator>
+      <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} options={{ title: 'Your profile' }} />
+      <ProfileStack.Screen name="Leave" component={LeaveScreen} options={{ title: 'Time off' }} />
+    </ProfileStack.Navigator>
+  );
+}
 
 function JobsStackNavigator() {
   return (
@@ -59,11 +78,12 @@ export default function RootNavigator() {
         tabBarStyle: { minHeight: 56 },
       })}
     >
-      <Tab.Screen name="Jobs" component={JobsStackNavigator} />
+      <Tab.Screen name="Today" component={DaySheetScreen} />
       <Tab.Screen name="Offers" component={OffersScreen} />
+      <Tab.Screen name="Jobs" component={JobsStackNavigator} />
       <Tab.Screen name="Messages" component={MessagesScreen} options={{ headerShown: true, headerStyle: { backgroundColor: colors.forest }, headerTintColor: '#fff' }} />
       <Tab.Screen name="Earnings" component={EarningsScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile" component={ProfileStackNavigator} />
     </Tab.Navigator>
   );
 }

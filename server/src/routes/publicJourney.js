@@ -144,7 +144,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
   const content = contentRows[0].config;
   const bill = await billForJob(job);
 
-  let brochure = null;
+  let brochure;
   if (job.service_type === 'private_cremation') brochure = fillPlaceholders(content.privateCremationBrochure, job, vetName);
   else if (job.service_type === 'communal_cremation') brochure = fillPlaceholders(content.communalCremationBrochure, job, vetName);
   else brochure = fillPlaceholders(content.noCremationNote, job, vetName);

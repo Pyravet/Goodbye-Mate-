@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/AuthContext.js';
@@ -16,9 +17,24 @@ function Gate() {
     return () => sub.remove();
   }, []);
 
-  if (loading) return null; // could show a splash/spinner
+  // A spinner, not null. Returning null renders a blank white screen
+  // that is indistinguishable from a crash — which is exactly how this
+  // looked when the startup auth check was slow.
+  if (loading) {
+    return (
+      <View style={styles.splash}>
+        <ActivityIndicator size="large" color="#33453A" />
+        <Text style={styles.splashText}>Goodbye Mate</Text>
+      </View>
+    );
+  }
   return user ? <RootNavigator /> : <LoginScreen />;
 }
+
+const styles = StyleSheet.create({
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FAF7F1' },
+  splashText: { marginTop: 14, fontSize: 15, color: '#6B6559' },
+});
 
 export default function App() {
   return (

@@ -20,6 +20,7 @@
     "lint:errors": "eslint . --quiet"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^17.11.0"

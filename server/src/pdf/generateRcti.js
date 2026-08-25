@@ -26,7 +26,7 @@ function drawRctiDoc(doc, { job, vet, payout, gst, company }) {
   doc.text(vet.full_name, 50, y); y += 14;
   if (vet.reg_number) { doc.text(`Registration: ${vet.reg_number}${vet.reg_state ? ` (${vet.reg_state})` : ''}`, 50, y); y += 14; }
   if (vet.abn) { doc.text(`ABN: ${vet.abn}`, 50, y); y += 14; }
-  doc.text(`GST registered: ${vet.is_gst_registered ? 'Yes' : 'No'}`, 50, y); y += 14;
+  doc.text(`GST registered: ${vet.is_gst_registered ? 'Yes' : 'No'}`, 50, y);
 
   doc.fontSize(11).fillColor('#2A2620').text('For job', 320, top);
   doc.fontSize(10).fillColor(INK_SOFT);

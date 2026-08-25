@@ -47,16 +47,40 @@ async function refreshAccessToken() {
   return data.accessToken;
 }
 
+// React Native's fetch has NO default timeout. On a weak connection —
+// a phone tethered to a hotspot, a rural property with one bar — a
+// request can hang indefinitely. At startup that leaves the app on a
+// loading screen forever, looking broken. 15s is long enough for a slow
+// mobile connection and short enough to fail visibly.
+const REQUEST_TIMEOUT_MS = 15000;
+
 export async function apiFetch(path, options = {}) {
-  const doFetch = (token) =>
-    fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
-      },
-    });
+  const doFetch = async (token) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(`${API_URL}${path}`, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      });
+    } catch (err) {
+      // Give the abort a message a person can act on, rather than the
+      // bare "Aborted" that React Native surfaces.
+      if (err.name === 'AbortError') {
+        // cause preserves the original AbortError for the console,
+        // while the message stays something a vet can act on.
+        throw new Error('The server took too long to respond. Check your connection and try again.', { cause: err });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   let res = await doFetch(accessToken);
 

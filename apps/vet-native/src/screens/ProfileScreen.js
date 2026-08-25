@@ -302,7 +302,7 @@ const styles = StyleSheet.create({
   onNote: { fontSize: 14, color: colors.forestDark },
   errorNote: { fontSize: 13, color: colors.brick, marginBottom: 10 },
   label: { fontSize: 12, color: colors.inkSoft, marginBottom: 6, marginTop: 10 },
-  input: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 11, fontSize: 15 },
+  input: { minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 11, fontSize: 15 },
   row: { flexDirection: 'row', gap: 12 },
   btn: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.forest, borderRadius: 6, padding: 11, alignItems: 'center', marginTop: 14 },
   btnText: { color: '#fff', fontSize: 14, fontWeight: '600' },

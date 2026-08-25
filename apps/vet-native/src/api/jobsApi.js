@@ -66,3 +66,26 @@ export async function emailVetRecord(id, { to, message }) {
   if (!res.ok) throw new Error(data.error || 'Failed to send');
   return data;
 }
+
+/**
+ * The vet's live offers. Its own endpoint rather than a filter on the
+ * jobs list, because the server withholds client name, phone and street
+ * address until a vet accepts — a job broadcast to five vets shouldn't
+ * hand one family's details to the four who won't attend.
+ */
+export async function fetchMyOffers() {
+  const res = await apiFetch('/jobs/offers/mine');
+  if (!res.ok) throw new Error('Could not load your offers');
+  return (await res.json()).offers;
+}
+
+/** Suggest a different date/time instead of accepting or declining. */
+export async function proposeTime(jobId, { date, time, note }) {
+  const res = await apiFetch(`/jobs/${jobId}/offer/propose-time`, {
+    method: 'POST',
+    body: JSON.stringify({ date, time, note }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not send your suggestion');
+  return data;
+}

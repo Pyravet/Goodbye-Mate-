@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   timeTheirs: { color: colors.inkSoft, fontSize: 10, marginTop: 4 },
   hint: { fontSize: 11, color: colors.inkSoft, fontStyle: 'italic', textAlign: 'center', marginVertical: 8 },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingTop: 8 },
-  input: { flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 10 },
+  input: { minHeight: 44, flex: 1, backgroundColor: '#fff', borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 10 },
   sendBtn: { backgroundColor: colors.forest, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 12, marginBottom: 10 },
   sendBtnText: { color: '#fff', fontWeight: '500' },
   label: { fontSize: 12, color: colors.inkSoft, marginBottom: 4, marginTop: 6 },

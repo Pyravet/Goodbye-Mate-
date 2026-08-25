@@ -5,6 +5,7 @@ import JobDetailScreen from '../screens/JobDetailScreen.js';
 import ProfileScreen from '../screens/ProfileScreen.js';
 import MessagesScreen from '../screens/MessagesScreen.js';
 import EarningsScreen from '../screens/EarningsScreen.js';
+import OffersScreen from '../screens/OffersScreen.js';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme.js';
 
@@ -21,6 +22,7 @@ import { colors } from '../theme.js';
  */
 const TAB_ICONS = {
   Jobs: 'briefcase',
+  Offers: 'hand-left',
   Messages: 'chatbubble',
   Earnings: 'cash',
   Profile: 'person',
@@ -58,6 +60,7 @@ export default function RootNavigator() {
       })}
     >
       <Tab.Screen name="Jobs" component={JobsStackNavigator} />
+      <Tab.Screen name="Offers" component={OffersScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} options={{ headerShown: true, headerStyle: { backgroundColor: colors.forest }, headerTintColor: '#fff' }} />
       <Tab.Screen name="Earnings" component={EarningsScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />

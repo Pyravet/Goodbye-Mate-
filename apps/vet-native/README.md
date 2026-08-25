@@ -1,66 +1,44 @@
-# Goodbye Mate — Vet app (native)
+# Goodbye Mate — vet app (Expo)
 
-React Native / Expo app for vets. Feature parity with the vet web app.
+## Running it
 
-## What's in it
+```bash
+npm install
+npx expo start
+```
 
-- **Jobs** — offers (accept/decline), job detail, directions, en-route ETA,
-  procedure/consent actions
-- **Medical notes** — append-only log; every entry timestamped and attributed,
-  matching the web app. Entries can't be edited or deleted; corrections are
-  added as a new entry.
-- **Notes from admin** — shown prominently above the job details
-- **Veterinary record** — opens the formal PDF (company + vet registration,
-  pet details, clinical notes) for insurer requests
-- **Messages** — inbox, threads, compose to admin, long-press your own
-  message to delete it
-- **Earnings** — summary plus weekly payout periods with RCTI download
-- **Push notifications** — job offers, messages, status changes
+Then scan the QR code with **Expo Go** (Camera app on iPhone, in-app
+scanner on Android).
 
-## Testing it without a build
+## If `npm install` fails, or `expo start` can't find a module
 
-The fastest way to try this is Expo Go — no App Store or Play Store
-involvement, no build server:
+Delete the previous install and try again:
 
-1. Install **Expo Go** on your phone (App Store / Play Store).
-2. On your computer:
-   ```bash
-   cd apps/vet-native
-   npm install
-   npx expo start
-   ```
-3. Scan the QR code that appears — iOS with the Camera app, Android from
-   inside Expo Go.
+```bash
+rm -rf node_modules package-lock.json
+npm install
+```
 
-The app points at the live production API, so log in with a real vet
-account and you'll see real data.
+You need **Node 20 or newer** (`node -v` to check).
 
-### Caveats with Expo Go
-- **Push notifications don't work in Expo Go** on a real device; they need a
-  development or production build (see below). Everything else does.
-- The phone and computer must be on the same network. If the QR code won't
-  connect, run `npx expo start --tunnel`.
+## Why a lockfile is committed
 
-## Building a real installable app
+Without `package-lock.json`, every `npm install` resolves versions
+fresh, and two machines can end up with different — sometimes broken —
+dependency trees. That's what caused the `Cannot find module
+'supports-color'` failure: a half-resolved tree that npm then couldn't
+repair, reporting `Invalid Version:` on the retry.
 
-Push notifications and store distribution need EAS:
+The lockfile pins a tree that is known to install and run.
+
+## Push notifications
+
+These do **not** work in Expo Go — that's an Expo Go limitation, not a
+fault in the app. Everything else does. To test push you need a real
+build:
 
 ```bash
 npm install -g eas-cli
 eas login
-eas build --platform android --profile preview   # .apk for sideloading
-eas build --platform ios --profile preview       # needs an Apple dev account
+eas build --platform android --profile preview
 ```
-
-`eas.json` already has the profiles. `preview` produces an installable
-build for testing; `production` is for store submission.
-
-An Apple Developer account ($149/yr AUD) is required for any iOS build,
-including internal testing. Android has no such requirement — the
-`preview` profile gives you an `.apk` you can install directly.
-
-## Configuration
-
-`app.json` → `expo.extra.apiUrl` points at the API. It's set to production;
-change it to `http://<your-computer-ip>:4000/api` to test against a local
-server (localhost won't resolve from a phone).

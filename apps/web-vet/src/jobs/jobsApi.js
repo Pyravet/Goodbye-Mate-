@@ -29,8 +29,13 @@ export async function declineOffer(id) {
   return data;
 }
 
-export async function notifyEnRoute(id, { lat, lng }) {
-  const res = await apiFetch(`/jobs/${id}/en-route`, { method: 'POST', body: JSON.stringify({ lat, lng }) });
+export async function notifyEnRoute(id, { lat, lng, etaMinutes }) {
+  // lat/lng are optional now — the server falls back to the vet's own
+  // estimate, or to no estimate at all, rather than refusing.
+  const res = await apiFetch(`/jobs/${id}/en-route`, {
+    method: 'POST',
+    body: JSON.stringify({ lat, lng, etaMinutes }),
+  });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to notify client');
   return data; // { job, etaMinutes, distanceText, smsSent }

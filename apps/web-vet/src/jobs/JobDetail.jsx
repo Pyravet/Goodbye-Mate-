@@ -17,6 +17,7 @@ export default function JobDetail() {
   const [enRouteState, setEnRouteState] = useState('idle'); // idle | locating | sending | done | error
   const [enRouteError, setEnRouteError] = useState('');
   const [enRouteResult, setEnRouteResult] = useState(null);
+  const [manualEta, setManualEta] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -29,33 +30,35 @@ export default function JobDetail() {
   const onDecline = async () => { setBusy(true); try { await declineOffer(id); navigate('/'); } finally { setBusy(false); } };
   const onProcedureDone = async () => { setBusy(true); try { await markProcedureDone(id); load(); } finally { setBusy(false); } };
   const onNotifyEnRoute = () => {
+    setEnRouteError('');
+    const eta = manualEta ? Number(manualEta) : undefined;
+
+    const send = async (coords) => {
+      setEnRouteState('sending');
+      try {
+        setEnRouteResult(await notifyEnRoute(id, { ...coords, etaMinutes: eta }));
+        setEnRouteState('done');
+      } catch (err) {
+        setEnRouteState('error');
+        setEnRouteError(err.message);
+      }
+    };
+
+    // Location is a bonus, not a requirement. Refusing to send without
+    // it meant a vet who declined the browser prompt — or was somewhere
+    // with no GPS — could not tell the client they were coming at all.
     if (!('geolocation' in navigator)) {
-      setEnRouteState('error');
-      setEnRouteError("This device can't share its location.");
+      send({});
       return;
     }
+
     setEnRouteState('locating');
-    setEnRouteError('');
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        setEnRouteState('sending');
-        try {
-          const result = await notifyEnRoute(id, {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-          setEnRouteResult(result);
-          setEnRouteState('done');
-        } catch (err) {
-          setEnRouteState('error');
-          setEnRouteError(err.message);
-        }
-      },
-      () => {
-        setEnRouteState('error');
-        setEnRouteError('Location permission was denied — enable it to send an ETA.');
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
+      (position) => send({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      // Denied or unavailable: send anyway. The client cares far more
+      // that someone is on the way than about a precise ETA.
+      () => send({}),
+      { timeout: 8000 }
     );
   };
 
@@ -120,7 +123,13 @@ export default function JobDetail() {
             {enRouteState === 'done' && enRouteResult ? (
               <>
                 <p style={styles.doneNote}>
-                  {enRouteResult.smsSent ? 'Client texted' : 'Client not texted (SMS unavailable)'} — ETA {enRouteResult.etaMinutes} min ({enRouteResult.distanceText}).
+                  {enRouteResult.smsSent ? 'Client texted' : 'Client not texted (SMS unavailable)'}
+                  {/* Only claim an ETA when there is one. It previously
+                      rendered "ETA null min (null)" whenever the maps
+                      lookup was unavailable. */}
+                  {enRouteResult.etaMinutes
+                    ? ` — ETA ${enRouteResult.etaMinutes} min${enRouteResult.distanceText ? ` (${enRouteResult.distanceText})` : ''}.`
+                    : '.'}
                 </p>
                 <button onClick={onNotifyEnRoute} disabled={enRouteState === 'locating' || enRouteState === 'sending'} style={styles.enRouteBtnSecondary}>
                   Send updated ETA
@@ -128,7 +137,20 @@ export default function JobDetail() {
               </>
             ) : (
               <>
-                <p style={styles.subline2}>Let the client know you're on the way, with a live ETA based on your current location.</p>
+                <p style={styles.subline2}>
+                  Let the client know you&apos;re on the way. Add a rough ETA if you have one —
+                  you know the drive better than the map does.
+                </p>
+                <label style={styles.etaRow}>
+                  <input
+                    type="number" inputMode="numeric" min="1" max="480"
+                    value={manualEta}
+                    onChange={(e) => setManualEta(e.target.value)}
+                    placeholder="25"
+                    style={styles.etaInput}
+                  />
+                  <span style={styles.etaUnit}>minutes away (optional)</span>
+                </label>
                 <button onClick={onNotifyEnRoute} disabled={enRouteState === 'locating' || enRouteState === 'sending'} style={styles.enRouteBtn}>
                   {enRouteState === 'locating' ? 'Finding your location…' : enRouteState === 'sending' ? 'Sending…' : "I'm on the way — notify client"}
                 </button>
@@ -293,6 +315,9 @@ const styles = {
   doneNote: { fontSize: 14, color: 'var(--gm-forest-dark)' },
   enRouteBtn: { width: '100%', padding: '12px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
   enRouteBtnSecondary: { width: '100%', padding: '10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', background: '#fff', color: 'var(--gm-ink)', fontSize: 13, fontWeight: 500, marginTop: 4 },
+  etaRow: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 },
+  etaInput: { width: 76, padding: '11px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 16, textAlign: 'center', minHeight: 44 },
+  etaUnit: { fontSize: 13, color: 'var(--gm-ink-soft)' },
   errorNote: { fontSize: 12, color: 'var(--gm-brick)', marginTop: 8 },
   doneBtn: { width: '100%', padding: '12px', borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 14, fontWeight: 500 },
   noteList: { marginBottom: 12 },

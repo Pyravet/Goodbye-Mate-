@@ -1693,11 +1693,15 @@ const enRouteSchema = z.object({
 });
 
 router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
-  const parsed = enRouteSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'Current location (lat/lng) is required', details: parsed.error.flatten() });
-  }
-  const { lat, lng } = parsed.data;
+  // Location is now OPTIONAL. It sharpens the ETA when available, but
+  // demanding it meant a vet who declined the location prompt — or whose
+  // phone lost GPS — could not tell anyone they were on the way.
+  const parsed = enRouteSchema.safeParse(req.body || {});
+  const lat = parsed.success ? parsed.data.lat : null;
+  const lng = parsed.success ? parsed.data.lng : null;
+  // A vet can state their own ETA. They know the drive; the map is a
+  // convenience, not the source of truth.
+  const manualEta = Number(req.body?.etaMinutes);
 
   const vetId = await getVetIdForUser(req.user.sub);
   if (!vetId) return res.status(403).json({ error: 'Not a vet account' });
@@ -1705,16 +1709,30 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
   const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1 AND assigned_vet_id = $2', [req.params.id, vetId]);
   const job = jobRows[0];
   if (!job) return res.status(404).json({ error: 'Job not found, or not assigned to you' });
-  if (job.lat == null || job.lng == null) {
-    return res.status(422).json({ error: 'This job has no address coordinates on file, so an ETA can\'t be calculated.' });
-  }
+  // Three ways to get an ETA, in order of preference. Previously this
+  // returned 422 when the job had no coordinates — and NO job has
+  // coordinates, because they're only ever set by Maps address
+  // autocomplete, which is dead while the API key is invalid. So "On my
+  // way" failed for every vet on every job.
+  let etaMinutes = null;
+  let distanceText = null;
 
-  const { etaMinutes, distanceText } = await getDrivingEta({
-    originLat: lat,
-    originLng: lng,
-    destLat: job.lat,
-    destLng: job.lng,
-  });
+  if (Number.isFinite(manualEta) && manualEta > 0 && manualEta <= 480) {
+    // 1. The vet told us. Most reliable — they know the road.
+    etaMinutes = Math.round(manualEta);
+  } else if (lat != null && lng != null && job.lat != null && job.lng != null) {
+    // 2. Driving time from the maps API, when everything is available.
+    try {
+      const eta = await getDrivingEta({ originLat: lat, originLng: lng, destLat: job.lat, destLng: job.lng });
+      etaMinutes = eta.etaMinutes;
+      distanceText = eta.distanceText;
+    } catch (err) {
+      // A maps outage must not block the vet from setting off.
+      console.error('Driving ETA failed, continuing without it:', err.message);
+    }
+  }
+  // 3. Neither — the client is still told a vet is on the way, which is
+  // the part that actually matters to them.
 
   const { rows: updatedRows } = await query(
     // Also advance status to 'in_route'. Previously only the en_route_*
@@ -1742,8 +1760,13 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
         // Link included so the estimate stays checkable. The SMS is a
         // snapshot from one moment; without a link the client's only way
         // to find out more is to phone someone who is currently driving.
+        // Only mention a time when we actually have one. Without this
+        // guard a null ETA reads as "arrive in about null minutes",
+        // which is worse than saying nothing.
         message: `Hi ${job.client_name}, ${vetName} is on the way to see ${job.pet_name}`
-          + ` and expects to arrive in about ${etaMinutes} minute${etaMinutes === 1 ? '' : 's'}.`
+          + (etaMinutes
+            ? ` and expects to arrive in about ${etaMinutes} minute${etaMinutes === 1 ? '' : 's'}.`
+            : '.')
           + `${process.env.CLIENT_APP_URL ? ` Track it here: ${process.env.CLIENT_APP_URL}/${job.client_token}` : ''}`,
       });
       smsSent = true;
@@ -1755,10 +1778,14 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
   notifyAdmins({
     category: 'job',
     title: 'Vet en route',
-    body: `${vetName} is on the way to ${job.pet_name} (${job.job_number}) — ETA ${etaMinutes} min.`,
+    body: `${vetName} is on the way to ${job.pet_name} (${job.job_number})`
+      + (etaMinutes ? ` — ETA ${etaMinutes} min.` : '.'),
     url: `/jobs/${job.id}`,
   }).catch((err) => console.error('Admin en-route push failed:', err.message));
-  sendSlackMessage(`🚗 *${vetName}* is on the way to see *${job.pet_name}* (${job.job_number}) — ETA ${etaMinutes} min.`)
+  sendSlackMessage(
+    `🚗 *${vetName}* is on the way to see *${job.pet_name}* (${job.job_number})`
+    + (etaMinutes ? ` — ETA ${etaMinutes} min.` : '.')
+  )
     .catch((err) => console.error('Slack notify for en-route failed:', err.message));
 
   await logAction({

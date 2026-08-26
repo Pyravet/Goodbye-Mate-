@@ -9,6 +9,7 @@ import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, client
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
+import { getPets, syncPrimaryPet } from '../domain/jobPets.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -2602,6 +2603,122 @@ router.get('/:id/consent.pdf', requireAuth, asyncHandler(async (req, res) => {
     res, job, vet, company: content.company || {},
     consentText, signatureImage: job.consent_signature_image || null,
   });
+}));
+
+
+// --- Pets on a job ---
+
+const petSchema = z.object({
+  name: z.string().trim().min(1, 'The pet needs a name.'),
+  species: z.string().trim().optional().nullable(),
+  breed: z.string().trim().optional().nullable(),
+  weight: z.string().trim().optional().nullable(),
+  age: z.string().trim().optional().nullable(),
+  behaviour: z.string().trim().optional().nullable(),
+  serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']).optional().nullable(),
+});
+
+router.get('/:id/pets', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  if (!(await canAccessRecord(req, rows[0]))) return res.status(403).json({ error: 'Not your job' });
+  res.json({ pets: await getPets(req.params.id) });
+}));
+
+/**
+ * POST /jobs/:id/pets — add another pet to an existing booking.
+ *
+ * Families sometimes say goodbye to two or three animals in one visit.
+ * Previously that meant separate bookings for the same address and time,
+ * which double-dispatches and double-charges.
+ */
+router.post('/:id/pets', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = petSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid pet' });
+  }
+  const { rows: jobRows } = await query('SELECT id, status, service_type FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status === 'completed') {
+    return res.status(409).json({ error: 'This job is complete and can no longer be changed.' });
+  }
+
+  const { rows: existing } = await query(
+    'SELECT COALESCE(MAX(sort_order), -1) AS max FROM job_pets WHERE job_id = $1',
+    [req.params.id]
+  );
+
+  const d = parsed.data;
+  const { rows } = await query(
+    `INSERT INTO job_pets (job_id, name, species, breed, weight, age, behaviour, service_type, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [
+      req.params.id, d.name, d.species || null, d.breed || null, d.weight || null,
+      d.age || null, d.behaviour || 'Friendly',
+      // Defaults to the job's service type — most families choose the
+      // same for both — but stays per-pet so it can differ.
+      d.serviceType || job.service_type,
+      Number(existing[0].max) + 1,
+    ]
+  );
+
+  // Adding an unconsented pet makes the JOB no longer fully consented,
+  // which is correct: there is now a form outstanding.
+  await syncPrimaryPet(req.params.id);
+
+  await logAction({
+    actorUserId: req.user.sub, action: 'job_pet_added',
+    targetType: 'job', targetId: req.params.id, metadata: { petName: d.name },
+  });
+
+  res.status(201).json({ pet: rows[0] });
+}));
+
+router.put('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = petSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid pet' });
+  }
+  const d = parsed.data;
+  const { rows } = await query(
+    `UPDATE job_pets SET name=$1, species=$2, breed=$3, weight=$4, age=$5,
+       behaviour=$6, service_type=COALESCE($7::job_service_type, service_type)
+     WHERE id=$8 AND job_id=$9 RETURNING *`,
+    [d.name, d.species || null, d.breed || null, d.weight || null, d.age || null,
+     d.behaviour || 'Friendly', d.serviceType || null, req.params.petId, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Pet not found on this job' });
+
+  await syncPrimaryPet(req.params.id);
+  res.json({ pet: rows[0] });
+}));
+
+router.delete('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const pets = await getPets(req.params.id);
+  // A job must always have at least one pet — jobs.pet_* mirrors the
+  // first, and an empty list would leave those columns stale while the
+  // job still appears everywhere as that animal.
+  if (pets.length <= 1) {
+    return res.status(409).json({
+      error: 'A booking must have at least one pet. Cancel the job instead.',
+    });
+  }
+  const target = pets.find((p) => p.id === req.params.petId);
+  if (target?.consent_signed) {
+    return res.status(409).json({
+      error: 'Consent has been signed for this pet. Removing it would discard a signed record.',
+    });
+  }
+
+  await query('DELETE FROM job_pets WHERE id = $1 AND job_id = $2', [req.params.petId, req.params.id]);
+  await syncPrimaryPet(req.params.id);
+
+  await logAction({
+    actorUserId: req.user.sub, action: 'job_pet_removed',
+    targetType: 'job', targetId: req.params.id, metadata: { petId: req.params.petId },
+  });
+  res.json({ ok: true });
 }));
 
 export default router;

@@ -11,6 +11,7 @@ import { billBreakdown, clientGstSplit } from '../domain/pricing.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { generateInvoicePdf } from '../pdf/generateInvoice.js';
 import { generateConsentPdf, generateConsentPdfBuffer, consentFilename } from '../pdf/generateConsent.js';
+import { getPets, syncPrimaryPet } from '../domain/jobPets.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { logAction } from '../audit/log.js';
 
@@ -197,6 +198,16 @@ router.get('/:token', asyncHandler(async (req, res) => {
       brochure,
       brochurePdf,
       vet: vetDetails,
+      // The pet list, so the client sees whose form is outstanding
+      // rather than a single "not signed" for a visit covering three
+      // animals. Signature images are deliberately not included.
+      pets: (await getPets(job.id)).map((p) => ({
+        id: p.id,
+        name: p.name,
+        species: p.species,
+        breed: p.breed,
+        consentSigned: p.consent_signed,
+      })),
       // En-route state. The SMS gives a snapshot at one moment; a client
       // watching the door wants to check without texting anyone, and the
       // page is the one place they can.
@@ -222,6 +233,9 @@ router.get('/:token', asyncHandler(async (req, res) => {
 }));
 
 const consentSchema = z.object({
+  // Which pet's form this is. Optional so a single-pet booking behaves
+  // exactly as it did before.
+  petId: z.string().uuid().optional().nullable(),
   signatureName: z.string().trim().min(2, 'Please type your full name.'),
   agree: z.literal(true, { errorMap: () => ({ message: 'You must confirm you understand and consent.' }) }),
   // Drawn signature as a PNG data URI. Optional at the schema level so
@@ -233,22 +247,54 @@ const consentSchema = z.object({
 router.post('/:token/consent', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
-  if (job.consent_signed) return res.json({ ok: true, alreadySigned: true });
-
   const parsed = consentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid submission' });
+
+  // Consent is PER PET. A visit can cover two or three animals, and a
+  // single signature spanning "the pets" is not a record anyone should
+  // rely on if it is ever questioned — each decision is about a specific
+  // animal.
+  const pets = await getPets(job.id);
+  if (pets.length === 0) return res.status(409).json({ error: 'This booking has no pet on it.' });
+
+  // petId identifies which form is being signed. Omitted means the
+  // first unsigned pet, which keeps single-pet bookings working exactly
+  // as before without the client app needing to know about pets at all.
+  const target = parsed.data.petId
+    ? pets.find((p) => p.id === parsed.data.petId)
+    : pets.find((p) => !p.consent_signed);
+
+  if (!target) {
+    // Nothing left to sign is a success, not an error — a client who
+    // taps twice should not see a failure.
+    return res.json({ ok: true, alreadySigned: true });
+  }
+  if (target.consent_signed) return res.json({ ok: true, alreadySigned: true });
 
   const signatureBuffer = parsed.data.signatureImage
     ? Buffer.from(parsed.data.signatureImage.split(',')[1], 'base64')
     : null;
 
   await query(
-    `UPDATE jobs SET consent_signed = true, consent_signature_name = $1,
-       consent_signature_image = $2, consent_signed_at = now(), updated_at = now()
+    `UPDATE job_pets SET consent_signed = true, consent_signature_name = $1,
+       consent_signature_image = $2, consent_signed_at = now()
      WHERE id = $3`,
-    [parsed.data.signatureName, signatureBuffer, job.id]
+    [parsed.data.signatureName, signatureBuffer, target.id]
   );
+
+  // Recompute job-level consent: true only once EVERY pet is signed.
+  // Also re-mirrors jobs.pet_* so older readers stay correct.
+  await syncPrimaryPet(job.id);
+
+  const remaining = (await getPets(job.id)).filter((p) => !p.consent_signed);
   await logAction({ actorUserId: null, action: 'consent_signed_by_client', targetType: 'job', targetId: job.id, metadata: { signatureName: parsed.data.signatureName } });
+
+  // Only distribute once EVERY pet is consented — sending a partial
+  // pack, then another, would leave three parties holding two documents
+  // for one visit and unsure which is current.
+  if (remaining.length > 0) {
+    return res.json({ ok: true, remaining: remaining.map((p) => ({ id: p.id, name: p.name })) });
+  }
 
   // Distribute the signed consent. Fire-and-forget: the consent is
   // already recorded, and an email failure must not make the client
@@ -280,7 +326,7 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
     }
   })().catch((err) => console.error('Consent distribution failed:', err.message));
 
-  res.json({ ok: true });
+  res.json({ ok: true, remaining: [] });
 }));
 
 const chargeSchema = z.object({

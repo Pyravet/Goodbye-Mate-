@@ -335,3 +335,25 @@ export async function sendInternalMessage(jobId, body) {
   if (!res.ok) throw new Error(data.error || 'Failed to send message');
   return data.message;
 }
+
+// --- Pets on a job ---
+
+export async function fetchPets(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/pets`);
+  if (!res.ok) throw new Error('Could not load the pets on this job');
+  return (await res.json()).pets;
+}
+
+export async function addPet(jobId, pet) {
+  const res = await apiFetch(`/jobs/${jobId}/pets`, { method: 'POST', body: JSON.stringify(pet) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not add that pet');
+  return data.pet;
+}
+
+export async function removePet(jobId, petId) {
+  const res = await apiFetch(`/jobs/${jobId}/pets/${petId}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not remove that pet');
+  return data;
+}

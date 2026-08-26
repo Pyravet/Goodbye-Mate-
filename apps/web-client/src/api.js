@@ -7,11 +7,11 @@ export async function fetchJourney(token) {
   return data;
 }
 
-export async function submitConsent(token, { signatureName, agree, signatureImage }) {
+export async function submitConsent(token, { signatureName, agree, signatureImage, petId }) {
   const res = await fetch(`${API_URL}/public/journey/${token}/consent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ signatureName, agree, signatureImage }),
+    body: JSON.stringify({ signatureName, agree, signatureImage , petId}),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Could not save your consent — try again.');

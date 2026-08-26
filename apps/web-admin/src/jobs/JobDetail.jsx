@@ -6,6 +6,7 @@ import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, em
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
+import PetsCard from './PetsCard.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
 import TakePayment from './TakePayment.jsx';
@@ -265,6 +266,10 @@ export default function JobDetail() {
           </div>
 
           <div>
+            <Card title="Pets">
+              <PetsCard jobId={id} onChanged={load} />
+            </Card>
+
             <Card title="Dispatch">
               <p style={styles.plain}>
                 {job.dispatch_state === 'offered' && 'Offer sent, awaiting vet response.'}

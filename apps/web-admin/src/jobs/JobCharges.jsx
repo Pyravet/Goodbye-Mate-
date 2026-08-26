@@ -5,6 +5,13 @@ import { fetchLineItems, addLineItem, removeLineItem } from './jobsApi.js';
 // "Large pet handling" on every second job. Amounts are starting points
 // — the field stays editable because real jobs vary.
 const PRESETS = [
+  // Multi-pet presets. A visit covering two or three animals is more
+  // work and more materials but ONE call-out, so these are starting
+  // points for the additional pet only — the call-out is already in the
+  // base price and shouldn't be charged twice.
+  { label: 'Additional pet — euthanasia', amount: 249, vetPayout: 180 },
+  { label: 'Additional pet — private cremation', amount: 190, vetPayout: 20 },
+  { label: 'Additional pet — communal cremation', amount: 120, vetPayout: 20 },
   { label: 'Extra travel', amount: 40, vetPayout: 40 },
   { label: 'Large pet handling', amount: 60, vetPayout: 40 },
   { label: 'Extra time on site', amount: 45, vetPayout: 45 },

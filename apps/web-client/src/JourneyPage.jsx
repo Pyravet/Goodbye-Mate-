@@ -274,6 +274,15 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  // A visit can cover two or three animals, each needing its own form.
+  // Defaults to an empty list so a payload without `pets` — an older
+  // cached response — still renders as a normal single-pet consent.
+  const pets = content.pets || [];
+  const signedCount = pets.filter((p) => p.consentSigned).length;
+  // The next form to sign. undefined on a single-pet booking, which is
+  // exactly what the server treats as "the first unsigned pet".
+  const currentPet = pets.find((p) => !p.consentSigned);
+
   if (job.consentSigned && !isActive) {
     return (
       <>
@@ -303,7 +312,24 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
     setError('');
     setSubmitting(true);
     try {
-      await submitConsent(token, { signatureName: name.trim(), agree: true, signatureImage: signature });
+      // petId names which form this is. The server defaults to the
+      // first unsigned pet when it's omitted, so single-pet bookings are
+      // unaffected.
+      const result = await submitConsent(token, {
+        signatureName: name.trim(), agree: true, signatureImage: signature,
+        petId: currentPet?.id,
+      });
+      // More pets to sign: clear the pad and name rather than advancing
+      // the journey. Carrying the previous signature over would let
+      // someone submit the same drawing for a different animal without
+      // noticing.
+      if (result?.remaining?.length > 0) {
+        setSignature(null);
+        setName('');
+        setError('');
+        onSigned();
+        return;
+      }
       onSigned();
     } catch (err) {
       setError(err.message);
@@ -322,6 +348,22 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
             client signing consent for this is entitled to know exactly
             who is carrying it out — a name alone doesn't establish that
             they're a registered vet. */}
+        {/* Which animal this form covers. On a multi-pet visit an
+            unlabelled form is a real risk: the client could sign twice
+            believing they'd covered both. */}
+        {pets.length > 1 && currentPet && (
+          <div style={styles.petBanner}>
+            <div style={styles.petBannerLabel}>
+              Consent {signedCount + 1} of {pets.length}
+            </div>
+            <div style={styles.petBannerName}>For {currentPet.name}</div>
+            <div style={styles.petBannerHint}>
+              Each pet needs its own form. You&apos;ll be asked to sign again for
+              {' '}{pets.filter((p) => !p.consentSigned && p.id !== currentPet.id).map((p) => p.name).join(', ')}.
+            </div>
+          </div>
+        )}
+
         {content.vet && (
           <div style={styles.vetBox}>
             <div style={styles.vetLabel}>Your attending veterinarian</div>
@@ -740,6 +782,10 @@ const styles = {
   enRouteTitle: { fontFamily: 'var(--gm-font-display)', fontSize: 18, fontWeight: 600, marginBottom: 4 },
   enRouteEta: { fontSize: 15, marginBottom: 4 },
   enRouteMeta: { fontSize: 12, opacity: 0.85, marginTop: 2 },
+  petBanner: { background: 'var(--gm-honey-soft)', borderRadius: 'var(--gm-radius-sm)', padding: '12px 14px', marginBottom: 16 },
+  petBannerLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: '#7A5A22', marginBottom: 3 },
+  petBannerName: { fontSize: 17, fontWeight: 600, color: 'var(--gm-ink)' },
+  petBannerHint: { fontSize: 12, color: '#7A5A22', marginTop: 4, lineHeight: 1.5 },
   vetBox: { background: 'var(--gm-line-soft)', borderRadius: 'var(--gm-radius-sm)', padding: '12px 14px', marginBottom: 16 },
   vetLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', marginBottom: 4 },
   vetName: { fontSize: 16, fontWeight: 600, color: 'var(--gm-ink)' },

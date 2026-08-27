@@ -15,6 +15,7 @@ import PayoutsPage from './payouts/PayoutsPage.jsx';
 import RequestsPage from './requests/RequestsPage.jsx';
 import ReviewsPage from './reviews/ReviewsPage.jsx';
 import InvoicesPage from './invoices/InvoicesPage.jsx';
+import ClinicsPage from './clinics/ClinicsPage.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 
 export default function App() {
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/vets/:id" element={<RequireAuth><VetDetail /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+          <Route path="/clinics" element={<RequireAuth><ClinicsPage /></RequireAuth>} />
           <Route path="/invoices" element={<RequireAuth><InvoicesPage /></RequireAuth>} />
           <Route path="/reviews" element={<RequireAuth><ReviewsPage /></RequireAuth>} />
           <Route path="/requests" element={<RequireAuth><RequestsPage /></RequireAuth>} />

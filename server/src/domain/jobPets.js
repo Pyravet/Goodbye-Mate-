@@ -10,6 +10,22 @@ import { query } from '../db/pool.js';
  * will be invisible until a PDF names the wrong animal.
  */
 
+/**
+ * The first pet's signature IMAGE.
+ *
+ * Separate from getPets because the image is a BYTEA that most callers
+ * — the admin list, the client journey, the pets card — never need, and
+ * shipping it on every read would bloat those responses for nothing.
+ */
+async function firstPetSignature(jobId) {
+  const { rows } = await query(
+    `SELECT consent_signature_image FROM job_pets
+     WHERE job_id = $1 ORDER BY sort_order, created_at LIMIT 1`,
+    [jobId]
+  );
+  return rows[0]?.consent_signature_image || null;
+}
+
 /** All pets on a job, in display order. */
 export async function getPets(jobId) {
   const { rows } = await query(
@@ -38,6 +54,12 @@ export async function syncPrimaryPet(jobId) {
   // otherwise a job with no pets would report itself fully consented.
   const allConsented = pets.every((p) => p.consent_signed);
 
+  // The signature IMAGE has to be mirrored too. Without it the consent
+  // PDF read jobs.consent_signature_image, which nothing writes any
+  // more, and rendered "No drawn signature was captured" on every job —
+  // a consent document with no signature on it.
+  const signatureImage = await firstPetSignature(jobId);
+
   const { rows } = await query(
     `UPDATE jobs SET
        pet_name = $1, pet_type = $2, pet_breed = $3, pet_weight = $4,
@@ -47,15 +69,23 @@ export async function syncPrimaryPet(jobId) {
        -- They exist for the older readers; the authoritative per-pet
        -- record is on job_pets.
        consent_signature_name = $8,
-       consent_signed_at = $9,
+       consent_signature_image = $9,
+       consent_signed_at = $10,
        updated_at = now()
-     WHERE id = $10
+     WHERE id = $11
      RETURNING *`,
     [
-      first.name, first.species, first.breed, first.weight,
-      first.age, first.behaviour,
+      // pet_name, pet_type and pet_behaviour are NOT NULL on jobs, but
+      // the equivalent job_pets columns are optional — species and
+      // breed are genuinely unknown sometimes. Mirroring a null would
+      // throw and take the whole request with it, so a pet added
+      // without a species would break the job it was added to.
+      first.name,
+      first.species || 'Unknown',
+      first.breed, first.weight, first.age,
+      first.behaviour || 'Friendly',
       allConsented,
-      first.consent_signature_name, first.consent_signed_at,
+      first.consent_signature_name, signatureImage, first.consent_signed_at,
       jobId,
     ]
   );

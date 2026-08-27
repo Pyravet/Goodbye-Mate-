@@ -17,14 +17,32 @@ import { drawHeader, drawFooter, formatDate, INK, INK_SOFT, LINE } from './brand
  * @param {object} args.company Issuing company details.
  * @param {string} args.consentText The wording actually shown to the client.
  * @param {Buffer|null} args.signatureImage PNG of the drawn signature.
+ * @param {object} [args.pet] The specific animal this form covers.
+ *   Falls back to the job's primary pet fields for single-pet bookings
+ *   and for older callers.
+ * @param {number} [args.petIndex] 1-based position, when there are several.
+ * @param {number} [args.petCount] How many pets the visit covers.
  */
-function drawConsent(doc, { job, vet, company, consentText, signatureImage }) {
+function drawConsent(doc, { job, vet, company, consentText, signatureImage, pet, petIndex, petCount }) {
+  // A visit can cover two or three animals, each with its own form.
+  // Describing the JOB's pet on every one produced identical documents
+  // that looked like duplicates rather than distinct records — which
+  // defeats the purpose of taking separate consent at all.
+  const subject = pet || {
+    name: job.pet_name,
+    species: job.pet_type,
+    breed: job.pet_breed,
+    age: job.pet_age,
+    weight: job.pet_weight,
+    consent_signature_name: job.consent_signature_name,
+    consent_signed_at: job.consent_signed_at,
+  };
   const top = drawHeader(doc, {
     company,
     docTitle: 'Consent Form',
     meta: [
       ['Reference', job.job_number],
-      ['Signed', formatDate(job.consent_signed_at)],
+      ['Signed', formatDate(subject.consent_signed_at || job.consent_signed_at)],
       ['Visit date', formatDate(job.job_date)],
     ],
   });
@@ -62,12 +80,15 @@ function drawConsent(doc, { job, vet, company, consentText, signatureImage }) {
   y += 16;
 
   // --- Animal ---
-  label('Animal', 50, y);
+  label(
+    petCount > 1 ? `Animal (${petIndex} of ${petCount})` : 'Animal',
+    50, y
+  );
   y += 14;
-  doc.fontSize(12).fillColor(INK).text(job.pet_name || '—', 50, y);
+  doc.fontSize(12).fillColor(INK).text(subject.name || '—', 50, y);
   y += 17;
   doc.fontSize(9).fillColor(INK_SOFT).text(
-    [job.pet_type, job.pet_breed, job.pet_age, job.pet_weight].filter(Boolean).join('  ·  ') || '—',
+    [subject.species, subject.breed, subject.age, subject.weight].filter(Boolean).join('  ·  ') || '—',
     50, y, { width: 495 }
   );
   y += 20;
@@ -109,7 +130,9 @@ function drawConsent(doc, { job, vet, company, consentText, signatureImage }) {
     y += 20;
   }
 
-  doc.fontSize(11).fillColor(INK).text(job.consent_signature_name || '', 50, y);
+  doc.fontSize(11).fillColor(INK).text(
+    subject.consent_signature_name || job.consent_signature_name || '', 50, y
+  );
   y += 15;
   doc.fontSize(9).fillColor(INK_SOFT).text(
     `Signed electronically on ${formatDate(job.consent_signed_at)}`
@@ -125,26 +148,29 @@ function drawConsent(doc, { job, vet, company, consentText, signatureImage }) {
   });
 }
 
-export function generateConsentPdf({ res, job, vet, company, consentText, signatureImage }) {
+export function generateConsentPdf({ res, job, vet, company, consentText, signatureImage, pet, petIndex, petCount }) {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   doc.pipe(res);
-  drawConsent(doc, { job, vet, company, consentText, signatureImage });
+  drawConsent(doc, { job, vet, company, consentText, signatureImage, pet, petIndex, petCount });
   doc.end();
 }
 
-export function generateConsentPdfBuffer({ job, vet, company, consentText, signatureImage }) {
+export function generateConsentPdfBuffer({ job, vet, company, consentText, signatureImage, pet, petIndex, petCount }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks = [];
     doc.on('data', (c) => chunks.push(c));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    drawConsent(doc, { job, vet, company, consentText, signatureImage });
+    drawConsent(doc, { job, vet, company, consentText, signatureImage, pet, petIndex, petCount });
     doc.end();
   });
 }
 
-export function consentFilename(job) {
-  const pet = (job.pet_name || 'pet').replace(/[^a-zA-Z0-9]+/g, '-');
-  return `Consent-${pet}-${job.job_number}.pdf`;
+export function consentFilename(job, pet) {
+  // Named after the SPECIFIC animal. Three files all called
+  // "Consent-Bella-GM-0042.pdf" overwrite each other in a downloads
+  // folder, so two of the three records simply vanish.
+  const name = (pet?.name || job.pet_name || 'pet').replace(/[^a-zA-Z0-9]+/g, '-');
+  return `Consent-${name}-${job.job_number}.pdf`;
 }

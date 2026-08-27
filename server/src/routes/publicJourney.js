@@ -303,8 +303,25 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
     const ctx = await loadConsentContext(job.id);
     if (!ctx || !isEmailConfigured()) return;
 
-    const pdf = await generateConsentPdfBuffer(ctx);
-    const filename = consentFilename(ctx.job);
+    // One document per pet. A three-pet visit needs three distinct
+    // records, not the same form attached three times.
+    const ctxPets = await getPets(ctx.job.id);
+    const attachments = [];
+    for (const [i, pet] of ctxPets.entries()) {
+      const { rows: sigRows } = await query(
+        'SELECT consent_signature_image FROM job_pets WHERE id = $1', [pet.id]
+      );
+      attachments.push({
+        filename: consentFilename(ctx.job, pet),
+        content: await generateConsentPdfBuffer({
+          ...ctx,
+          pet,
+          petIndex: i + 1,
+          petCount: ctxPets.length,
+          signatureImage: sigRows[0]?.consent_signature_image || null,
+        }),
+      });
+    }
 
     // One copy each to the client, the attending vet and the practice.
     // Deduplicated, because admin and the practice address are often
@@ -319,9 +336,10 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
       await sendEmail({
         to,
         subject: `Signed consent — ${ctx.job.pet_name} (${ctx.job.job_number})`,
-        html: `<p>The consent form for ${ctx.job.pet_name} has been signed by `
+        html: `<p>The consent form${attachments.length > 1 ? 's' : ''} for `
+          + `${ctxPets.map((p) => p.name).join(', ')} ${attachments.length > 1 ? 'have' : 'has'} been signed by `
           + `${ctx.job.client_name}.</p><p>A copy is attached for your records.</p>`,
-        attachments: [{ filename, content: pdf }],
+        attachments,
       }).catch((err) => console.error(`Consent copy to ${to} failed:`, err.message));
     }
   })().catch((err) => console.error('Consent distribution failed:', err.message));
@@ -447,14 +465,33 @@ router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
 router.get('/:token/consent.pdf', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
-  if (!job.consent_signed) {
+  // Gate per pet, not per job. Gating on job.consent_signed meant that
+  // on a three-pet booking a client who had signed one form could not
+  // download anything until all three were done.
+  const anySigned = (await getPets(job.id)).some((p) => p.consent_signed);
+  if (!anySigned) {
     return res.status(409).json({ error: 'Consent has not been signed yet.' });
   }
 
   const ctx = await loadConsentContext(job.id);
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(ctx.job)}"`);
-  generateConsentPdf({ res, ...ctx });
+  // ?petId= selects which form. Defaults to the first pet so an
+  // existing single-pet link keeps working unchanged.
+  const journeyPets = await getPets(ctx.job.id);
+  const idx = req.query.petId
+    ? journeyPets.findIndex((p) => p.id === req.query.petId)
+    : 0;
+  if (idx === -1) return res.status(404).json({ error: 'That pet is not on this booking.' });
+  const chosen = journeyPets[idx];
+  const { rows: sigRows } = await query(
+    'SELECT consent_signature_image FROM job_pets WHERE id = $1', [chosen.id]
+  );
+
+  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(ctx.job, chosen)}"`);
+  generateConsentPdf({
+    ...ctx, res, pet: chosen, petIndex: idx + 1, petCount: journeyPets.length,
+    signatureImage: sigRows[0]?.consent_signature_image || null,
+  });
 }));
 
 // Serves the uploaded brochure PDF for this job's cremation type, if one

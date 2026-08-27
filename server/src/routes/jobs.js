@@ -1,3 +1,34 @@
+/**
+ * Jobs — the central route file.
+ *
+ * ~2,700 lines and 53 routes covering the whole job lifecycle. It is too
+ * big, and splitting it is the right eventual move; it hasn't been done
+ * because route-level tests currently cover only the money paths, and
+ * relocating 53 handlers without that net is how regressions ship.
+ *
+ * Until then it is divided into labelled sections. Search for the banner
+ * to jump to one:
+ *
+ *   LISTING & SEARCH            list, filters, alerts, duplicates, reviews
+ *   DISPATCH & OFFERS           offering to vets, accept/decline, assignment
+ *   PETS & CONSENT              pets on a job, per-pet consent
+ *   MONEY                       line items, charges, refunds, cancellation fee
+ *   DOCUMENTS (PDF & EMAIL)     invoices, consent forms, vet records
+ *   JOB LIFECYCLE               en route, procedure done, complete, cancel
+ *   NOTES & INTERNAL MESSAGES   medical notes, admin notes, vet<->admin thread
+ *
+ * TWO THINGS THAT WILL CATCH YOU OUT:
+ *
+ * 1. Route order matters. Express matches in declaration order, so any
+ *    literal path (/offers/mine, /check-duplicate, /reviews/all) MUST be
+ *    declared above '/:id' or it will be read as a job id and 404.
+ *
+ * 2. jobs.pet_* MIRRORS the first row in job_pets; job_pets is the
+ *    source of truth. The mirror is written ONLY by syncPrimaryPet in
+ *    domain/jobPets.js. Update it anywhere else and the two silently
+ *    drift, which surfaces as a PDF naming the wrong animal.
+ */
+
 import { Router } from 'express';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -268,6 +299,11 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
 // For vets, results are automatically restricted to their own offers and
 // assignments — a vet has no reason to see other vets' jobs, and the admin
 // board view isn't available to them at all.
+
+// ========================================================================
+// LISTING & SEARCH =======================================================
+// ========================================================================
+
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
   const { view, search } = req.query;
   const conditions = [];
@@ -466,6 +502,11 @@ router.get('/reviews/all', requireAuth, requireRole('admin'), asyncHandler(async
   res.json({ reviews: rows, stats: statsRows[0] });
 }));
 
+
+// ========================================================================
+// DISPATCH & OFFERS ======================================================
+// ========================================================================
+
 router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   const myVetId = await getVetIdForUser(req.user.sub);
   if (!myVetId) return res.status(403).json({ error: 'Not a vet account' });
@@ -640,6 +681,11 @@ router.get('/:id/rcti.pdf', requireAuth, asyncHandler(async (req, res) => {
 // ?quote=1 produces a pre-booking quote (no payment status shown, softer
 // wording) — the manual stopgap for "send a quote" until SMS/WhatsApp/
 // Outlook auto-send is wired up with real credentials.
+
+// ========================================================================
+// DOCUMENTS (PDF & EMAIL) ================================================
+// ========================================================================
+
 router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
   const job = rows[0];
@@ -1212,6 +1258,11 @@ const lineItemSchema = z.object({
   vetPayout: z.number().min(0).optional().default(0),
 });
 
+
+// ========================================================================
+// MONEY ==================================================================
+// ========================================================================
+
 router.get('/:id/line-items', requireAuth, asyncHandler(async (req, res) => {
   // Pricing and vet payout for a job shouldn't be readable by a vet who
   // has nothing to do with it.
@@ -1693,6 +1744,11 @@ const enRouteSchema = z.object({
   lng: z.number(),
 });
 
+
+// ========================================================================
+// JOB LIFECYCLE ==========================================================
+// ========================================================================
+
 router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('vet'), asyncHandler(async (req, res) => {
   // Location is now OPTIONAL. It sharpens the ETA when available, but
   // demanding it meant a vet who declined the location prompt — or whose
@@ -1850,6 +1906,11 @@ router.get('/:id/medical-notes', requireAuth, asyncHandler(async (req, res) => {
 const medicalNoteSchema = z.object({
   notes: z.string().trim().min(1, 'Write something before saving.'),
 });
+
+
+// ========================================================================
+// NOTES & INTERNAL MESSAGES ==============================================
+// ========================================================================
 
 /**
  * Append a medical note entry.
@@ -2598,10 +2659,22 @@ router.get('/:id/consent.pdf', requireAuth, asyncHandler(async (req, res) => {
     .replaceAll('{clientName}', job.client_name || '');
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(job)}"`);
+  const jobPets = await getPets(job.id);
+  const idx = req.query.petId ? jobPets.findIndex((p) => p.id === req.query.petId) : 0;
+  if (idx === -1) return res.status(404).json({ error: 'That pet is not on this booking.' });
+  const chosenPet = jobPets[idx] || null;
+  const { rows: petSig } = chosenPet
+    ? await query('SELECT consent_signature_image FROM job_pets WHERE id = $1', [chosenPet.id])
+    : { rows: [] };
+
+  res.setHeader('Content-Disposition', `inline; filename="${consentFilename(job, chosenPet)}"`);
   generateConsentPdf({
     res, job, vet, company: content.company || {},
-    consentText, signatureImage: job.consent_signature_image || null,
+    consentText,
+    pet: chosenPet,
+    petIndex: idx + 1,
+    petCount: jobPets.length,
+    signatureImage: petSig[0]?.consent_signature_image || job.consent_signature_image || null,
   });
 }));
 
@@ -2617,6 +2690,11 @@ const petSchema = z.object({
   behaviour: z.string().trim().optional().nullable(),
   serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']).optional().nullable(),
 });
+
+
+// ========================================================================
+// PETS & CONSENT =========================================================
+// ========================================================================
 
 router.get('/:id/pets', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);

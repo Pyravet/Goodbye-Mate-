@@ -11,7 +11,7 @@
     "start": "node src/index.js",
     "migrate": "node src/db/migrate.js",
     "test": "node --test src/**/*.test.js --test-skip-pattern=\"src/test/\"",
-    "test:unit": "node --test src/domain/*.test.js src/middleware/*.test.js src/integrations/**/*.test.js src/security/*.test.js",
+    "test:unit": "node --test \"src/!(test)/**/*.test.js\"",
     "test:routes": "node --test src/test/*.test.js",
     "test:all": "npm run test:unit && npm run test:routes"
   },

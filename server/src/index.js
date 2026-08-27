@@ -23,6 +23,7 @@ import { startDispatchWorker } from './workers/dispatchWorker.js';
 import { startReminderWorker, startReviewReminderWorker } from './workers/reminderWorker.js';
 import { seedTestVet } from './db/seed-test-vet.js';
 import { closePool } from './db/pool.js';
+import { alertServerError, alertCrash } from './monitoring/alerts.js';
 
 const app = express();
 
@@ -31,9 +32,12 @@ const app = express();
 // (or hang forever) on an unhandled rejection.
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection:', reason);
+  // Never suppressed: the process is in an unknown state.
+  alertCrash('Unhandled promise rejection', reason);
 });
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
+  alertCrash('Uncaught exception', err);
 });
 
 app.set('trust proxy', 1); // needed for correct req.ip behind Vercel/hosting proxies
@@ -137,6 +141,16 @@ app.use((err, req, res, next) => {
     // into the platform logs — turning log access into account access.
     const safeUrl = req.originalUrl.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]');
     console.error(`[${req.method} ${safeUrl}]`, err);
+
+    // Also alert. Logging alone meant the first anyone knew of a failure
+    // was a client ringing to say the payment page was broken. The same
+    // redacted URL is used, so a bearer token can't reach Slack either.
+    alertServerError(err, {
+      method: req.method,
+      url: safeUrl,
+      status,
+      userId: req.user?.sub,
+    });
   }
 
   res.status(status).json({

@@ -259,6 +259,20 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
   );
   const job = rows[0];
 
+  // Every job needs a job_pets row. The migration backfilled existing
+  // jobs, but the CREATE route was never updated — so every booking made
+  // since had zero pets, and the consent endpoint refuses a job with no
+  // pet on it. In other words: no new client could sign consent at all.
+  //
+  // Created here rather than by a trigger so it stays visible to anyone
+  // reading the creation flow.
+  await query(
+    `INSERT INTO job_pets (job_id, name, species, breed, weight, age, behaviour, service_type, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0)`,
+    [job.id, job.pet_name, job.pet_type, job.pet_breed, job.pet_weight,
+     job.pet_age, job.pet_behaviour, job.service_type]
+  );
+
   await logAction({ actorUserId: req.user.sub, action: 'job_created', targetType: 'job', targetId: job.id, metadata: { jobNumber: job.job_number } });
 
   // NOTHING is sent to the client at booking time.

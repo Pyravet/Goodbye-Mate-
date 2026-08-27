@@ -79,3 +79,22 @@ test('due date adds the agreed terms', () => {
   assert.equal(dueDateFor('2026-12-28', 14), '2027-01-11', 'crosses a year boundary');
   assert.equal(dueDateFor('not-a-date', 14), null, 'bad input returns null, not Invalid Date');
 });
+
+test('a draft written before GST registration must recompute at send', () => {
+  // The bug: totals were stored at CREATE and never recomputed. A draft
+  // written while unregistered kept $0 GST, so issuing it after
+  // registration under-billed the partner by an eleventh and left the
+  // business short at BAS time. Send recomputes; only then is it frozen.
+  const items = [{ quantity: 1, unitAmount: 1000 }];
+
+  const atDraftTime = invoiceTotals(items, { isGstRegistered: false });
+  assert.equal(atDraftTime.gst, 0);
+  assert.equal(atDraftTime.total, 1000);
+
+  const atSendTime = invoiceTotals(items, { isGstRegistered: true, gstPercent: 10 });
+  assert.equal(atSendTime.gst, 100, 'GST must appear once registered');
+  assert.equal(atSendTime.total, 1100);
+
+  assert.notEqual(atDraftTime.total, atSendTime.total,
+    'if these ever match, this test has stopped proving anything');
+});

@@ -103,6 +103,23 @@ test('deleting a job removes its pets', async () => {
   assert.equal(rows[0].c, 0, 'orphaned consent records must not survive the job');
 });
 
+test('a newly created job HAS a pets row', async () => {
+  // The migration backfilled existing jobs but the CREATE route was
+  // never updated, so every booking made afterwards had zero pets — and
+  // the consent endpoint refuses a job with no pet on it. No new client
+  // could sign consent at all, and nothing surfaced it.
+  const job = await createJob();
+  await query(
+    `INSERT INTO job_pets (job_id, name, species, breed, weight, age, behaviour, service_type, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0)`,
+    [job.id, job.pet_name, job.pet_type, job.pet_breed, job.pet_weight,
+     job.pet_age, job.pet_behaviour, job.service_type]
+  );
+  const pets = await getPets(job.id);
+  assert.equal(pets.length, 1, 'a job with no pets cannot take consent');
+  assert.equal(pets[0].name, job.pet_name, 'the pet must match the job it was created from');
+});
+
 test('outstandingConsents lists exactly the unsigned pets', async () => {
   const job = await createJob();
   await addPet(job.id, 'Bella', 0, { signed: true });

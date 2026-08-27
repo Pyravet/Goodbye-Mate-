@@ -197,6 +197,20 @@ router.post('/:id/send', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'Add at least one line before sending.' });
   }
 
+  // RECOMPUTE before issuing. Totals were stored when the draft was
+  // created, so a draft written before the business registered for GST
+  // would be issued with $0 GST — under-billing the partner by an
+  // eleventh and leaving the business short at BAS time. Send is the
+  // moment this becomes a real document, so it is the moment the tax
+  // treatment must be correct. AFTER this it is frozen for good.
+  const gstOpts = await issuerDetails();
+  await replaceItems(req.params.id, found.items.map((i) => ({
+    description: i.description,
+    quantity: Number(i.quantity),
+    unitAmount: Number(i.unit_amount),
+    jobId: i.job_id,
+  })), gstOpts);
+
   // Row-locked counter, same as RCTI numbering: two admins hitting send
   // at once must not be handed the same invoice number.
   const client = await pool.connect();

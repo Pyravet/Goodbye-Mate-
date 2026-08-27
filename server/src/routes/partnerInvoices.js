@@ -177,7 +177,9 @@ router.put('/:id', asyncHandler(async (req, res) => {
   const d = parsed.data;
   const { defaultGstPercent } = await issuerDetails();
   const gstMode = d.gstMode || found.invoice.gst_mode || 'inclusive';
-  const gstPercent = d.gstPercent ?? Number(found.invoice.gst_percent) ?? defaultGstPercent;
+  const storedPercent = Number(found.invoice.gst_percent);
+  const gstPercent = d.gstPercent
+    ?? (Number.isFinite(storedPercent) ? storedPercent : defaultGstPercent);
 
   await query(
     `UPDATE partner_invoices SET recipient_name=$1, recipient_email=$2, recipient_abn=$3,

@@ -293,8 +293,14 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
     `INSERT INTO jobs (
        client_name, client_phone, client_email, address, suburb, postcode, state, lat, lng,
        pet_name, pet_type, pet_breed, pet_weight, pet_age,
-       service_id, service_type, job_date, job_time, time_category, notes
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19)
+       service_id, service_type, job_date, job_time, time_category, notes,
+       -- Attribution carries from the request onto the JOB, so the link
+       -- survives even if the request is later tidied away. Without this
+       -- the clinic portal could show a referral but never that it
+       -- became a completed visit — which is the only outcome that
+       -- matters to them.
+       referred_by_clinic_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19,$20)
      RETURNING *`,
     [
       request.client_name, request.client_phone, request.client_email,

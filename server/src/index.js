@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 
 import authRoutes from './routes/auth.js';
 import partnerInvoicesRouter from './routes/partnerInvoices.js';
+import clinicsRouter from './routes/clinics.js';
 import healthRoutes from './routes/health.js';
 import vetsRoutes from './routes/vets.js';
 import messagesRoutes from './routes/messages.js';
@@ -104,6 +105,7 @@ app.use('/api/booking-requests', bookingRequestRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
 app.use('/api/partner-invoices', partnerInvoicesRouter);
+app.use('/api/clinics', clinicsRouter);
 
 // 404 for unmatched API routes. Without this, an unknown path falls
 // through to Express's HTML error page, which is confusing for an API

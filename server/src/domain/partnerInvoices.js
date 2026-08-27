@@ -25,49 +25,66 @@ export function lineAmount(quantity, unitAmount) {
 /**
  * Invoice totals.
  *
- * PRICES ARE GST-INCLUSIVE. An amount entered as $80 is what the partner
- * pays; the GST is the eleventh already inside it, not something added
- * on top. This matches client invoices and the rest of the pricing in
- * this system, so a figure means the same thing everywhere.
+ * GST treatment is chosen PER INVOICE, because it genuinely differs:
+ * some partners are billed inclusive, others agree ex-GST rates, and a
+ * GST-free recipient carries none at all. Two invoices issued the same
+ * day can legitimately need different treatment.
  *
- * The `total` is therefore always the sum of the line amounts, whether
- * or not the business is GST registered. Registration only changes
- * whether the tax component is DISCLOSED — it never changes what is
- * charged.
+ *   'inclusive' — entered amounts are what the partner PAYS. GST is the
+ *                 eleventh already inside, disclosed separately.
+ *   'exclusive' — entered amounts are ex-GST. GST is ADDED on top, so
+ *                 the partner pays more than the figures typed.
+ *   'none'      — no GST line at all. Not the same as zero: a "$0.00
+ *                 GST" line implies a registration that may not exist,
+ *                 on a document the partner files with their accounts.
  *
  * @param {Array<{quantity:number, unitAmount:number}>} items
  * @param {object} opts
- * @param {boolean} opts.isGstRegistered
+ * @param {'inclusive'|'exclusive'|'none'} opts.gstMode
  * @param {number} opts.gstPercent
  */
-export function invoiceTotals(items, { isGstRegistered, gstPercent = 10 } = {}) {
+export function invoiceTotals(items, { gstMode = 'inclusive', gstPercent = 10 } = {}) {
   const lines = (items || []).map((i) => ({
     ...i,
     amount: lineAmount(i.quantity, i.unitAmount),
   }));
 
-  // What the partner pays, taken straight from the lines.
-  const total = cents(lines.reduce((sum, l) => sum + l.amount, 0));
+  const entered = cents(lines.reduce((sum, l) => sum + l.amount, 0));
+  const rate = Number(gstPercent);
+  const pct = Number.isFinite(rate) && rate >= 0 ? rate : 10;
 
-  // Extracted from the inclusive total using the shared helper rather
-  // than a second implementation — a duplicate rounding rule is how two
-  // documents end up disagreeing by a cent.
-  //
-  // Nothing is shown at all when the business isn't registered: a
-  // "$0.00 GST" line implies a registration that doesn't exist, on a
-  // document the partner will file with their own accounts.
-  const { gstAmount } = isGstRegistered
-    ? extractGst(total, Number(gstPercent) || 10)
-    : { gstAmount: 0 };
+  if (gstMode === 'none' || pct === 0) {
+    return { lines, subtotal: entered, gst: 0, total: entered, gstMode: 'none', gstPercent: pct };
+  }
 
+  if (gstMode === 'exclusive') {
+    // Added on top — the partner pays MORE than the figures entered.
+    const gst = cents(entered * (pct / 100));
+    return {
+      lines,
+      subtotal: entered,
+      gst,
+      // Derived from subtotal + gst so the three always reconcile, even
+      // when the multiplication rounds.
+      total: cents(entered + gst),
+      gstMode: 'exclusive',
+      gstPercent: pct,
+    };
+  }
+
+  // Inclusive. Extracted with the shared helper rather than a second
+  // implementation — a duplicate rounding rule is how two documents end
+  // up disagreeing by a cent.
+  const { gstAmount } = extractGst(entered, pct);
   return {
     lines,
-    // Subtotal is the ex-GST figure when registered, and simply the
-    // total when not — so subtotal + gst always equals total.
-    subtotal: cents(total - gstAmount),
+    subtotal: cents(entered - gstAmount),
     gst: gstAmount,
-    total,
-    isGstRegistered: !!isGstRegistered,
+    // Unchanged by the split: what the partner owes must not move
+    // because the tax extraction rounded.
+    total: entered,
+    gstMode: 'inclusive',
+    gstPercent: pct,
   };
 }
 

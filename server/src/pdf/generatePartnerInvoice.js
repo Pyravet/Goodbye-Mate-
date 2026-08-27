@@ -80,17 +80,22 @@ function drawInvoice(doc, { invoice, items, company, bank }) {
     y += bold ? 20 : 16;
   };
 
-  // Prices are GST-INCLUSIVE, so the total leads and the tax component
-  // is disclosed beneath it. Listing "Subtotal" first would read as an
-  // ex-GST figure with tax added, which is the opposite of what happened.
-  //
-  // Nothing is shown when the business isn't registered: a "$0.00 GST"
-  // line implies a registration that may not exist, on a document the
-  // partner files with their own accounts.
+  // The wording follows the invoice's own GST mode. Reading "Includes
+  // GST" on an exclusive invoice — or the reverse — would misstate the
+  // tax position on a document the partner files with their accounts.
+  const rate = Number(invoice.gst_percent) || 10;
   if (Number(invoice.gst) > 0) {
-    totalRow('Total (inc GST)', invoice.total, true);
-    totalRow('Includes GST of', invoice.gst);
+    if (invoice.gst_mode === 'exclusive') {
+      totalRow('Subtotal', invoice.subtotal);
+      totalRow(`GST (${rate}%)`, invoice.gst);
+      totalRow('Total', invoice.total, true);
+    } else {
+      totalRow('Total (inc GST)', invoice.total, true);
+      totalRow(`Includes GST (${rate}%)`, invoice.gst);
+    }
   } else {
+    // No GST line at all rather than a zero one, which would imply a
+    // registration that may not exist.
     totalRow('Total', invoice.total, true);
   }
 

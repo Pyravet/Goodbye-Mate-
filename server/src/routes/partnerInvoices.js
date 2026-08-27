@@ -34,6 +34,11 @@ const invoiceSchema = z.object({
   issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
+  // Chosen per invoice, because the right treatment genuinely differs
+  // between partners and can differ between two invoices issued the
+  // same day.
+  gstMode: z.enum(['inclusive', 'exclusive', 'none']).optional(),
+  gstPercent: z.coerce.number().min(0).max(100).optional(),
   items: z.array(itemSchema).default([]),
 });
 
@@ -45,8 +50,11 @@ async function issuerDetails() {
   return {
     company: content.company || {},
     bank: content.bankDetails || {},
-    isGstRegistered: pricingRows[0]?.config?.isGstRegistered === true,
-    gstPercent: Number(pricingRows[0]?.config?.gstPercent) || 10,
+    // Default rate only. Whether an invoice CARRIES GST is now a
+    // per-invoice choice — it used to be gated on the client-pricing
+    // isGstRegistered flag, which defaults to false, so no partner
+    // invoice ever showed GST regardless of the real registration.
+    defaultGstPercent: Number(pricingRows[0]?.config?.gstPercent) || 10,
   };
 }
 
@@ -117,7 +125,9 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid invoice' });
   }
   const d = parsed.data;
-  const { isGstRegistered, gstPercent } = await issuerDetails();
+  const { defaultGstPercent } = await issuerDetails();
+  const gstMode = d.gstMode || 'inclusive';
+  const gstPercent = d.gstPercent ?? defaultGstPercent;
 
   const issueDate = d.issueDate
     || new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Melbourne' });
@@ -125,19 +135,19 @@ router.post('/', asyncHandler(async (req, res) => {
   const { rows } = await query(
     `INSERT INTO partner_invoices
        (recipient_name, recipient_email, recipient_abn, recipient_address,
-        issue_date, due_date, notes, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        issue_date, due_date, notes, created_by, gst_mode, gst_percent)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
     [
       d.recipientName, d.recipientEmail || null, d.recipientAbn || null, d.recipientAddress || null,
       issueDate,
       // Default terms rather than leaving it blank — an invoice with no
       // due date is one nobody chases.
       d.dueDate || dueDateFor(issueDate, 14),
-      d.notes || null, req.user.sub,
+      d.notes || null, req.user.sub, gstMode, gstPercent,
     ]
   );
 
-  await replaceItems(rows[0].id, d.items, { isGstRegistered, gstPercent });
+  await replaceItems(rows[0].id, d.items, { gstMode, gstPercent });
   await logAction({
     actorUserId: req.user.sub, action: 'partner_invoice_created',
     targetType: 'partner_invoice', targetId: rows[0].id,
@@ -165,16 +175,19 @@ router.put('/:id', asyncHandler(async (req, res) => {
   }
 
   const d = parsed.data;
-  const { isGstRegistered, gstPercent } = await issuerDetails();
+  const { defaultGstPercent } = await issuerDetails();
+  const gstMode = d.gstMode || found.invoice.gst_mode || 'inclusive';
+  const gstPercent = d.gstPercent ?? Number(found.invoice.gst_percent) ?? defaultGstPercent;
+
   await query(
     `UPDATE partner_invoices SET recipient_name=$1, recipient_email=$2, recipient_abn=$3,
        recipient_address=$4, issue_date=COALESCE($5::date, issue_date), due_date=$6,
-       notes=$7, updated_at=now()
-     WHERE id=$8`,
+       notes=$7, gst_mode=$8, gst_percent=$9, updated_at=now()
+     WHERE id=$10`,
     [d.recipientName, d.recipientEmail || null, d.recipientAbn || null, d.recipientAddress || null,
-     d.issueDate || null, d.dueDate || null, d.notes || null, req.params.id]
+     d.issueDate || null, d.dueDate || null, d.notes || null, gstMode, gstPercent, req.params.id]
   );
-  await replaceItems(req.params.id, d.items, { isGstRegistered, gstPercent });
+  await replaceItems(req.params.id, d.items, { gstMode, gstPercent });
   res.json(await loadInvoice(req.params.id));
 }));
 
@@ -203,7 +216,11 @@ router.post('/:id/send', asyncHandler(async (req, res) => {
   // eleventh and leaving the business short at BAS time. Send is the
   // moment this becomes a real document, so it is the moment the tax
   // treatment must be correct. AFTER this it is frozen for good.
-  const gstOpts = await issuerDetails();
+  // Recompute using the INVOICE's own mode and rate — frozen from here.
+  const gstOpts = {
+    gstMode: found.invoice.gst_mode || 'inclusive',
+    gstPercent: Number(found.invoice.gst_percent) || 10,
+  };
   await replaceItems(req.params.id, found.items.map((i) => ({
     description: i.description,
     quantity: Number(i.quantity),

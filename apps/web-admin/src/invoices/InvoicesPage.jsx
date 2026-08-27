@@ -127,6 +127,7 @@ function InvoiceEditor({ invoiceId, onClose }) {
   const [form, setForm] = useState({
     recipientName: '', recipientEmail: '', recipientAbn: '', recipientAddress: '',
     issueDate: new Date().toLocaleDateString('en-CA'), dueDate: '', notes: '',
+    gstMode: 'inclusive', gstPercent: 10,
   });
   const [items, setItems] = useState([{ description: '', quantity: 1, unitAmount: 0 }]);
   const [busy, setBusy] = useState(false);
@@ -145,6 +146,8 @@ function InvoiceEditor({ invoiceId, onClose }) {
         issueDate: String(inv.issue_date).slice(0, 10),
         dueDate: inv.due_date ? String(inv.due_date).slice(0, 10) : '',
         notes: inv.notes || '',
+        gstMode: inv.gst_mode || 'inclusive',
+        gstPercent: Number(inv.gst_percent) || 10,
       });
       setItems(its.length ? its.map((i) => ({
         description: i.description, quantity: Number(i.quantity), unitAmount: Number(i.unit_amount),
@@ -161,7 +164,16 @@ function InvoiceEditor({ invoiceId, onClose }) {
   // Preview only. The server recomputes and stores its own totals, so
   // this can never be what gets billed — it exists so admin sees the
   // number before committing to it.
-  const subtotal = items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unitAmount) || 0), 0);
+  const entered = items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.unitAmount) || 0), 0);
+  // Preview only — the server recomputes and stores its own totals, so
+  // this can never be what gets billed. It exists so the effect of the
+  // GST choice is visible before committing to it.
+  const rate = Number(form.gstPercent) || 0;
+  const preview = form.gstMode === 'exclusive'
+    ? { sub: entered, gst: Math.round(entered * (rate / 100) * 100) / 100, total: Math.round((entered + entered * (rate / 100)) * 100) / 100 }
+    : form.gstMode === 'none'
+      ? { sub: entered, gst: 0, total: entered }
+      : { sub: Math.round((entered - entered * (rate / (100 + rate))) * 100) / 100, gst: Math.round(entered * (rate / (100 + rate)) * 100) / 100, total: entered };
 
   const save = async () => {
     if (!form.recipientName.trim()) { setError('Who is this invoice for?'); return; }
@@ -264,6 +276,34 @@ function InvoiceEditor({ invoiceId, onClose }) {
 
       <div className="gm-card" style={styles.card}>
         <h3 style={styles.cardTitle}>Lines</h3>
+
+        {/* Per invoice, not a global setting. GST previously depended on
+            the client-pricing flag, which defaults to off — so no
+            partner invoice ever showed GST at all. */}
+        <div style={styles.gstRow}>
+          <label style={styles.gstLabel}>
+            GST
+            <select
+              value={form.gstMode} onChange={set('gstMode')} disabled={!isDraft}
+              style={{ ...styles.input, width: 'auto' }}
+            >
+              <option value="inclusive">Amounts include GST</option>
+              <option value="exclusive">Add GST on top</option>
+              <option value="none">No GST</option>
+            </select>
+          </label>
+          {form.gstMode !== 'none' && (
+            <label style={styles.gstLabel}>
+              Rate
+              <input
+                type="number" min="0" max="100" step="0.5"
+                value={form.gstPercent} onChange={set('gstPercent')} disabled={!isDraft}
+                style={{ ...styles.input, width: 70 }}
+              />
+              <span style={styles.pct}>%</span>
+            </label>
+          )}
+        </div>
         {items.map((item, i) => (
           <div key={i} style={styles.itemRow}>
             <input
@@ -302,29 +342,27 @@ function InvoiceEditor({ invoiceId, onClose }) {
         )}
 
         <div style={styles.totals}>
-          {/* Only shown once issued: on a draft the tax split isn't
-              computed yet, and showing a "Subtotal" equal to the total
-              would imply the amount is ex-GST when it isn't. */}
-          {invoice && !isDraft && Number(invoice.gst) > 0 && (
-            <div style={styles.totalRow}>
-              <span>Subtotal (ex GST)</span>
-              <span>{money(invoice.subtotal)}</span>
-            </div>
-          )}
-          {invoice && !isDraft && Number(invoice.gst) > 0 && (
-            <div style={styles.totalRow}>
-              <span>GST included</span><span>{money(invoice.gst)}</span>
-            </div>
+          {preview.gst > 0 && (
+            <>
+              <div style={styles.totalRow}>
+                <span>{form.gstMode === 'exclusive' ? 'Subtotal (ex GST)' : 'Subtotal (ex GST)'}</span>
+                <span>{money(invoice && !isDraft ? invoice.subtotal : preview.sub)}</span>
+              </div>
+              <div style={styles.totalRow}>
+                <span>{form.gstMode === 'exclusive' ? `GST (${rate}%)` : `Includes GST (${rate}%)`}</span>
+                <span>{money(invoice && !isDraft ? invoice.gst : preview.gst)}</span>
+              </div>
+            </>
           )}
           <div style={{ ...styles.totalRow, ...styles.grandTotal }}>
             <span>Total</span>
-            <span>{money(invoice && !isDraft ? invoice.total : subtotal)}</span>
+            <span>{money(invoice && !isDraft ? invoice.total : preview.total)}</span>
           </div>
           {isDraft && (
             <p style={styles.gstHint}>
-              Enter amounts <strong>including GST</strong> — what the partner actually pays.
-              If the business is GST registered, the tax component is shown separately on the
-              invoice; it is not added on top.
+              {form.gstMode === 'inclusive' && 'Enter what the partner pays — GST is already inside and shown separately.'}
+              {form.gstMode === 'exclusive' && 'Enter amounts before GST — the partner pays the total above, which is more than you typed.'}
+              {form.gstMode === 'none' && 'No GST is charged or shown on this invoice.'}
             </p>
           )}
         </div>
@@ -428,6 +466,9 @@ const styles = {
   totals: { borderTop: '1px solid var(--gm-line)', paddingTop: 10 },
   totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', color: 'var(--gm-ink-soft)' },
   grandTotal: { fontSize: 17, fontWeight: 600, color: 'var(--gm-ink)', paddingTop: 6 },
+  gstRow: { display: 'flex', gap: 16, alignItems: 'flex-end', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--gm-line-soft)', flexWrap: 'wrap' },
+  gstLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--gm-ink-soft)' },
+  pct: { fontSize: 12, color: 'var(--gm-ink-soft)' },
   gstHint: { fontSize: 11, color: 'var(--gm-ink-soft)', marginTop: 8, lineHeight: 1.5 },
   actions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   saveBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '10px 20px', fontSize: 14, fontWeight: 500 },

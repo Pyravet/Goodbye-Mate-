@@ -7,30 +7,53 @@ const ITEMS = [
   { description: 'After-hours surcharge', quantity: 2, unitAmount: 45 },
 ];
 
-test('prices are GST-INCLUSIVE — the tax is extracted, not added', () => {
-  // $80 per collection is what the partner PAYS. The GST is the
-  // eleventh already inside it. Adding on top would over-bill them by
-  // 10% on every invoice.
-  const t = invoiceTotals(ITEMS, { isGstRegistered: true, gstPercent: 10 });
-  assert.equal(t.total, 1050, '12*80 + 2*45 — exactly what was entered');
+test('INCLUSIVE: the tax is extracted, the total is what was entered', () => {
+  // $80 per collection is what the partner PAYS; the GST is already
+  // inside it.
+  const t = invoiceTotals(ITEMS, { gstMode: 'inclusive', gstPercent: 10 });
+  assert.equal(t.total, 1050, 'exactly what was entered');
   assert.equal(t.gst, 95.45, '1050 / 11');
-  assert.equal(t.subtotal, 954.55, 'ex-GST remainder');
+  assert.equal(t.subtotal, 954.55);
 });
 
-test('registration changes DISCLOSURE, never the amount charged', () => {
-  // The same lines must cost the partner the same either way. Only
-  // whether the tax component is shown differs.
-  const registered = invoiceTotals(ITEMS, { isGstRegistered: true });
-  const not = invoiceTotals(ITEMS, { isGstRegistered: false });
+test('EXCLUSIVE: the tax is added, so the partner pays more', () => {
+  const t = invoiceTotals(ITEMS, { gstMode: 'exclusive', gstPercent: 10 });
+  assert.equal(t.subtotal, 1050, 'the entered figures are the ex-GST base');
+  assert.equal(t.gst, 105, '10% on top');
+  assert.equal(t.total, 1155, 'MORE than was entered');
+});
 
-  assert.equal(registered.total, not.total, 'the partner pays the same');
-  assert.equal(not.gst, 0, 'no GST line when not registered');
-  assert.equal(not.subtotal, not.total, 'subtotal equals total when there is no tax to split out');
+test('NONE: no GST line at all, not a zero one', () => {
+  // A "$0.00 GST" line implies a registration that may not exist, on a
+  // document the partner files with their own accounts.
+  const t = invoiceTotals(ITEMS, { gstMode: 'none' });
+  assert.equal(t.gst, 0);
+  assert.equal(t.total, 1050);
+  assert.equal(t.subtotal, t.total);
+  assert.equal(t.gstMode, 'none');
+});
+
+test('the two modes differ by exactly the tax — and that is the point', () => {
+  // Choosing the wrong one misbills by roughly 10% in one direction or
+  // the other, which is why it is an explicit per-invoice choice rather
+  // than a global default.
+  const inc = invoiceTotals(ITEMS, { gstMode: 'inclusive' });
+  const exc = invoiceTotals(ITEMS, { gstMode: 'exclusive' });
+  assert.notEqual(inc.total, exc.total);
+  assert.equal(exc.total - inc.total, 105);
+});
+
+test('a zero rate behaves as no GST rather than dividing by zero', () => {
+  for (const mode of ['inclusive', 'exclusive']) {
+    const t = invoiceTotals(ITEMS, { gstMode: mode, gstPercent: 0 });
+    assert.equal(t.gst, 0);
+    assert.equal(t.total, 1050, `${mode} with a 0% rate must not alter the total`);
+  }
 });
 
 test('components always sum to the total', () => {
   for (const items of [ITEMS, [{ quantity: 3, unitAmount: 33.33 }], [{ quantity: 7, unitAmount: 19.99 }]]) {
-    const t = invoiceTotals(items, { isGstRegistered: true });
+    const t = invoiceTotals(items, { gstMode: 'inclusive' });
     assert.equal(
       Math.round((t.subtotal + t.gst) * 100),
       Math.round(t.total * 100),
@@ -43,20 +66,20 @@ test('the total is never altered by rounding the tax split', () => {
   // Extraction can round; the amount the partner owes must not move
   // because of it.
   for (const amount of [0.01, 3.33, 99.99, 1000.01, 12345.67]) {
-    const t = invoiceTotals([{ quantity: 1, unitAmount: amount }], { isGstRegistered: true });
+    const t = invoiceTotals([{ quantity: 1, unitAmount: amount }], { gstMode: 'inclusive' });
     assert.equal(t.total, amount, `total must stay ${amount}`);
   }
 });
 
 test('money never lands on a fraction of a cent', () => {
-  const t = invoiceTotals([{ quantity: 3, unitAmount: 33.333 }], { isGstRegistered: true });
+  const t = invoiceTotals([{ quantity: 3, unitAmount: 33.333 }], { gstMode: 'inclusive' });
   for (const v of [t.subtotal, t.gst, t.total]) {
     assert.equal(Math.round(v * 100), v * 100, `${v} must be whole cents`);
   }
 });
 
 test('an empty invoice totals zero rather than NaN', () => {
-  const t = invoiceTotals([], { isGstRegistered: true });
+  const t = invoiceTotals([], { gstMode: 'inclusive' });
   assert.deepEqual([t.subtotal, t.gst, t.total], [0, 0, 0]);
 });
 
@@ -65,7 +88,7 @@ test('missing or junk values are treated as zero, not NaN', () => {
   // would render as "$NaN" on a document.
   const t = invoiceTotals(
     [{ description: 'x' }, { quantity: 'abc', unitAmount: null }],
-    { isGstRegistered: true }
+    { gstMode: 'inclusive' }
   );
   assert.equal(t.total, 0);
   assert.ok(Number.isFinite(t.total));
@@ -96,11 +119,11 @@ test('a draft written before GST registration recomputes at send', () => {
   // changes is the DISCLOSED tax, not the amount owed.
   const items = [{ quantity: 1, unitAmount: 1100 }];
 
-  const asDraft = invoiceTotals(items, { isGstRegistered: false });
+  const asDraft = invoiceTotals(items, { gstMode: 'none' });
   assert.equal(asDraft.gst, 0);
   assert.equal(asDraft.total, 1100);
 
-  const atSend = invoiceTotals(items, { isGstRegistered: true, gstPercent: 10 });
+  const atSend = invoiceTotals(items, { gstMode: 'inclusive', gstPercent: 10 });
   assert.equal(atSend.gst, 100, 'GST is disclosed once registered');
   assert.equal(atSend.total, 1100, 'but the partner still pays the same');
 });

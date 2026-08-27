@@ -154,7 +154,7 @@ export default function JobDetail() {
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
 
-  const { job, bill, review } = data;
+  const { job, bill, review, referredByClinic } = data;
   const clientAppBase = import.meta.env.VITE_CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
   const journeyLink = `${clientAppBase.replace(/\/$/, '')}/${job.client_token}`;
   const isCommunalOrPrivate = job.service_type !== 'euthanasia_only';
@@ -266,6 +266,20 @@ export default function JobDetail() {
           </div>
 
           <div>
+            {referredByClinic && (
+              <Card title="Referred by">
+                <div style={styles.clinicName}>{referredByClinic.name}</div>
+                {referredByClinic.phone && (
+                  <a href={`tel:${referredByClinic.phone}`} style={styles.clinicPhone}>
+                    {referredByClinic.phone}
+                  </a>
+                )}
+                <p style={styles.docHint}>
+                  This clinic can see the outcome of this referral in their portal.
+                </p>
+              </Card>
+            )}
+
             <Card title="Pets">
               <PetsCard jobId={id} onChanged={load} />
             </Card>
@@ -960,6 +974,8 @@ const styles = {
   reviewStar: { fontSize: 20, color: 'var(--gm-honey)' },
   reviewDate: { fontSize: 11, color: 'var(--gm-ink-soft)', marginLeft: 8 },
   reviewComment: { fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' },
+  clinicName: { fontSize: 15, fontWeight: 600 },
+  clinicPhone: { fontSize: 13, color: 'var(--gm-forest)', textDecoration: 'none', display: 'block', marginTop: 2 },
   consentBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '8px', fontSize: 12, fontWeight: 500, marginBottom: 10 },
   editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },

@@ -97,6 +97,15 @@ export default function RequestsPage() {
                   identical to a new one — you couldn't tell your own
                   follow-up from a colleague's, or whether a call from
                   three days ago had been chased since. */}
+              {/* A clinic referral is more urgent than a web enquiry:
+                  a vet has a family in front of them expecting a call
+                  back, and the clinic's own reputation rides on it. */}
+              {r.referred_by_clinic_name && (
+                <div style={styles.clinicTag}>
+                  Referred by {r.referred_by_clinic_name}
+                </div>
+              )}
+
               {r.handled_at && r.status !== 'new' && (
                 <div style={styles.handled}>
                   {r.status === 'contacted' ? 'Contacted' : r.status === 'declined' ? 'Declined' : 'Handled'}
@@ -231,6 +240,7 @@ const styles = {
   row: { display: 'flex', gap: 10, fontSize: 13, padding: '3px 0' },
   rowLabel: { width: 60, color: 'var(--gm-ink-soft)', flexShrink: 0 },
   rowValue: { flex: 1, minWidth: 0 },
+  clinicTag: { fontSize: 12, fontWeight: 500, color: 'var(--gm-forest)', background: '#E3E9E1', padding: '5px 10px', borderRadius: 'var(--gm-radius-sm)', marginBottom: 8, display: 'inline-block' },
   handled: { fontSize: 12, color: 'var(--gm-forest)', background: '#E3E9E1', padding: '7px 10px', borderRadius: 'var(--gm-radius-sm)', marginBottom: 10, lineHeight: 1.5 },
   handledNote: { color: 'var(--gm-ink)', marginTop: 4, fontStyle: 'italic' },
   logBox: { marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--gm-line)' },

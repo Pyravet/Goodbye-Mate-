@@ -181,9 +181,15 @@ router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res)
             r.pet_name, r.pet_type, r.pet_breed, r.pet_weight, r.pet_age,
             r.service_preference, r.preferred_timing, r.message, r.status,
             r.converted_job_id, r.admin_notes, r.created_at,
-            r.handled_at, u.full_name AS handled_by_name
+            r.handled_at, u.full_name AS handled_by_name,
+            -- Attribution was recorded but never surfaced, so admin
+            -- couldn't tell a clinic referral from a web enquiry — and a
+            -- referral is more urgent: a vet has a family in front of
+            -- them expecting a call back.
+            r.referred_by_clinic_id, c.name AS referred_by_clinic_name
      FROM booking_requests r
      LEFT JOIN users u ON u.id = r.handled_by
+     LEFT JOIN clinics c ON c.id = r.referred_by_clinic_id
      ${where}
      ORDER BY (r.status = 'new') DESC, r.created_at DESC
      LIMIT 200`,

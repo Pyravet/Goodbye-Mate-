@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { createFirstPet } from '../domain/jobPets.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { query } from '../db/pool.js';
@@ -319,7 +320,14 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
       [request.message, d.notes].filter(Boolean).join('\n\n') || null,
     ]
   );
+
   const job = jobRows[0];
+
+  // Same as the New Booking path: a job with no pet row cannot take
+  // consent. This was missed here, so every converted request — every
+  // web enquiry AND every clinic referral — produced a job whose client
+  // could never sign.
+  await createFirstPet(job);
 
   await query(
     `UPDATE booking_requests

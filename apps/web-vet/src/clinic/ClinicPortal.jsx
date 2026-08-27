@@ -35,13 +35,20 @@ export default function ClinicPortal() {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('refer');
   const [error, setError] = useState('');
+  // Distinguished from a transient error: an account that isn't linked
+  // to a clinic, or whose clinic is deactivated, can never submit.
+  // Showing the form anyway means filling it in and being rejected at
+  // the end — after typing a grieving client's details.
+  const [blocked, setBlocked] = useState(null);
 
   const load = useCallback(() => {
     fetchMyReferrals().then(setData).catch((e) => { setError(e.message); setData({ referrals: [] }); });
   }, []);
 
   useEffect(() => {
-    fetchMyClinic().then(setClinic).catch((e) => setError(e.message));
+    fetchMyClinic()
+      .then(setClinic)
+      .catch((e) => setBlocked(e.message));
     load();
   }, [load]);
 
@@ -55,6 +62,7 @@ export default function ClinicPortal() {
         </div>
       </header>
 
+      {!blocked && (
       <div style={styles.tabs}>
         <button
           onClick={() => setTab('refer')}
@@ -69,13 +77,26 @@ export default function ClinicPortal() {
           Your referrals{data?.stats ? ` (${data.stats.total})` : ''}
         </button>
       </div>
+      )}
 
       <main style={styles.main}>
+        {blocked ? (
+          <div style={styles.card}>
+            <h2 style={styles.cardTitle}>This account can&apos;t submit referrals</h2>
+            <p style={styles.intro}>{blocked}</p>
+            <p style={styles.intro}>
+              Please get in touch and we&apos;ll sort it out.
+            </p>
+          </div>
+        ) : (
+          <>
         {error && <p style={styles.error}>{error}</p>}
 
         {tab === 'refer'
           ? <ReferralForm onSent={() => { load(); setTab('list'); }} userName={user?.fullName} />
           : <ReferralList data={data} />}
+          </>
+        )}
       </main>
     </div>
   );

@@ -26,6 +26,28 @@ async function firstPetSignature(jobId) {
   return rows[0]?.consent_signature_image || null;
 }
 
+/**
+ * Create the first pet row for a newly created job.
+ *
+ * MUST be called from every path that creates a job. There are two —
+ * the admin New Booking form and converting a booking request — and the
+ * step was missed in both at different times, each producing jobs whose
+ * clients could not sign consent at all. Centralised here so there is
+ * one thing to call rather than a block to remember to copy.
+ *
+ * @param {object} job the freshly inserted job row
+ */
+export async function createFirstPet(job) {
+  const { rows } = await query(
+    `INSERT INTO job_pets (job_id, name, species, breed, weight, age, behaviour, service_type, sort_order)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0)
+     RETURNING *`,
+    [job.id, job.pet_name, job.pet_type, job.pet_breed, job.pet_weight,
+     job.pet_age, job.pet_behaviour, job.service_type]
+  );
+  return rows[0];
+}
+
 /** All pets on a job, in display order. */
 export async function getPets(jobId) {
   const { rows } = await query(

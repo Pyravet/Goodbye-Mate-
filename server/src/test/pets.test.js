@@ -1,7 +1,7 @@
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { query } from '../db/pool.js';
-import { getPets, syncPrimaryPet, outstandingConsents } from '../domain/jobPets.js';
+import { getPets, syncPrimaryPet, outstandingConsents, createFirstPet } from '../domain/jobPets.js';
 import { resetDb, createJob, closeDb } from './helpers.js';
 
 /**
@@ -118,6 +118,25 @@ test('a newly created job HAS a pets row', async () => {
   const pets = await getPets(job.id);
   assert.equal(pets.length, 1, 'a job with no pets cannot take consent');
   assert.equal(pets[0].name, job.pet_name, 'the pet must match the job it was created from');
+});
+
+test('createFirstPet gives a job a usable pet row', async () => {
+  // The step was missed in BOTH job-creation paths at different times —
+  // the New Booking form and converting a request — each producing jobs
+  // whose clients could never sign consent. It now lives in one place,
+  // and this covers that place.
+  const job = await createJob();
+  const pet = await createFirstPet(job);
+
+  assert.ok(pet.id);
+  assert.equal(pet.name, job.pet_name);
+  assert.equal(pet.species, job.pet_type);
+  assert.equal(pet.service_type, job.service_type, 'the pet inherits the booking\'s service');
+  assert.equal(pet.sort_order, 0, 'the first pet must be the primary one');
+  assert.equal(pet.consent_signed, false, 'a new pet has not consented');
+
+  const pets = await getPets(job.id);
+  assert.equal(pets.length, 1, 'exactly one pet, so consent can proceed');
 });
 
 test('outstandingConsents lists exactly the unsigned pets', async () => {

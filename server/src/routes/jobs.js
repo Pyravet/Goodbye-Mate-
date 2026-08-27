@@ -40,7 +40,7 @@ import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, client
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
-import { getPets, syncPrimaryPet } from '../domain/jobPets.js';
+import { getPets, syncPrimaryPet, createFirstPet } from '../domain/jobPets.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -266,12 +266,7 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
   //
   // Created here rather than by a trigger so it stays visible to anyone
   // reading the creation flow.
-  await query(
-    `INSERT INTO job_pets (job_id, name, species, breed, weight, age, behaviour, service_type, sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0)`,
-    [job.id, job.pet_name, job.pet_type, job.pet_breed, job.pet_weight,
-     job.pet_age, job.pet_behaviour, job.service_type]
-  );
+  await createFirstPet(job);
 
   await logAction({ actorUserId: req.user.sub, action: 'job_created', targetType: 'job', targetId: job.id, metadata: { jobNumber: job.job_number } });
 

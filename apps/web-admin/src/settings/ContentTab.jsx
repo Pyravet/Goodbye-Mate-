@@ -35,6 +35,13 @@ export default function ContentTab() {
     setContent((c) => ({ ...c, [key]: value }));
     setSaved(false);
   };
+  // Nested under bankDetails, defaulting to {} so an older settings row
+  // without the block doesn't throw on first edit.
+  const setBank = (key, value) => {
+    setContent((c) => ({ ...c, bankDetails: { ...(c.bankDetails || {}), [key]: value } }));
+    setSaved(false);
+  };
+
   const setCompanyField = (key, value) => {
     setContent((c) => ({ ...c, company: { ...c.company, [key]: value } }));
     setSaved(false);
@@ -82,6 +89,51 @@ export default function ContentTab() {
 
       <Card title="Support & grief resources">
         <ClientResources />
+      </Card>
+
+      <Card title="Bank details for invoices">
+        <p style={styles.hint}>
+          Printed on every invoice you issue to another business, so they can pay by transfer.
+          These are your own account details and appear on the document — they are not treated
+          as a secret.
+        </p>
+        <Field label="Account name">
+          <input
+            value={content.bankDetails?.accountName || ''}
+            onChange={(e) => setBank('accountName', e.target.value)}
+            style={styles.input}
+          />
+        </Field>
+        <div style={styles.row}>
+          <Field label="BSB">
+            <input
+              value={content.bankDetails?.bsb || ''}
+              onChange={(e) => setBank('bsb', e.target.value)}
+              placeholder="062-000" style={styles.input}
+            />
+          </Field>
+          <Field label="Account number">
+            <input
+              value={content.bankDetails?.accountNumber || ''}
+              onChange={(e) => setBank('accountNumber', e.target.value)}
+              style={styles.input}
+            />
+          </Field>
+        </div>
+        <Field label="Bank">
+          <input
+            value={content.bankDetails?.bankName || ''}
+            onChange={(e) => setBank('bankName', e.target.value)}
+            style={styles.input}
+          />
+        </Field>
+        <Field label="Payment terms">
+          <input
+            value={content.bankDetails?.paymentTerms || ''}
+            onChange={(e) => setBank('paymentTerms', e.target.value)}
+            placeholder="Payment due within 14 days." style={styles.input}
+          />
+        </Field>
       </Card>
 
       <Card title="Security — two-step verification">

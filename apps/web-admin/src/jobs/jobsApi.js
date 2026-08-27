@@ -40,7 +40,7 @@ export async function completeJob(id) {
 
 // PDF downloads need the auth header, so a plain <a href> won't work —
 // fetch as a blob and trigger the browser's save dialog manually.
-async function downloadPdf(path, fallbackFilename) {
+export async function downloadPdf(path, fallbackFilename) {
   const res = await apiFetch(path);
   if (!res.ok) {
     // Surface the server's own message — these endpoints return real

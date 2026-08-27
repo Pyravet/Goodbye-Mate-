@@ -12,6 +12,7 @@ const navItems = [
   { to: '/vets', label: 'Vets', short: 'Vets' },
   { to: '/calendar', label: 'Calendar', short: 'Cal' },
   { to: '/payouts', label: 'Payouts', short: 'Pay' },
+  { to: '/invoices', label: 'Invoices', short: 'Inv' },
   { to: '/activity', label: 'Activity', short: 'Inbox' },
   { to: '/reviews', label: 'Feedback', short: 'Stars' },
   { to: '/settings', label: 'Settings', short: 'More' },

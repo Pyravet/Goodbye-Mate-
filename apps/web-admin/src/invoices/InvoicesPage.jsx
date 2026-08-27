@@ -302,12 +302,19 @@ function InvoiceEditor({ invoiceId, onClose }) {
         )}
 
         <div style={styles.totals}>
-          <div style={styles.totalRow}>
-            <span>Subtotal</span>
-            <span>{money(invoice && !isDraft ? invoice.subtotal : subtotal)}</span>
-          </div>
-          {invoice && Number(invoice.gst) > 0 && (
-            <div style={styles.totalRow}><span>GST</span><span>{money(invoice.gst)}</span></div>
+          {/* Only shown once issued: on a draft the tax split isn't
+              computed yet, and showing a "Subtotal" equal to the total
+              would imply the amount is ex-GST when it isn't. */}
+          {invoice && !isDraft && Number(invoice.gst) > 0 && (
+            <div style={styles.totalRow}>
+              <span>Subtotal (ex GST)</span>
+              <span>{money(invoice.subtotal)}</span>
+            </div>
+          )}
+          {invoice && !isDraft && Number(invoice.gst) > 0 && (
+            <div style={styles.totalRow}>
+              <span>GST included</span><span>{money(invoice.gst)}</span>
+            </div>
           )}
           <div style={{ ...styles.totalRow, ...styles.grandTotal }}>
             <span>Total</span>
@@ -315,8 +322,9 @@ function InvoiceEditor({ invoiceId, onClose }) {
           </div>
           {isDraft && (
             <p style={styles.gstHint}>
-              Enter amounts <strong>excluding GST</strong>. If the business is GST registered,
-              GST is added on top when the invoice is issued.
+              Enter amounts <strong>including GST</strong> — what the partner actually pays.
+              If the business is GST registered, the tax component is shown separately on the
+              invoice; it is not added on top.
             </p>
           )}
         </div>

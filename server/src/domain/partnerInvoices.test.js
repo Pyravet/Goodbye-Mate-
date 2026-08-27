@@ -7,23 +7,25 @@ const ITEMS = [
   { description: 'After-hours surcharge', quantity: 2, unitAmount: 45 },
 ];
 
-test('GST is ADDED, not extracted — the opposite of client invoices', () => {
-  // B2B pricing is quoted ex-GST by convention: a partner agreeing "$80
-  // per collection" means $80 PLUS GST. Extracting instead would
-  // under-bill by an eleventh on every invoice.
+test('prices are GST-INCLUSIVE — the tax is extracted, not added', () => {
+  // $80 per collection is what the partner PAYS. The GST is the
+  // eleventh already inside it. Adding on top would over-bill them by
+  // 10% on every invoice.
   const t = invoiceTotals(ITEMS, { isGstRegistered: true, gstPercent: 10 });
-  assert.equal(t.subtotal, 1050, '12*80 + 2*45');
-  assert.equal(t.gst, 105, '10% ADDED on top');
-  assert.equal(t.total, 1155);
+  assert.equal(t.total, 1050, '12*80 + 2*45 — exactly what was entered');
+  assert.equal(t.gst, 95.45, '1050 / 11');
+  assert.equal(t.subtotal, 954.55, 'ex-GST remainder');
 });
 
-test('no GST line at all when the business is not registered', () => {
-  // Showing "$0.00 GST" implies a registration that does not exist, on a
-  // document the partner will file.
-  const t = invoiceTotals(ITEMS, { isGstRegistered: false });
-  assert.equal(t.gst, 0);
-  assert.equal(t.total, t.subtotal, 'total equals subtotal exactly');
-  assert.equal(t.isGstRegistered, false);
+test('registration changes DISCLOSURE, never the amount charged', () => {
+  // The same lines must cost the partner the same either way. Only
+  // whether the tax component is shown differs.
+  const registered = invoiceTotals(ITEMS, { isGstRegistered: true });
+  const not = invoiceTotals(ITEMS, { isGstRegistered: false });
+
+  assert.equal(registered.total, not.total, 'the partner pays the same');
+  assert.equal(not.gst, 0, 'no GST line when not registered');
+  assert.equal(not.subtotal, not.total, 'subtotal equals total when there is no tax to split out');
 });
 
 test('components always sum to the total', () => {
@@ -34,6 +36,15 @@ test('components always sum to the total', () => {
       Math.round(t.total * 100),
       'an invoice whose parts do not sum is not a valid tax invoice'
     );
+  }
+});
+
+test('the total is never altered by rounding the tax split', () => {
+  // Extraction can round; the amount the partner owes must not move
+  // because of it.
+  for (const amount of [0.01, 3.33, 99.99, 1000.01, 12345.67]) {
+    const t = invoiceTotals([{ quantity: 1, unitAmount: amount }], { isGstRegistered: true });
+    assert.equal(t.total, amount, `total must stay ${amount}`);
   }
 });
 
@@ -80,21 +91,16 @@ test('due date adds the agreed terms', () => {
   assert.equal(dueDateFor('not-a-date', 14), null, 'bad input returns null, not Invalid Date');
 });
 
-test('a draft written before GST registration must recompute at send', () => {
-  // The bug: totals were stored at CREATE and never recomputed. A draft
-  // written while unregistered kept $0 GST, so issuing it after
-  // registration under-billed the partner by an eleventh and left the
-  // business short at BAS time. Send recomputes; only then is it frozen.
-  const items = [{ quantity: 1, unitAmount: 1000 }];
+test('a draft written before GST registration recomputes at send', () => {
+  // Totals are stored at create and recomputed once, at send. What
+  // changes is the DISCLOSED tax, not the amount owed.
+  const items = [{ quantity: 1, unitAmount: 1100 }];
 
-  const atDraftTime = invoiceTotals(items, { isGstRegistered: false });
-  assert.equal(atDraftTime.gst, 0);
-  assert.equal(atDraftTime.total, 1000);
+  const asDraft = invoiceTotals(items, { isGstRegistered: false });
+  assert.equal(asDraft.gst, 0);
+  assert.equal(asDraft.total, 1100);
 
-  const atSendTime = invoiceTotals(items, { isGstRegistered: true, gstPercent: 10 });
-  assert.equal(atSendTime.gst, 100, 'GST must appear once registered');
-  assert.equal(atSendTime.total, 1100);
-
-  assert.notEqual(atDraftTime.total, atSendTime.total,
-    'if these ever match, this test has stopped proving anything');
+  const atSend = invoiceTotals(items, { isGstRegistered: true, gstPercent: 10 });
+  assert.equal(atSend.gst, 100, 'GST is disclosed once registered');
+  assert.equal(atSend.total, 1100, 'but the partner still pays the same');
 });

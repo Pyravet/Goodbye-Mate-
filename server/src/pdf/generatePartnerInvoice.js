@@ -80,11 +80,19 @@ function drawInvoice(doc, { invoice, items, company, bank }) {
     y += bold ? 20 : 16;
   };
 
-  totalRow('Subtotal', invoice.subtotal);
-  // Only shown when GST is actually charged — a "$0.00 GST" line implies
-  // a registration that may not exist.
-  if (Number(invoice.gst) > 0) totalRow('GST', invoice.gst);
-  totalRow('Total', invoice.total, true);
+  // Prices are GST-INCLUSIVE, so the total leads and the tax component
+  // is disclosed beneath it. Listing "Subtotal" first would read as an
+  // ex-GST figure with tax added, which is the opposite of what happened.
+  //
+  // Nothing is shown when the business isn't registered: a "$0.00 GST"
+  // line implies a registration that may not exist, on a document the
+  // partner files with their own accounts.
+  if (Number(invoice.gst) > 0) {
+    totalRow('Total (inc GST)', invoice.total, true);
+    totalRow('Includes GST of', invoice.gst);
+  } else {
+    totalRow('Total', invoice.total, true);
+  }
 
   // --- Payment details ---
   if (bank?.accountNumber || bank?.bsb) {

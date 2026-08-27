@@ -1,3 +1,5 @@
+import { extractGst } from './pricing.js';
+
 /**
  * Partner invoice totals.
  *
@@ -23,14 +25,15 @@ export function lineAmount(quantity, unitAmount) {
 /**
  * Invoice totals.
  *
- * IMPORTANT — GST is ADDED here, not extracted.
+ * PRICES ARE GST-INCLUSIVE. An amount entered as $80 is what the partner
+ * pays; the GST is the eleventh already inside it, not something added
+ * on top. This matches client invoices and the rest of the pricing in
+ * this system, so a figure means the same thing everywhere.
  *
- * That is the opposite of client invoices, where prices in settings are
- * what the pet owner pays and GST is extracted from the inclusive total.
- * Business-to-business pricing is quoted ex-GST by convention: a partner
- * agreeing "$80 per collection" means $80 plus GST. Extracting instead
- * would quietly under-bill the partner by a eleventh on every invoice
- * and leave the business short at BAS time.
+ * The `total` is therefore always the sum of the line amounts, whether
+ * or not the business is GST registered. Registration only changes
+ * whether the tax component is DISCLOSED — it never changes what is
+ * charged.
  *
  * @param {Array<{quantity:number, unitAmount:number}>} items
  * @param {object} opts
@@ -43,18 +46,27 @@ export function invoiceTotals(items, { isGstRegistered, gstPercent = 10 } = {}) 
     amount: lineAmount(i.quantity, i.unitAmount),
   }));
 
-  const subtotal = cents(lines.reduce((sum, l) => sum + l.amount, 0));
+  // What the partner pays, taken straight from the lines.
+  const total = cents(lines.reduce((sum, l) => sum + l.amount, 0));
 
-  // No GST line at all when the business isn't registered. Showing "$0.00
-  // GST" implies a registration that doesn't exist, which misstates a tax
-  // position on a document a partner will file.
-  const gst = isGstRegistered ? cents(subtotal * ((Number(gstPercent) || 10) / 100)) : 0;
+  // Extracted from the inclusive total using the shared helper rather
+  // than a second implementation — a duplicate rounding rule is how two
+  // documents end up disagreeing by a cent.
+  //
+  // Nothing is shown at all when the business isn't registered: a
+  // "$0.00 GST" line implies a registration that doesn't exist, on a
+  // document the partner will file with their own accounts.
+  const { gstAmount } = isGstRegistered
+    ? extractGst(total, Number(gstPercent) || 10)
+    : { gstAmount: 0 };
 
   return {
     lines,
-    subtotal,
-    gst,
-    total: cents(subtotal + gst),
+    // Subtotal is the ex-GST figure when registered, and simply the
+    // total when not — so subtotal + gst always equals total.
+    subtotal: cents(total - gstAmount),
+    gst: gstAmount,
+    total,
     isGstRegistered: !!isGstRegistered,
   };
 }

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router';
+import { NavLink, Link } from 'react-router';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
 import NotificationBell from '@goodbye-mate/web-shared/src/NotificationBell.jsx';
@@ -32,7 +32,12 @@ export default function AppShell({ children }) {
     <div className="gm-shell">
       <aside className="gm-sidebar">
         <div className="gm-sidebar-brand">
-          <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-sidebar-logo" />
+          {/* The logo is a link home. People expect it to be, and
+              without it there was no way back to the board from a
+              detail page except the browser back button. */}
+          <Link to="/" aria-label="Go to the jobs board" style={{ display: 'block', lineHeight: 0 }}>
+            <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-sidebar-logo" />
+          </Link>
         </div>
         <nav className="gm-sidebar-nav">
           {navItems.map((item) => (
@@ -56,7 +61,9 @@ export default function AppShell({ children }) {
       {/* Mobile-only header: brand + log out, since those live in the
           sidebar on desktop and would otherwise be unreachable on a phone. */}
       <header className="gm-mobile-header">
-        <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-mobile-logo" />
+        <Link to="/" aria-label="Go to the jobs board" style={{ display: 'block', lineHeight: 0 }}>
+          <img src={LOGO_DATA_URI} alt="Goodbye Mate" className="gm-mobile-logo" />
+        </Link>
         <div className="gm-mobile-actions">
           <NotificationBell apiFetch={apiFetch} />
           <button onClick={logout} className="gm-mobile-logout">Log out</button>

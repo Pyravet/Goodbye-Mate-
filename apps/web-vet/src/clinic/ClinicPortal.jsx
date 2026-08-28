@@ -55,7 +55,13 @@ export default function ClinicPortal() {
   return (
     <div style={styles.shell}>
       <header style={styles.header}>
-        <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.logo} />
+        <button
+          onClick={() => setTab('refer')}
+          aria-label="Back to the referral form"
+          style={styles.logoBtn}
+        >
+          <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.logo} />
+        </button>
         <div style={styles.headerRight}>
           <span style={styles.clinicName}>{clinic?.name || ''}</span>
           <button onClick={logout} style={styles.logout}>Sign out</button>
@@ -298,6 +304,10 @@ const styles = {
   shell: { minHeight: '100vh', background: 'var(--gm-paper)' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', background: 'var(--gm-forest)' },
   logo: { height: 24, filter: 'brightness(0) invert(1)' },
+  // A button rather than a Link: the portal is one route with internal
+  // tabs, so navigating to '/' would land on the page it's already on
+  // and appear to do nothing.
+  logoBtn: { background: 'none', border: 'none', padding: 0, lineHeight: 0, cursor: 'pointer' },
   headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
   clinicName: { color: '#fff', fontSize: 13, opacity: 0.9 },
   logout: { background: 'none', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', borderRadius: 'var(--gm-radius-sm)', padding: '5px 12px', fontSize: 12 },

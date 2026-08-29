@@ -178,7 +178,14 @@ router.get('/:token', asyncHandler(async (req, res) => {
 
   res.json({
     job: {
+      // The mirrored FIRST pet only. A two-pet visit showed one name
+      // everywhere — the header, the SMS, the aftercare text — so the
+      // family saw a page that looked like it was about one animal.
       petName: job.pet_name,
+      // Every pet's name, for anywhere the visit is described as a
+      // whole. One link has always covered the whole visit; it just
+      // didn't say so.
+      petNames: (await getPets(job.id)).map((p) => p.name),
       petType: job.pet_type,
       clientName: job.client_name,
       serviceType: job.service_type,

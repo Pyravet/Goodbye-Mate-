@@ -127,11 +127,11 @@ export default function OffersPage() {
                 <Row label="When" value={`${formatDay(o.job_date)} at ${formatTime(o.job_time)}`} />
                 <Row label="Where" value={[o.suburb, o.state, o.postcode].filter(Boolean).join(' ')} />
                 <Row label="Service" value={SERVICE_LABELS[o.service_type] || o.service_type} />
-                {o.notes && <Row label="Notes" value={o.notes} />}
+                {o.notes && <Row label="From the booking" value={o.notes} />}
                 {/* Why this is happening. A vet is entitled to know the
                     reason and the family's situation BEFORE agreeing to
                     attend, not after. */}
-                {o.admin_notes && <Row label="Background" value={o.admin_notes} />}
+                {o.admin_notes && <Row label="From the office" value={o.admin_notes} />}
                 <Row label="Carrying" value={HANDLING_LABELS[o.handling_help] || '—'} />
                 {o.pace && o.pace !== 'normal' && (
                   <Row label="Pace" value={PACE_LABELS[o.pace]} />

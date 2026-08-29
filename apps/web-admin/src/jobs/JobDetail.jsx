@@ -321,7 +321,7 @@ export default function JobDetail() {
               <DispatchDebug jobId={id} />
             </Card>
 
-            <Card title="Notes for the vet">
+            <Card title="Notes for the vet (from the office)">
               <AdminNotesCard jobId={id} initial={job.admin_notes} />
             </Card>
 

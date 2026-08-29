@@ -115,7 +115,7 @@ export default function EditJobForm({ job, onCancel, onSaved }) {
 
       <HandlingFields value={form} onChange={(v) => setForm((f) => ({ ...f, ...v }))} />
 
-      <Field label="Notes"><textarea value={form.notes} onChange={set('notes')} rows={2} style={styles.input} /></Field>
+      <Field label="Booking notes (includes the client\u2019s own words)"><textarea value={form.notes} onChange={set('notes')} rows={2} style={styles.input} /></Field>
 
       {timeChanged && (
         <p style={styles.warn}>

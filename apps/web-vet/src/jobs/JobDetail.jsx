@@ -99,6 +99,10 @@ export default function JobDetail() {
           </div>
         )}
 
+        {/* Written by the office FOR the vet. Distinct from the booking
+            notes below, which include the client's own words — a vet
+            needs to know which is which to judge how much weight to
+            give it. */}
         {job.admin_notes && (
           <div className="gm-card" style={styles.adminNoteCard}>
             <h3 style={styles.adminNoteTitle}>📌 Note from admin</h3>

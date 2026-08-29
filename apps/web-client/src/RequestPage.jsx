@@ -47,7 +47,7 @@ export default function RequestPage() {
     address: '', suburb: '', postcode: '', state: '',
     petName: '', petType: '', petBreed: '', petAge: '',
     servicePreference: '', preferredTiming: '', message: '',
-    handlingHelp: '', pace: '',
+    handlingHelp: '', pace: '', petWeight: '',
     website: '', // honeypot — hidden from real users
   });
   const [status, setStatus] = useState('idle'); // idle | sending | sent
@@ -66,6 +66,13 @@ export default function RequestPage() {
   }, []);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  // Roughly the weight above which a vet may need a second person.
+  // Parsed loosely because people write "30kg", "approx 30", "30 kilos".
+  // Only used to show a prompt — the real decision is made by the
+  // server, which applies the admin-configured threshold.
+  const weightNum = Number(String(form.petWeight || '').replace(/[^\d.]/g, ''));
+  const isHeavy = Number.isFinite(weightNum) && weightNum >= 30;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -153,6 +160,17 @@ export default function RequestPage() {
           <Field label="Age" flex>
             <input value={form.petAge} onChange={set('petAge')} style={styles.input} />
           </Field>
+          {/* Asked because a vet works alone. Over ~30kg they may need a
+              second person, and that has to be arranged BEFORE the visit
+              rather than discovered at the door. An estimate is fine. */}
+          <Field label="Rough weight" flex>
+            <input
+              value={form.petWeight}
+              onChange={set('petWeight')}
+              placeholder="e.g. 30kg"
+              style={styles.input}
+            />
+          </Field>
         </div>
 
         <Section title={copy.serviceSectionTitle} />
@@ -180,6 +198,13 @@ export default function RequestPage() {
             moment. No prices are shown: if they answer no, admin talks
             it through on the phone, which is kinder than presenting a
             grieving family with a menu of surcharges. */}
+        {isHeavy && (
+          <p style={styles.heavyNote}>
+            Because {form.petName || 'your pet'} is on the larger side, our vet may need a hand
+            getting them to the vehicle. The next question matters — please answer honestly, and
+            we&apos;ll sort out whatever&apos;s needed.
+          </p>
+        )}
         <Field label="If your pet needs to be carried to the vehicle, will someone be able to help?">
           <select value={form.handlingHelp} onChange={set('handlingHelp')} style={styles.input}>
             <option value="">Choose one…</option>
@@ -258,6 +283,7 @@ const styles = {
   field: { display: 'block', marginBottom: 12 },
   label: { display: 'block', fontSize: 12, color: 'var(--gm-ink-soft)', marginBottom: 4 },
   req: { color: 'var(--gm-brick)' },
+  heavyNote: { fontSize: 13, lineHeight: 1.6, color: '#7A5A22', background: 'var(--gm-honey-soft)', padding: '11px 13px', borderRadius: 'var(--gm-radius-sm)', marginBottom: 12 },
   helpNote: { fontSize: 13, lineHeight: 1.6, color: '#7A5A22', background: 'var(--gm-honey-soft)', padding: '11px 13px', borderRadius: 'var(--gm-radius-sm)', marginTop: -4, marginBottom: 14 },
   input: { width: '100%', padding: '11px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 16, fontFamily: 'inherit', background: '#fff' },
   row: { display: 'flex', gap: 10 },

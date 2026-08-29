@@ -34,6 +34,20 @@ function etaText(enRoute) {
   return 'On the way.';
 }
 
+/**
+ * "Bella", "Bella and Max", "Bella, Max and Rex".
+ *
+ * One link has always covered the whole visit, but the page named only
+ * the first pet — so a family saying goodbye to two animals saw a page
+ * that appeared to be about one of them.
+ */
+function formatPetNames(names, fallback) {
+  const list = (names || []).filter(Boolean);
+  if (list.length === 0) return fallback || '';
+  if (list.length === 1) return list[0];
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
 export default function JourneyPage() {
   const { token } = useParams();
   const [state, setState] = useState('loading'); // loading | error | ready
@@ -111,7 +125,9 @@ export default function JourneyPage() {
     <div style={styles.page}>
       <header style={styles.header}>
         <h1 style={styles.brand}>{company?.name || 'Goodbye Mate'}</h1>
-        <p style={styles.subhead}>{job.petName} · {SERVICE_LABELS[job.serviceType]}</p>
+        <p style={styles.subhead}>
+          {formatPetNames(job.petNames, job.petName)} · {SERVICE_LABELS[job.serviceType]}
+        </p>
         <p style={styles.dateLine}>{formatDate(job.jobDate)} at {formatTime(job.jobTime)}</p>
       </header>
 

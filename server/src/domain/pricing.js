@@ -102,6 +102,12 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
     assistantAmt,
     travelAmt,
     lineItemsAmt,
+    // Passed through so the RCTI can itemise each adjustment rather
+    // than showing an unlabelled lump the vet can't reconcile.
+    lineItems: lineItems.map((i) => ({
+      label: i.label,
+      vetPayout: Number(i.vet_payout) || 0,
+    })).filter((i) => i.vetPayout !== 0),
     petCount: payoutPetCount,
     total: Math.round(
       // The service is per pet — the vet performs each euthanasia. The

@@ -44,11 +44,35 @@ function drawRctiDoc(doc, { job, vet, payout, gst, company }) {
   doc.moveTo(50, tableY - 4).lineTo(545, tableY - 4).strokeColor(LINE).stroke();
 
   doc.fillColor('#2A2620');
+  // Every component of the payout must appear. The assistant fee and
+  // line items were computed into the TOTAL but never listed, so an RCTI
+  // for an assisted or adjusted job showed lines that didn't sum to its
+  // own total — a tax document the vet cannot reconcile and their
+  // accountant will query.
   const rows = [
-    [payout.serviceName, payout.serviceAmt],
-    ['Transfer fee', payout.transferAmt],
+    [
+      // Named with the count when the visit covered several animals,
+      // so the doubled service amount is self-explanatory.
+      payout.petCount > 1
+        ? `${payout.serviceName} × ${payout.petCount}`
+        : payout.serviceName,
+      payout.serviceAmt,
+    ],
   ];
+  // Zero when the cremation partner collected directly — omitted rather
+  // than shown as $0.00, which invites the question of why.
+  if (payout.transferAmt > 0) rows.push(['Transfer fee', payout.transferAmt]);
+  if (payout.assistantAmt > 0) rows.push(['Extra person to assist', payout.assistantAmt]);
   if (payout.travelAmt > 0) rows.push(['Extra travel fee', payout.travelAmt]);
+  // Itemised individually where available, so an adjustment is
+  // explained rather than appearing as an unlabelled sum.
+  if (payout.lineItems?.length) {
+    for (const li of payout.lineItems) {
+      rows.push([li.label || 'Adjustment', Number(li.vetPayout) || 0]);
+    }
+  } else if (payout.lineItemsAmt) {
+    rows.push(['Additional charges', payout.lineItemsAmt]);
+  }
 
   for (const [label, amt] of rows) {
     doc.text(label, 50, tableY);

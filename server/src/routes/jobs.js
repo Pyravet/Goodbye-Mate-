@@ -684,6 +684,11 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
           pet_behaviour: job.pet_behaviour,
           service_type: job.service_type,
           time_category: job.time_category,
+          // Every pet, so an offer for a double euthanasia doesn't read
+          // as a single visit.
+          pets: (await getPets(job.id)).map((p) => ({
+            name: p.name, species: p.species, breed: p.breed, weight: p.weight,
+          })),
           notes: job.notes,
           status: job.status,
           isOffer: true,
@@ -696,6 +701,10 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
   const jobWithPets = await withPetCount(rows[0]);
+  // The pet LIST as well as the count: the vet screen titles the job
+  // with every animal's name, and without this it silently falls back
+  // to the mirrored first pet — which is the bug it was meant to fix.
+  jobWithPets.pets = await getPets(rows[0].id);
   const bill = billBreakdown(jobWithPets, pricing, await getLineItems(rows[0].id));
   const payout = payoutBreakdown(jobWithPets, pricing, await getLineItems(rows[0].id));
 
@@ -718,7 +727,7 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
     referredByClinic = clinicRows[0] || null;
   }
 
-  res.json({ job: rows[0], review: reviewRows[0] || null, referredByClinic, bill, payout });
+  res.json({ job: jobWithPets, review: reviewRows[0] || null, referredByClinic, bill, payout });
 }));
 
 // RCTI PDF — what the vet is owed for this job. Admin can view any job's

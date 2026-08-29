@@ -1,4 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
+/**
+ * Every pet on the visit, not just the mirrored first one.
+ *
+ * A two-pet job titled "Heavy" with a note about Milo reads as though
+ * the note belongs to a different job. It doesn't — the header was
+ * simply naming one of the two animals.
+ */
+function petNames(job) {
+  const list = (job.pets || []).map((p) => p.name).filter(Boolean);
+  if (list.length === 0) return job.pet_name || '';
+  if (list.length === 1) return list[0];
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
 const HANDLING_LABELS = {
   not_needed: 'Small pet — no help needed',
   client_helps: 'Someone at home will help carry',
@@ -6,6 +20,30 @@ const HANDLING_LABELS = {
   assistant: 'A second person is coming to help',
   needs_help: 'Nobody can help carry — not yet resolved',
 };
+/** Weight with its unit. "42" alone doesn't say kilograms. */
+function formatWeight(value) {
+  if (!value) return 'Weight not recorded';
+  const text = String(value).trim();
+  return /[a-z]/i.test(text) ? text : `${text} kg`;
+}
+
+/**
+ * What the vet is told about carrying.
+ *
+ * 'not_needed' is the DATABASE DEFAULT, so it appears on every job where
+ * nobody answered — including heavy ones. Rendering it as "small pet,
+ * no help needed" on a 42kg dog is worse than saying nothing.
+ */
+function carryingLabel(job) {
+  const kg = Number(String(job.pet_weight || '').replace(/[^\d.]/g, ''));
+  const heavy = Number.isFinite(kg) && kg >= 30;
+
+  if (job.handling_help === 'not_needed' && heavy) {
+    return 'Carrying arrangements not confirmed — check before you go';
+  }
+  return HANDLING_LABELS[job.handling_help] || 'Carrying arrangements not recorded';
+}
+
 const PACE_LABELS = {
   slow: 'Slow and unhurried — the family want time',
   normal: 'Normal pace',
@@ -86,7 +124,7 @@ export default function JobDetail() {
       <div style={styles.page}>
         <Link to="/" style={styles.back}>← Jobs</Link>
 
-        <h1 style={styles.title}>{job.pet_name}</h1>
+        <h1 style={styles.title}>{petNames(job)}</h1>
         <p style={styles.subtitle}>{job.job_number} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
         {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
           <span className="gm-badge gm-badge--honey" style={{ marginTop: 8 }}>{job.pet_behaviour}</span>
@@ -103,6 +141,16 @@ export default function JobDetail() {
             notes below, which include the client's own words — a vet
             needs to know which is which to judge how much weight to
             give it. */}
+        {/* Booking notes were rendered INSIDE the Address card, so
+            "Heavy is heavy and sick" appeared under the street address
+            as though it described the location. They belong with the
+            other notes. */}
+        {job.notes && (
+          <Card title="From the booking">
+            <p style={styles.plain}>{job.notes}</p>
+          </Card>
+        )}
+
         {job.admin_notes && (
           <div className="gm-card" style={styles.adminNoteCard}>
             <h3 style={styles.adminNoteTitle}>📌 Note from admin</h3>
@@ -125,7 +173,6 @@ export default function JobDetail() {
 
         <Card title="Address">
           <p style={styles.plain}>{job.address}</p>
-          {job.notes && <p style={styles.notes}>{job.notes}</p>}
           <a
             href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}`}
             target="_blank" rel="noreferrer" style={styles.directionsLink}
@@ -181,9 +228,13 @@ export default function JobDetail() {
     so they sit high rather than buried under the clinical detail. */}
 <Card title="Before you go">
   <p style={styles.plain}>
-    <strong>{job.pet_weight || 'Weight not recorded'}</strong>
+    <strong>{formatWeight(job.pet_weight)}</strong>
   </p>
-  <p style={styles.subline2}>{HANDLING_LABELS[job.handling_help] || '—'}</p>
+  {/* handling_help defaults to 'not_needed', which renders as "Small
+      pet — no help needed". On a 42kg dog that is not just wrong, it is
+      the opposite of the truth and could get someone hurt. When the
+      weight says otherwise, say so instead. */}
+  <p style={styles.subline2}>{carryingLabel(job)}</p>
   <p style={styles.subline2}>{PACE_LABELS[job.pace] || 'Normal pace'}</p>
   {job.handling_notes && <p style={styles.subline2}>Access: {job.handling_notes}</p>}
 </Card>

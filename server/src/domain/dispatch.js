@@ -93,8 +93,18 @@ export function rankVets(job, vetsWithContext) {
         }
       }
 
+      // Unavailability EXCLUDES rather than penalises.
+      //
+      // -40 sat far above the -150 cutoff, so a vet with no availability
+      // ticked at all still scored 60 on a postcode match and was
+      // offered the job. Availability is a statement about when someone
+      // can work; treating it as a mild preference meant vets were
+      // auto-assigned outside their own hours, and every offer they let
+      // lapse counted against their reliability record.
+      //
+      // Same weight as leave, for the same reason: both are hard "no".
       const available = isVetAvailableAtDateTime(v, job.job_date, job.job_time);
-      score += available ? 20 : -40;
+      score += available ? 20 : -1000;
 
       score -= (v.activeJobCount || 0) * 5;
 

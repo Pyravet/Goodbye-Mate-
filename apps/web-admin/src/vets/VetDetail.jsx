@@ -3,6 +3,8 @@ import { useParams, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import TerritoryMap from '../maps/TerritoryMap.jsx';
 import WeeklyAvailabilityGrid from './WeeklyAvailabilityGrid.jsx';
+import AvailabilityCalendar from './AvailabilityCalendar.jsx';
+import { setDateOverride } from './vetsApi.js';
 import { fetchVetReliability, fetchVet, fetchTerritory, updateVetProfile, approveVet, deactivateVet } from './vetsApi.js';
 
 const AU_STATES = ['VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
@@ -93,6 +95,7 @@ function Stat({ label, value, warn }) {
 }
 
 export default function VetDetail() {
+  const [savingDate, setSavingDate] = useState(false);
   const { id } = useParams();
   const [vet, setVet] = useState(null);
   const [bankDetails, setBankDetails] = useState(null);
@@ -152,7 +155,32 @@ export default function VetDetail() {
         </div>
 
         {tab === 'profile' && <ProfileTab vet={vet} bankDetails={bankDetails} onSaved={load} />}
-        {tab === 'availability' && <WeeklyAvailabilityGrid vetId={id} initialHours={vet.weekly_hours} />}
+        {tab === 'availability' && (
+          <>
+            {/* Dated view first: "is she free on the 14th" is the
+                question anyone actually has. The weekly grid below sets
+                the pattern those dates are derived from. */}
+            <AvailabilityCalendar
+              vet={vet}
+              saving={savingDate}
+              onSetOverride={async (date, value) => {
+                setSavingDate(true);
+                try {
+                  await setDateOverride(id, date, value);
+                  await load();
+                } catch (err) {
+                  window.alert(err.message);
+                } finally {
+                  setSavingDate(false);
+                }
+              }}
+            />
+            <h3 style={{ fontSize: 15, fontWeight: 600, margin: '28px 0 10px' }}>
+              Usual weekly hours
+            </h3>
+            <WeeklyAvailabilityGrid vetId={id} initialHours={vet.weekly_hours} />
+          </>
+        )}
         {tab === 'territory' && <TerritoryMap vetId={id} initialGeoJSON={territory} />}
       </div>
     </AppShell>

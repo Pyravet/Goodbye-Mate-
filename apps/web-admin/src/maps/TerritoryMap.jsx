@@ -16,6 +16,12 @@ function polygonPathToGeoJSON(polygon) {
   return { type: 'Polygon', coordinates: [path] };
 }
 
+const styles = {
+  fallback: { background: '#FDF6EC', border: '1px solid #E8D9BE', borderRadius: 8, padding: 16 },
+  fallbackTitle: { fontSize: 14, fontWeight: 600, color: '#7A5A22', marginBottom: 8 },
+  fallbackBody: { fontSize: 13, color: '#7A5A22', lineHeight: 1.6, marginBottom: 8 },
+};
+
 export default function TerritoryMap({ vetId, initialGeoJSON }) {
   const mapDivRef = useRef(null);
   const mapRef = useRef(null);
@@ -108,8 +114,44 @@ export default function TerritoryMap({ vetId, initialGeoJSON }) {
     setSaveState('idle');
   };
 
-  if (status === 'missing-key') {
-    return <p style={{ color: '#b91c1c', fontSize: 13 }}>Google Maps API key not configured (VITE_GOOGLE_MAPS_API_KEY).</p>;
+  // Only 'missing-key' was handled. A key that EXISTS but is rejected —
+  // billing disabled, referrer restriction, expired — reports 'error',
+  // and the component rendered an empty map div: a blank page with no
+  // explanation and nothing to act on.
+  if (status === 'missing-key' || status === 'error') {
+    return (
+      <div style={styles.fallback}>
+        <p style={styles.fallbackTitle}>
+          {status === 'missing-key'
+            ? 'Google Maps isn\u2019t configured yet.'
+            : 'Google Maps didn\u2019t load.'}
+        </p>
+        <p style={styles.fallbackBody}>
+          {status === 'missing-key'
+            ? 'VITE_GOOGLE_MAPS_API_KEY isn\u2019t set, so the map can\u2019t be drawn.'
+            : 'The key was rejected — usually billing not enabled on the Google Cloud project, '
+              + 'or a referrer restriction that doesn\u2019t include this site.'}
+        </p>
+        <p style={styles.fallbackBody}>
+          {/* Said plainly, because otherwise a blank map looks like the
+              vet simply has no territory — and dispatch quietly carries
+              on working off postcodes. */}
+          Dispatch still works in the meantime: vets are matched on their
+          postcode list instead of a drawn area. You can set those on the
+          Details tab.
+        </p>
+        {initialGeoJSON && (
+          <p style={styles.fallbackBody}>
+            This vet already has a saved territory. It stays in place and keeps being used —
+            it just can&apos;t be shown or edited until Maps loads.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (status === 'loading') {
+    return <p style={{ fontSize: 13, color: '#888' }}>Loading the map\u2026</p>;
   }
 
   return (

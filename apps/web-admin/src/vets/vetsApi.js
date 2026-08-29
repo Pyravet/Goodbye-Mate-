@@ -64,3 +64,21 @@ export async function deactivateVet(id) {
   if (!res.ok) throw new Error('Failed to deactivate vet');
   return res.json();
 }
+
+/**
+ * Set or clear a single date's availability.
+ *
+ * The endpoint has existed since dispatch was built; nothing in admin
+ * ever called it, so per-date availability was unreachable.
+ *
+ * @param {string} value true, false, or undefined to clear the override
+ */
+export async function setDateOverride(vetId, date, value) {
+  const res = await apiFetch(`/vets/${vetId}/date-overrides/${date}`, {
+    method: 'PUT',
+    body: JSON.stringify({ available: value === undefined ? null : value }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not update that date');
+  return data;
+}

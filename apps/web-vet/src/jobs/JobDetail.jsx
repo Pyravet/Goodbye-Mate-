@@ -51,7 +51,7 @@ const PACE_LABELS = {
 };
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
-import { fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
+import { downloadConsent, fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { fetchMedicalNotes, addMedicalNote } from './jobsApi.js';
 import MessageThread from './MessageThread.jsx';
@@ -67,6 +67,7 @@ export default function JobDetail() {
   const [enRouteState, setEnRouteState] = useState('idle'); // idle | locating | sending | done | error
   const [enRouteError, setEnRouteError] = useState('');
   const [enRouteResult, setEnRouteResult] = useState(null);
+  const [consentError, setConsentError] = useState('');
   const [manualEta, setManualEta] = useState('');
 
   const load = useCallback(() => {
@@ -145,6 +146,22 @@ export default function JobDetail() {
             "Heavy is heavy and sick" appeared under the street address
             as though it described the location. They belong with the
             other notes. */}
+        {/* Whether the visit is paid for. A vet arriving to find payment
+            outstanding has to raise money with a grieving family at the
+            door — they need to know in the car, not on the step. */}
+        <Card title="Payment">
+          {job.payment_status === 'paid' ? (
+            <p style={styles.paidNote}>Paid in full — nothing to collect.</p>
+          ) : job.payment_status === 'refunded' ? (
+            <p style={styles.unpaidNote}>This job has been refunded. Check with the office before attending.</p>
+          ) : (
+            <p style={styles.unpaidNote}>
+              NOT YET PAID. Please check with the office before you go — don&apos;t raise it with
+              the family at the door.
+            </p>
+          )}
+        </Card>
+
         {job.notes && (
           <Card title="From the booking">
             <p style={styles.plain}>{job.notes}</p>
@@ -239,9 +256,37 @@ export default function JobDetail() {
   {job.handling_notes && <p style={styles.subline2}>Access: {job.handling_notes}</p>}
 </Card>
 
-<Card title="Pet">
-          <p style={styles.plain}>{job.pet_type}{job.pet_breed ? `, ${job.pet_breed}` : ''}</p>
-          <p style={styles.subline2}>{[job.pet_weight, job.pet_age].filter(Boolean).join(' · ')}</p>
+<Card title={(job.pets?.length || 1) > 1 ? 'Pets' : 'Pet'}>
+          {/* Every pet, each with its OWN consent form. On a double
+              euthanasia the vet was shown one animal's details and no
+              way to see either consent — while being the person
+              performing both procedures. */}
+          {(job.pets?.length
+            ? job.pets
+            : [{ id: null, name: job.pet_name, species: job.pet_type, breed: job.pet_breed, weight: job.pet_weight, age: job.pet_age, consent_signed: job.consent_signed }]
+          ).map((p, i) => (
+            <div key={p.id || i} style={i > 0 ? styles.petDivider : undefined}>
+              <p style={styles.plain}><strong>{p.name}</strong></p>
+              <p style={styles.subline2}>
+                {[p.species, p.breed].filter(Boolean).join(', ')}
+              </p>
+              <p style={styles.subline2}>
+                {[p.weight, p.age].filter(Boolean).join(' · ')}
+              </p>
+              {p.consent_signed ? (
+                <button
+                  onClick={() => downloadConsent(id, p.id, `Consent-${p.name}.pdf`)
+                    .catch((err) => setConsentError(err.message))}
+                  style={styles.consentBtn}
+                >
+                  Consent form for {p.name}
+                </button>
+              ) : (
+                <p style={styles.consentPending}>Consent not signed yet</p>
+              )}
+            </div>
+          ))}
+          {consentError && <p style={styles.consentError}>{consentError}</p>}
         </Card>
 
         {!isOffer && (
@@ -371,6 +416,12 @@ function Card({ title, children }) {
 }
 
 const styles = {
+  petDivider: { marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--gm-line-soft)' },
+  consentBtn: { marginTop: 8, background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 500, minHeight: 44 },
+  consentPending: { marginTop: 8, fontSize: 12, color: '#7A5A22' },
+  consentError: { marginTop: 8, fontSize: 12, color: 'var(--gm-brick)' },
+  paidNote: { fontSize: 14, color: 'var(--gm-forest)', fontWeight: 500 },
+  unpaidNote: { fontSize: 14, color: '#7A5A22', lineHeight: 1.6, fontWeight: 500 },
   page: { padding: '20px 16px 32px' },
   adminNoteCard: { padding: 16, marginTop: 16, borderColor: 'var(--gm-honey)', borderWidth: 2, background: 'var(--gm-honey-soft)' },
   adminNoteTitle: { fontSize: 13, fontWeight: 600, color: '#7A5A22', marginBottom: 6 },

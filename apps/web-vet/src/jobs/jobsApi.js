@@ -121,3 +121,33 @@ export async function proposeTime(jobId, { date, time, note }) {
   if (!res.ok) throw new Error(data.error || 'Could not send your suggestion');
   return data;
 }
+
+/**
+ * Download a signed consent form.
+ *
+ * The server already allows the assigned vet; there was simply no way
+ * to ask for it. A vet is the person performing the procedure — they
+ * should be able to see the form authorising it.
+ *
+ * @param {string} jobId
+ * @param {string} [petId] which pet's form, when a visit covers several
+ */
+export async function downloadConsent(jobId, petId, filename) {
+  const qs = petId ? `?petId=${petId}` : '';
+  const res = await apiFetch(`/jobs/${jobId}/consent.pdf${qs}`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not open the consent form');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename || 'Consent.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked on a timer rather than immediately: Safari on iOS can still
+  // be reading the blob when the click handler returns.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}

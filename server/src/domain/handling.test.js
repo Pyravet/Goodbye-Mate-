@@ -113,3 +113,47 @@ test('direct pickup and the assistant fee are mutually exclusive in practice', (
   assert.equal(chargesTransferFee(assisted), true, 'we still do the transport');
   assert.equal(chargesAssistantFee(assisted), true);
 });
+
+// --- Multi-pet weight ---
+
+test('the HEAVIEST pet decides, not the first', () => {
+  // A 5kg cat booked alongside a 45kg dog. job.pet_weight mirrors the
+  // first pet, so this looked light and dispatched automatically — the
+  // vet arriving alone to a 45kg dog with no warning.
+  const job = { pet_weight: '5kg', pet_name: 'Mittens', handling_help: 'client_helps' };
+  const pets = [{ name: 'Mittens', weight: '5kg' }, { name: 'Rex', weight: '45kg' }];
+
+  const r = requiresManualDispatch(job, PRICING, pets);
+  assert.equal(r.manual, true, 'the 45kg dog must hold the job back');
+  assert.equal(r.weightKg, 45, 'the heaviest weight is reported, not the first');
+  assert.match(r.reason, /Rex/, 'the reason must name which animal, so admin knows who to ask about');
+});
+
+test('order does not matter — heavy first or heavy second', () => {
+  const job = { pet_weight: '45kg', handling_help: 'client_helps' };
+  const reversed = [{ name: 'Rex', weight: '45kg' }, { name: 'Mittens', weight: '5kg' }];
+  assert.equal(requiresManualDispatch(job, PRICING, reversed).manual, true);
+});
+
+test('two light pets still dispatch normally', () => {
+  const job = { pet_weight: '5kg', handling_help: 'client_helps' };
+  const pets = [{ name: 'Mittens', weight: '5kg' }, { name: 'Socks', weight: '4kg' }];
+  assert.equal(requiresManualDispatch(job, PRICING, pets).manual, false);
+});
+
+test('one unknown weight among several holds the job', () => {
+  // "We know the cat is 5kg but nobody weighed the dog" must not pass
+  // as light — that's the case most likely to surprise a vet.
+  const job = { pet_weight: '5kg', handling_help: 'client_helps' };
+  const pets = [{ name: 'Mittens', weight: '5kg' }, { name: 'Rex', weight: null }];
+  const r = requiresManualDispatch(job, PRICING, pets);
+  assert.equal(r.manual, true);
+  assert.match(r.reason, /Rex/, 'names the pet whose weight is missing');
+});
+
+test('called without a pet list, it still behaves as before', () => {
+  // Every caller should pass pets, but a missed one must not silently
+  // start dispatching heavy animals.
+  const job = { pet_weight: '45kg', handling_help: 'client_helps' };
+  assert.equal(requiresManualDispatch(job, PRICING).manual, true);
+});

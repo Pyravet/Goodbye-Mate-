@@ -60,6 +60,15 @@ export default function PetsCard({ jobId, onChanged }) {
 
   const outstanding = (pets || []).filter((p) => !p.consent_signed).length;
 
+  // Flag the heavy ones explicitly. The weight was printed in a run of
+  // "Dog · Labrador · 12 years · 45kg" and read past — nothing told
+  // admin this booking needs a conversation before a vet is offered it.
+  const heavy = (pets || []).filter((p) => {
+    const kg = Number(String(p.weight || '').replace(/[^\d.]/g, ''));
+    return Number.isFinite(kg) && kg >= 30;
+  });
+  const noWeight = (pets || []).filter((p) => !String(p.weight || '').match(/\d/));
+
   return (
     <>
       {error && <p style={styles.error}>{error}</p>}
@@ -94,6 +103,22 @@ export default function PetsCard({ jobId, onChanged }) {
             )}
           </div>
         ))
+      )}
+
+      {/* Above the pet list, because it changes what happens next. */}
+      {heavy.length > 0 && (
+        <p style={styles.heavyWarn}>
+          <strong>{heavy.map((p) => `${p.name} (${p.weight})`).join(', ')}</strong>
+          {heavy.length === 1 ? ' is' : ' are'} over 30kg. This job won&apos;t be offered
+          automatically — a vet needs to know what they&apos;re taking on. Confirm who&apos;s
+          carrying before assigning.
+        </p>
+      )}
+      {pets && noWeight.length > 0 && (
+        <p style={styles.heavyWarn}>
+          No weight recorded for <strong>{noWeight.map((p) => p.name).join(', ')}</strong>.
+          The job stays on manual assignment until it&apos;s known.
+        </p>
       )}
 
       {pets && pets.length > 1 && (
@@ -159,6 +184,7 @@ const styles = {
   signed: { fontSize: 11, color: 'var(--gm-forest)', marginTop: 3, fontWeight: 500 },
   unsigned: { fontSize: 11, color: '#7A5A22', marginTop: 3, fontWeight: 500 },
   remove: { background: 'none', border: 'none', color: 'var(--gm-brick)', fontSize: 12, textDecoration: 'underline', flexShrink: 0 },
+  heavyWarn: { fontSize: 12, lineHeight: 1.6, color: 'var(--gm-brick)', background: '#F5E3E0', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)', marginBottom: 10 },
   multiNote: { fontSize: 12, color: '#7A5A22', background: 'var(--gm-honey-soft)', padding: '9px 11px', borderRadius: 'var(--gm-radius-sm)', marginTop: 10, lineHeight: 1.5 },
   addBtn: { width: '100%', marginTop: 12, background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   form: { marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--gm-line)' },

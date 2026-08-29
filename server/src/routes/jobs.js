@@ -167,7 +167,14 @@ export async function startOrRollDispatch(jobId) {
   // Checked HERE rather than at the call sites so both entry points —
   // job creation and the rollover worker — are covered by one guard.
   const { rows: dispatchPricing } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const manualCheck = requiresManualDispatch(job, dispatchPricing[0]?.config || {});
+  // Pass EVERY pet. Without them this reads job.pet_weight, which
+  // mirrors the first pet only — a 5kg cat booked alongside a 45kg dog
+  // looked light and dispatched automatically.
+  const manualCheck = requiresManualDispatch(
+    job,
+    dispatchPricing[0]?.config || {},
+    await getPets(jobId)
+  );
   if (manualCheck.manual) {
     await query(
       `UPDATE jobs SET dispatch_state = 'unassigned', updated_at = now() WHERE id = $1`,

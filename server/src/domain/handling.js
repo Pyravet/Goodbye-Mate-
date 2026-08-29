@@ -48,24 +48,40 @@ export function parseWeightKg(value) {
  *
  * @param {object} job
  * @param {object} pricing pricing_settings config
+ * @param {Array<{name:string, weight:string}>} [pets] every pet on the
+ *   visit. Without it this reads job.pet_weight, which mirrors only the
+ *   FIRST pet — so a 5kg cat booked alongside a 45kg dog looked light
+ *   and went out automatically, with nothing warning the vet.
  * @returns {{manual: boolean, reason: string|null, weightKg: number|null}}
  */
-export function requiresManualDispatch(job, pricing) {
+export function requiresManualDispatch(job, pricing, pets) {
   const threshold = Number(pricing?.manualDispatchWeightKg) || 30;
-  const weightKg = parseWeightKg(job?.pet_weight);
 
-  if (weightKg == null) {
+  // Weigh EVERY animal, not the mirrored one. The heaviest decides,
+  // because that's the one the vet has to lift.
+  const list = (pets?.length ? pets : [{ name: job?.pet_name, weight: job?.pet_weight }])
+    .map((p) => ({ name: p.name, kg: parseWeightKg(p.weight) }));
+
+  const unknown = list.filter((p) => p.kg == null);
+  if (unknown.length > 0) {
+    const who = unknown.map((p) => p.name).filter(Boolean).join(', ');
     return {
       manual: true,
-      reason: "The pet's weight isn't recorded, so we can't tell whether help is needed to carry them.",
+      reason: list.length > 1 && who
+        ? `No weight recorded for ${who}, so we can't tell whether help is needed to carry them.`
+        : "The pet's weight isn't recorded, so we can't tell whether help is needed to carry them.",
       weightKg: null,
     };
   }
 
+  const heaviest = list.reduce((a, b) => (b.kg > a.kg ? b : a));
+  const weightKg = heaviest.kg;
+
   if (weightKg >= threshold) {
     return {
       manual: true,
-      reason: `At ${weightKg}kg this pet is over the ${threshold}kg limit for automatic offers — `
+      reason: `${list.length > 1 && heaviest.name ? `${heaviest.name} is ` : 'This pet is '}`
+        + `${weightKg}kg, over the ${threshold}kg limit for automatic offers — `
         + 'a vet needs to know what they are taking on before they accept.',
       weightKg,
     };

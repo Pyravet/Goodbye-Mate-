@@ -36,11 +36,13 @@ router.use(publicJourneyLimiter);
 // vetName is passed separately because it lives on the vets/users tables,
 // not on the job row. Without it, '{vetName}' rendered literally to the
 // client on the "About your visit" card.
-function fillPlaceholders(text, job, vetName) {
+function fillPlaceholders(text, job, vetName, petName) {
   if (!text) return text;
   return text
     .replaceAll('{vetName}', vetName || 'your vet')
-    .replaceAll('{petName}', job.pet_name || '')
+    // The SPECIFIC pet this form covers, falling back to the job's
+    // mirrored pet for single-pet bookings and older callers.
+    .replaceAll('{petName}', petName || job.pet_name || '')
     .replaceAll('{clientName}', job.client_name || '')
     .replaceAll('{date}', job.job_date ? new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' }) : '')
     .replaceAll('{time}', job.job_time || '')
@@ -98,7 +100,10 @@ async function loadConsentContext(jobId) {
     job,
     vet,
     company: content.company || {},
-    consentText: fillPlaceholders(content.consentTemplate, job, vetName),
+    // Filled per pet by the caller, which knows which form it is
+    // rendering. Left generic here would print "Milo" on Golden's
+    // consent — two identical documents for two different animals.
+    consentText: (petName) => fillPlaceholders(content.consentTemplate, job, vetName, petName),
     signatureImage: job.consent_signature_image || null,
   };
 }
@@ -202,7 +207,12 @@ router.get('/:token', asyncHandler(async (req, res) => {
     bill: { total: bill.total, lines: bill.lines },
     content: {
       educationalIntro: fillPlaceholders(content.educationalIntro, job, vetName),
-      consentTemplate: fillPlaceholders(content.consentTemplate, job, vetName),
+      // Filled for the pet whose form is next, so the wording names the
+      // animal actually being consented to.
+      consentTemplate: fillPlaceholders(
+        content.consentTemplate, job, vetName,
+        (await getPets(job.id)).find((p) => !p.consent_signed)?.name
+      ),
       brochure,
       brochurePdf,
       vet: vetDetails,
@@ -323,6 +333,7 @@ router.post('/:token/consent', asyncHandler(async (req, res) => {
         filename: consentFilename(ctx.job, pet),
         content: await generateConsentPdfBuffer({
           ...ctx,
+          consentText: ctx.consentText(pet.name),
           pet,
           petIndex: i + 1,
           petCount: ctxPets.length,
@@ -497,7 +508,8 @@ router.get('/:token/consent.pdf', asyncHandler(async (req, res) => {
 
   res.setHeader('Content-Disposition', `inline; filename="${consentFilename(ctx.job, chosen)}"`);
   generateConsentPdf({
-    ...ctx, res, pet: chosen, petIndex: idx + 1, petCount: journeyPets.length,
+    ...ctx, res, consentText: ctx.consentText(chosen?.name),
+    pet: chosen, petIndex: idx + 1, petCount: journeyPets.length,
     signatureImage: sigRows[0]?.consent_signature_image || null,
   });
 }));

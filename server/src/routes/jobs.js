@@ -2744,16 +2744,22 @@ router.get('/:id/consent.pdf', requireAuth, asyncHandler(async (req, res) => {
 
   const { rows: contentRows } = await query('SELECT config FROM content_settings WHERE id = true');
   const content = contentRows[0].config;
-  const consentText = (content.consentTemplate || '')
-    .replaceAll('{vetName}', vetName || 'your vet')
-    .replaceAll('{petName}', job.pet_name || '')
-    .replaceAll('{clientName}', job.client_name || '');
-
-  res.setHeader('Content-Type', 'application/pdf');
+  // Resolve the pet FIRST — the consent wording depends on it, and
+  // const isn't hoisted, so reading it above its declaration throws.
   const jobPets = await getPets(job.id);
   const idx = req.query.petId ? jobPets.findIndex((p) => p.id === req.query.petId) : 0;
   if (idx === -1) return res.status(404).json({ error: 'That pet is not on this booking.' });
   const chosenPet = jobPets[idx] || null;
+
+  const consentText = (content.consentTemplate || '')
+    .replaceAll('{vetName}', vetName || 'your vet')
+    // The pet this form actually covers, not the job's mirrored first
+    // pet — otherwise every document on a multi-pet visit names the
+    // same animal.
+    .replaceAll('{petName}', chosenPet?.name || job.pet_name || '')
+    .replaceAll('{clientName}', job.client_name || '');
+
+  res.setHeader('Content-Type', 'application/pdf');
   const { rows: petSig } = chosenPet
     ? await query('SELECT consent_signature_image FROM job_pets WHERE id = $1', [chosenPet.id])
     : { rows: [] };

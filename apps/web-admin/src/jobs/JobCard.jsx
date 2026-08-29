@@ -39,7 +39,7 @@ export default function JobCard({ job, showDate }) {
         </div>
         <div style={styles.mainCol}>
           <div style={styles.petRow}>
-            <span style={styles.petName}>{job.pet_name}</span>
+            <span style={styles.petName}>{job.pet_names || job.pet_name}</span>
             {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
               <span className="gm-badge gm-badge--honey">{job.pet_behaviour}</span>
             )}

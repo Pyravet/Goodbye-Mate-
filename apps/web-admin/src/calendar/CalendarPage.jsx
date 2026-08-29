@@ -143,7 +143,7 @@ function MonthView({ anchor, jobsByDate, selectedDate, onSelectDate }) {
                 {dayJobs.slice(0, 3).map((j) => (
                   <Link key={j.id} to={`/jobs/${j.id}`} style={styles.jobChip}>
                     <span style={{ ...styles.jobDot, background: STATUS_COLOR[j.status] }} />
-                    {formatTime(j.job_time)} {j.pet_name}
+                    {formatTime(j.job_time)} {j.pet_names || j.pet_name}
                     {j.vet_name && <span style={styles.chipVet}> · {j.vet_name.split(' ')[0]}</span>}
                   </Link>
                 ))}
@@ -189,7 +189,7 @@ function DayList({ date, jobs }) {
 
             <div style={styles.dayMain}>
               <div style={styles.dayPet}>
-                {j.pet_name}
+                {j.pet_names || j.pet_name}
                 <span style={styles.dayClient}> · {j.client_name}</span>
               </div>
               <div style={styles.dayMeta}>
@@ -252,7 +252,7 @@ function WeekView({ anchor, jobsByDate }) {
                 <div key={key} style={styles.weekHourCell}>
                   {hourJobs.map((j) => (
                     <Link key={j.id} to={`/jobs/${j.id}`} style={{ ...styles.weekJobBlock, background: STATUS_COLOR[j.status] }}>
-                      {j.pet_name}
+                      {j.pet_names || j.pet_name}
                     </Link>
                   ))}
                 </div>

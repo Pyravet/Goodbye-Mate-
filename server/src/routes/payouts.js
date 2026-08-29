@@ -54,7 +54,11 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
 
   // Completed jobs in the window, grouped by vet.
   const { rows: jobs } = await query(
-    `SELECT j.*, u.full_name AS vet_name, v.is_gst_registered
+    `SELECT j.*, u.full_name AS vet_name, v.is_gst_registered,
+       (
+         SELECT string_agg(p.name, ', ' ORDER BY p.sort_order)
+         FROM job_pets p WHERE p.job_id = j.id
+       ) AS pet_names
      FROM jobs j
      JOIN vets v ON v.id = j.assigned_vet_id
      JOIN users u ON u.id = v.user_id
@@ -109,7 +113,7 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
       id: job.id,
       jobNumber: job.job_number,
       jobDate: job.job_date,
-      petName: job.pet_name,
+      petName: job.pet_names || job.pet_name,
       amount: payout.total,
       paymentStatus: job.payment_status,
       refundedAmount: Number(job.refunded_amount) || 0,
@@ -193,7 +197,11 @@ router.post('/periods/approve', requireAuth, requireRole('admin'), asyncHandler(
          -- FROZEN onto the RCTI, and an under-count here underpays the
          -- vet permanently since approved totals are never recomputed.
          SELECT count(*)::int FROM job_pets p WHERE p.job_id = j.id
-       ) AS "petCount"
+       ) AS "petCount",
+       (
+         SELECT string_agg(p.name, ', ' ORDER BY p.sort_order)
+         FROM job_pets p WHERE p.job_id = j.id
+       ) AS pet_names
        FROM jobs j
        WHERE j.assigned_vet_id = $1 AND j.status = 'completed'
          AND j.job_date BETWEEN $2 AND $3
@@ -236,7 +244,9 @@ router.post('/periods/approve', requireAuth, requireRole('admin'), asyncHandler(
         jobId: job.id,
         jobNumber: job.job_number,
         jobDate: job.job_date,
-        petName: job.pet_name,
+        // Every pet: a payout line reading one name for a double
+        // euthanasia understates what the vet actually did.
+        petName: job.pet_names || job.pet_name,
         description: payout.travelAmt > 0
           ? `${payout.serviceName} (incl. travel)`
           : payout.serviceName,

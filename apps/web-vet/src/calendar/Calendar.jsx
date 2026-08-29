@@ -138,7 +138,7 @@ export default function Calendar() {
                     selectedJobs.map((j) => (
                       <Link key={j.id} to={`/jobs/${j.id}`} style={styles.jobRow}>
                         <span style={styles.jobTime}>{formatTime(j.job_time)}</span>
-                        <span>{j.pet_name}</span>
+                        <span>{j.pet_names || j.pet_name}</span>
                       </Link>
                     ))
                   )}

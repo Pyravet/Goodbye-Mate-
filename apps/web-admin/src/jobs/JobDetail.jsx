@@ -166,7 +166,7 @@ export default function JobDetail() {
 
         <div style={styles.headerRow}>
           <div>
-            <h1 style={styles.title}>{job.pet_name}</h1>
+            <h1 style={styles.title}>{job.pet_names || job.pet_name}</h1>
             <p style={styles.subtitle}>{job.job_number} · {job.client_name} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
           </div>
           {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (

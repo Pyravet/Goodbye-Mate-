@@ -40,7 +40,7 @@ import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, client
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
-import { getPets, syncPrimaryPet, createFirstPet, withPetCount, withPetCounts } from '../domain/jobPets.js';
+import { getPets, syncPrimaryPet, createFirstPet, withPetCount, withPetCounts, petNamesText, petNamesTextFor } from '../domain/jobPets.js';
 import { requiresManualDispatch } from '../domain/handling.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
@@ -175,7 +175,7 @@ export async function startOrRollDispatch(jobId) {
     );
     notifyAdmins({
       title: 'Needs a vet chosen by hand',
-      body: `${job.pet_name} (${job.job_number}): ${manualCheck.reason}`,
+      body: `${await petNamesTextFor(job)} (${job.job_number}): ${manualCheck.reason}`,
       url: `/jobs/${jobId}`,
       category: 'job',
     }).catch((e) => console.error('manual-dispatch notify failed:', e.message));
@@ -216,7 +216,7 @@ export async function startOrRollDispatch(jobId) {
     if (vetUserRows[0]) {
       const pushPayload = {
         title: 'New job offer',
-        body: `${job.pet_name} in ${job.suburb || job.postcode} — respond soon, this offer expires.`,
+        body: `${await petNamesTextFor(job)} in ${job.suburb || job.postcode} — respond soon, this offer expires.`,
         url: `/jobs/${jobId}`,
       };
       sendPushToUser(vetUserRows[0].user_id, pushPayload).catch((err) => console.error('Web push failed:', err));
@@ -528,6 +528,8 @@ router.get('/reviews/all', requireAuth, requireRole('admin'), asyncHandler(async
   const { rows } = await query(
     `SELECT r.rating, r.comment, r.created_at,
             j.id AS job_id, j.job_number, j.pet_name, j.client_name, j.job_date,
+            (SELECT string_agg(pp.name, ', ' ORDER BY pp.sort_order)
+             FROM job_pets pp WHERE pp.job_id = j.id) AS pet_names,
             u.full_name AS vet_name
      FROM job_reviews r
      JOIN jobs j ON j.id = r.job_id
@@ -709,6 +711,9 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
   const jobWithPets = await withPetCount(rows[0]);
+  // Names as a single string too, for the page title and anywhere
+  // else that shows one line rather than a list.
+  jobWithPets.pet_names = (await getPets(rows[0].id)).map((p) => p.name).join(', ');
   // The pet LIST as well as the count: the vet screen titles the job
   // with every animal's name, and without this it silently falls back
   // to the mirrored first pet — which is the bug it was meant to fix.
@@ -818,8 +823,8 @@ export async function sendJourneyLink(job) {
     try {
       await sendEmail({
         to: job.client_email,
-        subject: `Your visit with Goodbye Mate — ${job.pet_name}`,
-        html: `<p>Hi ${job.client_name},</p><p>Here's your booking journey for ${job.pet_name} — process info, consent form, and payment, all in one place:</p><p><a href="${link}">${link}</a></p>`,
+        subject: `Your visit with Goodbye Mate — ${await petNamesTextFor(job)}`,
+        html: `<p>Hi ${job.client_name},</p><p>Here's your booking journey for ${await petNamesTextFor(job)} — process info, consent form, and payment, all in one place:</p><p><a href="${link}">${link}</a></p>`,
       });
       results.email = 'sent';
     } catch (err) {
@@ -836,7 +841,7 @@ export async function sendJourneyLink(job) {
   } else {
     try {
       await sendTemplatedSms(job.client_phone, 'genericMessage', {
-        message: `Hi ${job.client_name}, here's your Goodbye Mate booking journey for ${job.pet_name}: ${link}`,
+        message: `Hi ${job.client_name}, here's your Goodbye Mate booking journey for ${await petNamesTextFor(job)}: ${link}`,
       });
       results.sms = 'sent';
     } catch (err) {
@@ -939,7 +944,7 @@ router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireR
 
       await sendEmail({
         to: vet.email,
-        subject: `RCTI for ${job.job_number} — ${job.pet_name}`,
+        subject: `RCTI for ${job.job_number} — ${await petNamesTextFor(job)}`,
         text: `Hi ${vet.full_name},\n\nAttached is the RCTI for job ${job.job_number} (${job.pet_name}).\n\nThanks,\n${company.name || 'Goodbye Mate'}`,
         attachments: [{ filename: rctiFilename(job), content: buffer }],
       });
@@ -979,7 +984,7 @@ router.post('/:id/sms-quote', outboundMessageLimiter, requireAuth, requireRole('
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
 
-  const message = `Hi ${job.client_name}, your quote for ${job.pet_name} is $${bill.total.toFixed(2)}. We've also sent a detailed quote to your email if provided.`;
+  const message = `Hi ${job.client_name}, your quote for ${await petNamesTextFor(job)} is $${bill.total.toFixed(2)}. We've also sent a detailed quote to your email if provided.`;
 
   try {
     await sendTemplatedSms(job.client_phone, 'genericMessage', { message });
@@ -1025,7 +1030,15 @@ router.post('/:id/whatsapp-quote', outboundMessageLimiter, requireAuth, requireR
 // stored — matches the prototype's computeAlerts exactly.
 router.get('/alerts/list', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows: jobs } = await query(
-    `SELECT * FROM jobs WHERE status NOT IN ('completed', 'cancelled') OR (status = 'completed' AND service_type != 'euthanasia_only' AND NOT cremation_booked)`
+    `SELECT jobs.*,
+       -- Alerts name the job so admin can recognise it. Without this
+       -- petNamesText falls back to the mirrored pet and a two-pet
+       -- alert names one animal — silently, which is the worst kind.
+       (SELECT string_agg(p.name, ', ' ORDER BY p.sort_order)
+        FROM job_pets p WHERE p.job_id = jobs.id) AS pet_names
+     FROM jobs
+     WHERE status NOT IN ('completed', 'cancelled')
+        OR (status = 'completed' AND service_type != 'euthanasia_only' AND NOT cremation_booked)`
   );
 
   const now = Date.now();
@@ -1037,19 +1050,19 @@ router.get('/alerts/list', requireAuth, requireRole('admin'), asyncHandler(async
     const hrs = (apptTime - now) / 3600000;
 
     if (!j.assigned_vet_id && hrs < 4) {
-      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: hrs < 0 ? 'high' : 'medium', message: `${j.pet_name} (${j.client_name}) has no vet assigned and is ${hrs < 0 ? 'overdue' : 'due soon'}.` });
+      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: hrs < 0 ? 'high' : 'medium', message: `${petNamesText(j)} (${j.client_name}) has no vet assigned and is ${hrs < 0 ? 'overdue' : 'due soon'}.` });
     }
     if (j.dispatch_state === 'unassigned') {
-      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'high', message: `No vet accepted the offer for ${j.pet_name} — needs manual assignment.` });
+      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'high', message: `No vet accepted the offer for ${petNamesText(j)} — needs manual assignment.` });
     }
     if (j.payment_status !== 'paid' && hrs < 24) {
-      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'medium', message: `Payment still pending for ${j.pet_name}.` });
+      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'medium', message: `Payment still pending for ${petNamesText(j)}.` });
     }
     if (!j.consent_signed && hrs < 24) {
-      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'medium', message: `Consent not yet signed for ${j.pet_name}.` });
+      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'medium', message: `Consent not yet signed for ${petNamesText(j)}.` });
     }
     if (j.procedure_done && j.service_type !== 'euthanasia_only' && !j.cremation_booked && j.procedure_done_at && (now - new Date(j.procedure_done_at).getTime()) > CREMATION_STUCK_MS) {
-      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'high', message: `Cremation still not booked for ${j.pet_name} — procedure completed a while ago.` });
+      alerts.push({ jobId: j.id, jobNumber: j.job_number, severity: 'high', message: `Cremation still not booked for ${petNamesText(j)} — procedure completed a while ago.` });
     }
   }
 
@@ -1065,6 +1078,8 @@ router.get('/messages/inbox', requireAuth, requireRole('admin'), asyncHandler(as
   const { rows } = await query(`
     SELECT DISTINCT ON (j.id)
       j.id AS job_id, j.job_number, j.pet_name, j.client_name, j.admin_unread_messages,
+      (SELECT string_agg(pp.name, ', ' ORDER BY pp.sort_order)
+       FROM job_pets pp WHERE pp.job_id = j.id) AS pet_names,
       m.body AS last_message, m.created_at AS last_message_at, u.full_name AS last_sender_name
     FROM jobs j
     JOIN job_internal_messages m ON m.job_id = j.id

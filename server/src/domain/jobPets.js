@@ -86,6 +86,41 @@ export async function createFirstPet(job) {
   return rows[0];
 }
 
+/**
+ * "Bella", "Bella and Max", "Bella, Max and Rex".
+ *
+ * For anything a PERSON reads — an SMS, an email subject, an alert. A
+ * message naming one animal on a two-pet visit reads as though it's
+ * about a different booking, and to a grieving family it reads as
+ * though we've forgotten one of them.
+ *
+ * Takes a row that already carries pet_names (the aggregate the list
+ * queries select) or falls back to the job's mirrored pet, so callers
+ * don't each need a database round trip.
+ */
+export function petNamesText(job) {
+  const raw = job?.pet_names || job?.pet_name || '';
+  const list = String(raw).split(',').map((n) => n.trim()).filter(Boolean);
+  if (list.length <= 1) return list[0] || '';
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+}
+
+/**
+ * Async form of petNamesText for callers holding a plain job row.
+ *
+ * Most routes load a job with SELECT *, which carries no pet_names
+ * aggregate. Requiring every query to remember it is precisely what has
+ * gone wrong repeatedly, so this fetches when it's absent and costs
+ * nothing when it isn't.
+ */
+export async function petNamesTextFor(job) {
+  if (job?.pet_names) return petNamesText(job);
+  if (!job?.id) return petNamesText(job);
+  const pets = await getPets(job.id);
+  if (pets.length === 0) return petNamesText(job);
+  return petNamesText({ pet_names: pets.map((p) => p.name).join(', ') });
+}
+
 /** All pets on a job, in display order. */
 export async function getPets(jobId) {
   const { rows } = await query(

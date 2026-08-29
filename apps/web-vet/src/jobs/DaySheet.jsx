@@ -88,7 +88,7 @@ function DayRow({ job, index }) {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={styles.pet}>
-            <span style={styles.index}>{index}.</span> {job.pet_name}
+            <span style={styles.index}>{index}.</span> {job.pet_names || job.pet_name}
           </div>
           <div style={styles.meta}>
             {[job.pet_type, job.pet_breed, job.pet_weight].filter(Boolean).join(' · ')}

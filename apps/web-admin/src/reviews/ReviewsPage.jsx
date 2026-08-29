@@ -85,7 +85,7 @@ export default function ReviewsPage() {
 
               <div style={styles.meta}>
                 <Link to={`/jobs/${r.job_id}`} style={styles.link}>
-                  {r.job_number} · {r.pet_name}
+                  {r.job_number} · {r.pet_names || r.pet_name}
                 </Link>
                 {' · '}{r.client_name}
                 {r.vet_name && ` · vet: ${r.vet_name}`}

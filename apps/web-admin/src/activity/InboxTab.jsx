@@ -21,7 +21,7 @@ export default function InboxTab() {
             {t.admin_unread_messages && <span style={styles.unreadDot} title="Unread" />}
             <div style={styles.mainCol}>
               <div style={styles.topLine}>
-                <span style={styles.petName}>{t.pet_name}</span>
+                <span style={styles.petName}>{t.pet_names || t.pet_name}</span>
                 <span style={styles.jobNumber}>{t.job_number}</span>
               </div>
               <div style={styles.preview}>{t.last_sender_name}: {t.last_message}</div>

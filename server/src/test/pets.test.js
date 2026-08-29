@@ -160,3 +160,32 @@ test('a single-pet job behaves exactly as before', async () => {
   assert.equal(j.pet_name, 'Bella');
   assert.ok(j.consent_signature_image);
 });
+
+test('petNamesText reads naturally for any number of pets', async () => {
+  // Used in SMS, email subjects and admin alerts. A message naming one
+  // animal on a two-pet visit reads as though it's about a different
+  // booking — and to a grieving family, as though we've forgotten one.
+  const { petNamesText } = await import('../domain/jobPets.js');
+  assert.equal(petNamesText({ pet_names: 'Milo' }), 'Milo');
+  assert.equal(petNamesText({ pet_names: 'Milo, Golden' }), 'Milo and Golden');
+  assert.equal(petNamesText({ pet_names: 'A, B, C' }), 'A, B and C');
+  // Falls back to the job's mirrored pet for rows without the aggregate.
+  assert.equal(petNamesText({ pet_name: 'Solo' }), 'Solo');
+  assert.equal(petNamesText({}), '');
+});
+
+test('petNamesTextFor fetches names when the row lacks the aggregate', async () => {
+  // Most routes load a job with SELECT *, which carries no pet_names.
+  // Requiring every query to remember the aggregate is exactly what kept
+  // going wrong, so this fetches when it's absent.
+  const { petNamesTextFor, createFirstPet } = await import('../domain/jobPets.js');
+  const job = await createJob();
+  await createFirstPet(job);
+  await query(
+    "INSERT INTO job_pets (job_id, name, sort_order) VALUES ($1, 'Golden', 1)", [job.id]
+  );
+
+  const text = await petNamesTextFor({ id: job.id, pet_name: job.pet_name });
+  assert.match(text, / and /, `expected both names, got "${text}"`);
+  assert.ok(text.includes('Golden'), 'the second pet must appear');
+});

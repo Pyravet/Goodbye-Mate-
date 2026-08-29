@@ -2890,4 +2890,96 @@ router.delete('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandle
   res.json({ ok: true });
 }));
 
+
+const nudgeSchema = z.object({
+  kind: z.enum(['finalise', 'review']),
+});
+
+/**
+ * POST /jobs/:id/nudge — text the client a link, now.
+ *
+ * The workers already chase automatically, but they run on a schedule
+ * and only once. Admin often knows something the schedule doesn't: the
+ * family just rang, or the visit is tomorrow and consent still isn't
+ * signed. This is the manual equivalent.
+ *
+ * Two kinds, because they say different things:
+ *   finalise — consent and/or payment are outstanding BEFORE the visit
+ *   review   — the visit is done; asking how it went
+ */
+router.post('/:id/nudge', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const parsed = nudgeSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: 'Choose what to send.' });
+
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job.client_phone) {
+    return res.status(400).json({ error: 'This client has no phone number on file.' });
+  }
+
+  const link = `${process.env.CLIENT_APP_URL || ''}/${job.client_token}`;
+
+  if (parsed.data.kind === 'review') {
+    // Asking for a review before the visit has happened would be
+    // appalling. The worker gates on this too; so must the manual path.
+    if (job.status !== 'completed') {
+      return res.status(409).json({
+        error: "This visit isn't complete yet, so it's too early to ask for feedback.",
+      });
+    }
+  } else {
+    // Nothing outstanding means nothing to chase — sending "please
+    // finalise" to someone who already has would just confuse them.
+    const pets = await getPets(job.id);
+    const unsigned = pets.filter((p) => !p.consent_signed).length;
+    if (unsigned === 0 && job.payment_status === 'paid') {
+      return res.status(409).json({
+        error: 'Consent is signed and payment is received — there is nothing outstanding to chase.',
+      });
+    }
+  }
+
+  if (!isMsg91Configured()) {
+    return res.status(503).json({ error: 'SMS is not configured, so nothing was sent.' });
+  }
+
+  const template = parsed.data.kind === 'review' ? 'clientReviewReminder' : 'genericMessage';
+  const vars = parsed.data.kind === 'review'
+    ? { client_name: job.client_name, pet_name: job.pet_name, link }
+    : {
+        message: `Hi ${job.client_name}, there are still a couple of steps to finish for `
+          + `${job.pet_name}'s visit. You can complete them here: ${link}`,
+      };
+
+  if (!isTemplateConfigured(template)) {
+    return res.status(503).json({
+      error: `The ${template} SMS template isn't set up yet, so nothing was sent.`,
+    });
+  }
+
+  try {
+    await sendTemplatedSms(job.client_phone, template, vars);
+  } catch (err) {
+    // Surfaced, not swallowed. Admin pressed a button expecting a text
+    // to go; telling them it worked when it didn't is how a client is
+    // left waiting for a message that never arrives.
+    return res.status(502).json({ error: `The text could not be sent: ${err.message}` });
+  }
+
+  // Recorded so a second click is a visible decision rather than an
+  // accident — a grieving client should not get the same nudge twice
+  // because two people were looking at the job.
+  await query(
+    `UPDATE jobs SET last_nudge_at = now(), last_nudge_kind = $1, updated_at = now() WHERE id = $2`,
+    [parsed.data.kind, req.params.id]
+  );
+  await logAction({
+    actorUserId: req.user.sub, action: 'client_nudged',
+    targetType: 'job', targetId: req.params.id, metadata: { kind: parsed.data.kind },
+  });
+
+  res.json({ ok: true, sentTo: job.client_phone, kind: parsed.data.kind });
+}));
+
 export default router;

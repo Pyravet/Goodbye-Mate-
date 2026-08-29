@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, fetchSuggestedVets, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, fetchSuggestedVets, nudgeClient, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
@@ -703,6 +703,79 @@ function AssignVetControl({ job, onAssigned }) {
   );
 }
 
+/**
+ * Text the client a link, on demand.
+ *
+ * The reminder workers already chase on a schedule, but admin often
+ * knows something the schedule doesn't — the family just rang, or the
+ * visit is tomorrow and consent still isn't signed.
+ */
+function NudgeCard({ job, jobId, onSent }) {
+  const [busy, setBusy] = useState('');
+  const [result, setResult] = useState('');
+  const [error, setError] = useState('');
+
+  const send = async (kind) => {
+    setBusy(kind);
+    setError('');
+    setResult('');
+    try {
+      const r = await nudgeClient(jobId, kind);
+      setResult(`Sent to ${r.sentTo}.`);
+      onSent();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const done = job.status === 'completed';
+
+  return (
+    <>
+      {/* Shown before the buttons, so a second person can see it was
+          already sent rather than texting a grieving client twice. */}
+      {job.last_nudge_at && (
+        <p style={styles.docHint}>
+          Last texted {new Date(job.last_nudge_at).toLocaleString('en-AU', {
+            day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+          })}
+          {job.last_nudge_kind === 'review' ? ' — asking for feedback' : ' — to finalise'}.
+        </p>
+      )}
+
+      {error && <p style={styles.actionError}>{error}</p>}
+      {result && <p style={styles.savedNote}>{result}</p>}
+
+      <button
+        onClick={() => send('finalise')}
+        disabled={!!busy || done}
+        style={styles.nudgeBtn}
+      >
+        {busy === 'finalise' ? 'Sending…' : 'Nudge to finalise booking'}
+      </button>
+      <p style={styles.docHint}>
+        Texts the journey link so they can finish consent and payment. Blocked if there&apos;s
+        nothing outstanding.
+      </p>
+
+      <button
+        onClick={() => send('review')}
+        disabled={!!busy || !done}
+        style={styles.nudgeBtn}
+      >
+        {busy === 'review' ? 'Sending…' : 'Ask for a review'}
+      </button>
+      <p style={styles.docHint}>
+        {done
+          ? 'Texts them the link to leave feedback.'
+          : 'Available once the visit is complete — asking before then would be worse than not asking.'}
+      </p>
+    </>
+  );
+}
+
 function RefundCard({ job, onChanged }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
@@ -976,6 +1049,7 @@ const styles = {
   reviewComment: { fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' },
   clinicName: { fontSize: 15, fontWeight: 600 },
   clinicPhone: { fontSize: 13, color: 'var(--gm-forest)', textDecoration: 'none', display: 'block', marginTop: 2 },
+  nudgeBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '10px', fontSize: 13, fontWeight: 500, marginTop: 8 },
   consentBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '8px', fontSize: 12, fontWeight: 500, marginBottom: 10 },
   editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },
   clientName: { fontFamily: 'var(--gm-font-display)', fontSize: 16, fontWeight: 600, marginBottom: 6 },

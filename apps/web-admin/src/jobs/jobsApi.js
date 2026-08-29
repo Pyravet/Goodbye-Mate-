@@ -250,6 +250,15 @@ export async function fetchAllReviews(lowOnly) {
   return res.json();
 }
 
+export async function nudgeClient(jobId, kind) {
+  const res = await apiFetch(`/jobs/${jobId}/nudge`, {
+    method: 'POST', body: JSON.stringify({ kind }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not send that text');
+  return data;
+}
+
 export async function checkDuplicate(payload) {
   const res = await apiFetch('/jobs/check-duplicate', {
     method: 'POST',

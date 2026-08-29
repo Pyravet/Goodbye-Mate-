@@ -41,6 +41,7 @@ import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
 import { getPets, syncPrimaryPet, createFirstPet } from '../domain/jobPets.js';
+import { requiresManualDispatch } from '../domain/handling.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -154,6 +155,30 @@ export async function startOrRollDispatch(jobId) {
 
   const vetsWithContext = await getVetsWithContextForJob(job);
   const declined = job.dispatch_declined_vet_ids || [];
+  // Heavy or unknown-weight pets, and jobs where nobody can help carry,
+  // are never offered automatically. A vet works alone: before
+  // accepting a large animal they need to know the weight and whether
+  // anyone at the home can help — that's a conversation, not something
+  // to spring on them in an offer they have minutes to answer.
+  //
+  // Checked HERE rather than at the call sites so both entry points —
+  // job creation and the rollover worker — are covered by one guard.
+  const { rows: dispatchPricing } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const manualCheck = requiresManualDispatch(job, dispatchPricing[0]?.config || {});
+  if (manualCheck.manual) {
+    await query(
+      `UPDATE jobs SET dispatch_state = 'unassigned', updated_at = now() WHERE id = $1`,
+      [jobId]
+    );
+    notifyAdmins({
+      title: 'Needs a vet chosen by hand',
+      body: `${job.pet_name} (${job.job_number}): ${manualCheck.reason}`,
+      url: `/jobs/${jobId}`,
+      category: 'job',
+    }).catch((e) => console.error('manual-dispatch notify failed:', e.message));
+    return { state: 'manual_required', reason: manualCheck.reason };
+  }
+
   const ranked = rankVets(job, vetsWithContext).filter((r) => !declined.includes(r.vetId) && r.score > -150);
   const next = ranked[0];
 

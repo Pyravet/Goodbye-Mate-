@@ -1,3 +1,5 @@
+import { chargesTransferFee } from './handling.js';
+
 // Ported directly from the prototype's billBreakdown / payoutBreakdown.
 // GST note (from the brief): payout amounts are GST-inclusive — GST is
 // extracted from the total for reporting, never added on top.
@@ -24,8 +26,13 @@ export function billBreakdown(job, pricing, lineItems = []) {
 
   const lines = [
     { label: service ? service.name : 'Service', amount: service ? service.clientPrice : 0 },
-    { label: 'Transfer fee', amount: pricing.transferFee.clientPrice },
   ];
+  // With a direct pickup the crematorium partner sends their own driver
+  // and bills the client themselves, so our transfer fee comes off —
+  // charging it too would be charging for work we aren't doing.
+  if (chargesTransferFee(job)) {
+    lines.push({ label: 'Transfer fee', amount: pricing.transferFee.clientPrice });
+  }
   if (isAfterHours) lines.push({ label: 'After hours / weekend surcharge', amount: pricing.afterHoursSurcharge });
   if (job.is_public_holiday) lines.push({ label: 'Public holiday surcharge', amount: pricing.publicHolidaySurcharge || 0 });
   if (isMidnight) lines.push({ label: 'Midnight fee (12am\u20136am)', amount: pricing.midnightFeeSurcharge || 0 });
@@ -47,7 +54,11 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
   const isAfterHours = job.time_category === 'afterhours_weekend';
 
   const serviceAmt = service ? (isAfterHours ? service.vetAfterhours : service.vetWeekday) : 0;
-  const transferAmt = isAfterHours ? pricing.transferFee.vetAfterhours : pricing.transferFee.vetWeekday;
+  // No transfer for the vet either when the partner collects — they
+  // aren't making the trip.
+  const transferAmt = chargesTransferFee(job)
+    ? (isAfterHours ? pricing.transferFee.vetAfterhours : pricing.transferFee.vetWeekday)
+    : 0;
   const travelAmt = Number(job.extra_travel_fee) || 0;
 
   // Only the portion of each line item explicitly marked as passing

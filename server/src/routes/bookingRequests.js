@@ -53,6 +53,12 @@ const submitSchema = z.object({
   servicePreference: z.string().trim().max(120).optional().nullable(),
   preferredTiming: z.string().trim().max(200).optional().nullable(),
   message: z.string().trim().max(2000).optional().nullable(),
+  // Asked publicly on purpose. Whether anyone can help carry the pet
+  // decides whether the visit can happen at all, and finding out on the
+  // doorstep is the worst possible moment.
+  handlingHelp: z.enum(['not_needed', 'client_helps', 'direct_pickup', 'needs_help']).optional().nullable(),
+  pace: z.enum(['slow', 'normal', 'quick']).optional().nullable(),
+  handlingNotes: z.string().trim().max(1000).optional().nullable(),
 
   /**
    * Honeypot. Hidden from real users with CSS, so a human never fills it
@@ -87,8 +93,8 @@ router.post('/', submitLimiter, asyncHandler(async (req, res) => {
     `INSERT INTO booking_requests
        (client_name, client_phone, client_email, address, suburb, postcode, state,
         pet_name, pet_type, pet_breed, pet_weight, pet_age,
-        service_preference, preferred_timing, message, status, submitted_ip, user_agent)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        service_preference, preferred_timing, message, status, submitted_ip, user_agent, handling_help, pace, handling_notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18, $19, $20, $21)
      RETURNING id, created_at`,
     [
       d.clientName, d.clientPhone, d.clientEmail || null,
@@ -97,6 +103,7 @@ router.post('/', submitLimiter, asyncHandler(async (req, res) => {
       d.servicePreference || null, d.preferredTiming || null, d.message || null,
       isSpam ? 'spam' : 'new',
       req.ip || null, (req.headers['user-agent'] || '').slice(0, 300),
+      d.handlingHelp || null, d.pace || null, d.handlingNotes || null,
     ]
   );
 
@@ -306,8 +313,8 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
        -- the clinic portal could show a referral but never that it
        -- became a completed visit — which is the only outcome that
        -- matters to them.
-       referred_by_clinic_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19,$20)
+       referred_by_clinic_id, handling_help, pace, handling_notes
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19,$20,$21,$22,$23)
      RETURNING *`,
     [
       request.client_name, request.client_phone, request.client_email,
@@ -318,6 +325,12 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
       // genuinely benefits from, and it would otherwise be stranded on
       // the request record.
       [request.message, d.notes].filter(Boolean).join('\n\n') || null,
+      request.referred_by_clinic_id,
+      // Carried from the enquiry so the vet sees what the family said,
+      // rather than it being stranded on a request nobody reopens.
+      request.handling_help || 'not_needed',
+      request.pace || 'normal',
+      request.handling_notes,
     ]
   );
 

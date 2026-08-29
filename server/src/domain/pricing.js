@@ -24,8 +24,18 @@ export function billBreakdown(job, pricing, lineItems = []) {
   const isAfterHours = job.time_category === 'afterhours_weekend';
   const isMidnight = isMidnightBand(job.job_time);
 
+  // How many animals this visit covers. A double euthanasia was being
+  // billed as one: the service and cremation are PER PET, and only the
+  // call-out is shared. Defaults to 1 so any caller that doesn't pass
+  // pets bills exactly as before.
+  const petCount = Math.max(1, Number(job.petCount) || 1);
+  const each = petCount > 1 ? ` × ${petCount}` : '';
+
   const lines = [
-    { label: service ? service.name : 'Service', amount: service ? service.clientPrice : 0 },
+    {
+      label: (service ? service.name : 'Service') + each,
+      amount: (service ? service.clientPrice : 0) * petCount,
+    },
   ];
   // With a direct pickup the crematorium partner sends their own driver
   // and bills the client themselves, so our transfer fee comes off —
@@ -43,7 +53,13 @@ export function billBreakdown(job, pricing, lineItems = []) {
   if (isAfterHours) lines.push({ label: 'After hours / weekend surcharge', amount: pricing.afterHoursSurcharge });
   if (job.is_public_holiday) lines.push({ label: 'Public holiday surcharge', amount: pricing.publicHolidaySurcharge || 0 });
   if (isMidnight) lines.push({ label: 'Midnight fee (12am\u20136am)', amount: pricing.midnightFeeSurcharge || 0 });
-  if (job.service_type === 'communal_cremation') lines.push({ label: 'Communal cremation', amount: pricing.communalCremationFee });
+  if (job.service_type === 'communal_cremation') {
+    // Per pet — each animal is cremated.
+    lines.push({
+      label: 'Communal cremation' + each,
+      amount: pricing.communalCremationFee * petCount,
+    });
+  }
   if (Number(job.extra_travel_fee) > 0) lines.push({ label: 'Extra travel fee', amount: Number(job.extra_travel_fee) });
 
   // Ad-hoc extras and discounts. Discounts are simply negative amounts,
@@ -63,6 +79,7 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
   const serviceAmt = service ? (isAfterHours ? service.vetAfterhours : service.vetWeekday) : 0;
   // No transfer for the vet either when the partner collects — they
   // aren't making the trip.
+  const payoutPetCount = Math.max(1, Number(job.petCount) || 1);
   const transferAmt = chargesTransferFee(job)
     ? (isAfterHours ? pricing.transferFee.vetAfterhours : pricing.transferFee.vetWeekday)
     : 0;
@@ -80,13 +97,17 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
 
   return {
     serviceName: service ? service.name : 'Service',
-    serviceAmt,
+    serviceAmt: Math.round(serviceAmt * payoutPetCount * 100) / 100,
     transferAmt,
     assistantAmt,
     travelAmt,
     lineItemsAmt,
+    petCount: payoutPetCount,
     total: Math.round(
-      (serviceAmt + transferAmt + assistantAmt + travelAmt + lineItemsAmt) * 100
+      // The service is per pet — the vet performs each euthanasia. The
+      // transfer, assistant and travel are per VISIT: one trip, one
+      // extra person, however many animals.
+      (serviceAmt * payoutPetCount + transferAmt + assistantAmt + travelAmt + lineItemsAmt) * 100
     ) / 100,
   };
 }

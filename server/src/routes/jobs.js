@@ -40,7 +40,7 @@ import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, client
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
-import { getPets, syncPrimaryPet, createFirstPet } from '../domain/jobPets.js';
+import { getPets, syncPrimaryPet, createFirstPet, withPetCount, withPetCounts } from '../domain/jobPets.js';
 import { requiresManualDispatch } from '../domain/handling.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
@@ -562,6 +562,14 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
             -- address appears once a vet accepts.
             j.suburb, j.postcode, j.state,
             j.job_date, j.job_time, j.service_type, j.notes, j.status,
+            -- A vet needs to know WHY before accepting: the clinical
+            -- reason, the family's situation, anything unusual. Admin
+            -- notes were written for exactly this and were never shown.
+            j.admin_notes,
+            -- Needed by payoutBreakdown for the assistant fee. Without
+            -- it handling_help is undefined and the extra person's
+            -- money silently vanishes from the offer.
+            j.handling_help, j.pace, j.handling_notes,
             j.assigned_vet_id,
             -- Needed by payoutBreakdown. Without time_category the
             -- after-hours rate silently falls back to weekday, showing a
@@ -604,8 +612,26 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
 
-  const offers = rows.map((r) => ({
+  // Every pet on the job, not just the mirrored first one. A double
+  // euthanasia was being offered as though it were a single visit —
+  // wrong work and wrong money.
+  const withCounts = await withPetCounts(rows);
+  const { rows: petRows } = jobIds.length
+    ? await query(
+        `SELECT job_id, name, species, breed, weight
+         FROM job_pets WHERE job_id = ANY($1::uuid[]) ORDER BY sort_order`,
+        [jobIds]
+      )
+    : { rows: [] };
+  const petsByJob = new Map();
+  for (const pet of petRows) {
+    if (!petsByJob.has(pet.job_id)) petsByJob.set(pet.job_id, []);
+    petsByJob.get(pet.job_id).push(pet);
+  }
+
+  const offers = withCounts.map((r) => ({
     ...r,
+    pets: petsByJob.get(r.id) || [],
     payout: payoutBreakdown(r, pricing, itemsByJob.get(r.id) || []).total,
   }));
 
@@ -662,15 +688,16 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
           status: job.status,
           isOffer: true,
         },
-        payout: payoutBreakdown(job, pricingRows[0].config, items),
+        payout: payoutBreakdown(await withPetCount(job), pricingRows[0].config, items),
       });
     }
   }
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
-  const bill = billBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
-  const payout = payoutBreakdown(rows[0], pricing, await getLineItems(rows[0].id));
+  const jobWithPets = await withPetCount(rows[0]);
+  const bill = billBreakdown(jobWithPets, pricing, await getLineItems(rows[0].id));
+  const payout = payoutBreakdown(jobWithPets, pricing, await getLineItems(rows[0].id));
 
   // The client's review. Written into job_reviews but never read by any
   // admin route — so feedback, including the "what could we have done

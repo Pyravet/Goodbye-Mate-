@@ -3,6 +3,19 @@ import AppShell from '../layout/AppShell.jsx';
 import { fetchMyOffers, acceptOffer, declineOffer, proposeTime } from './jobsApi.js';
 import { formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
+const HANDLING_LABELS = {
+  not_needed: 'Small pet — no help needed',
+  client_helps: 'Someone at home will help carry',
+  direct_pickup: 'Cremation partner collects directly',
+  assistant: 'A second person is coming to help',
+  needs_help: 'Nobody can help carry',
+};
+const PACE_LABELS = {
+  slow: 'Slow and unhurried — the family want time',
+  normal: 'Normal pace',
+  quick: 'Keep it brief',
+};
+
 const SERVICE_LABELS = {
   euthanasia_only: 'Euthanasia only',
   private_cremation: 'Private cremation',
@@ -87,10 +100,23 @@ export default function OffersPage() {
             <div key={o.offer_id} className="gm-card" style={styles.card}>
               <div style={styles.cardTop}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={styles.petName}>{o.pet_name}</div>
-                  <div style={styles.meta}>
-                    {[o.pet_type, o.pet_breed, o.pet_weight].filter(Boolean).join(' · ')}
-                  </div>
+                  {/* Every pet, not just the first. A double euthanasia
+                      was being offered as though it were a single visit
+                      — the wrong work and the wrong money. */}
+                  {(o.pets?.length ? o.pets : [{ name: o.pet_name, species: o.pet_type, breed: o.pet_breed, weight: o.pet_weight }])
+                    .map((p, i) => (
+                      <div key={i} style={i > 0 ? styles.extraPet : undefined}>
+                        <div style={styles.petName}>{p.name}</div>
+                        <div style={styles.meta}>
+                          {[p.species, p.breed, p.weight].filter(Boolean).join(' · ')}
+                        </div>
+                      </div>
+                    ))}
+                  {o.pets?.length > 1 && (
+                    <div style={styles.multiFlag}>
+                      {o.pets.length} pets in this visit
+                    </div>
+                  )}
                 </div>
                 {o.outcome === 'proposed' && (
                   <span className="gm-badge gm-badge--honey">Time suggested</span>
@@ -102,6 +128,15 @@ export default function OffersPage() {
                 <Row label="Where" value={[o.suburb, o.state, o.postcode].filter(Boolean).join(' ')} />
                 <Row label="Service" value={SERVICE_LABELS[o.service_type] || o.service_type} />
                 {o.notes && <Row label="Notes" value={o.notes} />}
+                {/* Why this is happening. A vet is entitled to know the
+                    reason and the family's situation BEFORE agreeing to
+                    attend, not after. */}
+                {o.admin_notes && <Row label="Background" value={o.admin_notes} />}
+                <Row label="Carrying" value={HANDLING_LABELS[o.handling_help] || '—'} />
+                {o.pace && o.pace !== 'normal' && (
+                  <Row label="Pace" value={PACE_LABELS[o.pace]} />
+                )}
+                {o.handling_notes && <Row label="Access" value={o.handling_notes} />}
                 {/* What it pays. A vet was previously accepting without
                     knowing the amount — agreeing to drive somewhere for
                     a figure they'd only discover afterwards. */}
@@ -220,6 +255,8 @@ const styles = {
   cardTop: { display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 },
   petName: { fontFamily: 'var(--gm-font-display)', fontSize: 19, fontWeight: 600 },
   meta: { fontSize: 12, color: 'var(--gm-ink-soft)', marginTop: 2 },
+  extraPet: { marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--gm-line)' },
+  multiFlag: { fontSize: 11, fontWeight: 600, color: '#7A5A22', background: 'var(--gm-honey-soft)', padding: '3px 8px', borderRadius: 999, display: 'inline-block', marginTop: 6 },
   detail: { borderTop: '1px solid var(--gm-line-soft)', paddingTop: 10, marginBottom: 10 },
   row: { display: 'flex', gap: 10, fontSize: 14, padding: '3px 0' },
   rowLabel: { width: 62, color: 'var(--gm-ink-soft)', flexShrink: 0, fontSize: 12 },

@@ -11,7 +11,7 @@ import { billBreakdown, clientGstSplit } from '../domain/pricing.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { generateInvoicePdf } from '../pdf/generateInvoice.js';
 import { generateConsentPdf, generateConsentPdfBuffer, consentFilename } from '../pdf/generateConsent.js';
-import { getPets, syncPrimaryPet } from '../domain/jobPets.js';
+import { getPets, syncPrimaryPet, withPetCount } from '../domain/jobPets.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { logAction } from '../audit/log.js';
 
@@ -62,7 +62,8 @@ async function billForJob(job) {
     'SELECT label, amount, vet_payout FROM job_line_items WHERE job_id = $1 ORDER BY created_at',
     [job.id]
   );
-  return billBreakdown(job, pricingRows[0].config, lineItems);
+  // Multi-pet visits must bill per pet — the client sees this total.
+  return billBreakdown(await withPetCount(job), pricingRows[0].config, lineItems);
 }
 
 /**

@@ -11,6 +11,44 @@ import { query } from '../db/pool.js';
  */
 
 /**
+ * Attach petCount to a job row so pricing scales correctly.
+ *
+ * There are 19 call sites for billBreakdown/payoutBreakdown. Passing the
+ * count at each one is how they drift — one gets missed and a family is
+ * billed for a single euthanasia when two were performed. This decorates
+ * the JOB instead, so pricing reads it from the object it already has.
+ *
+ * Defaults to 1 if the job somehow has no pets, which bills exactly as
+ * it did before multi-pet existed.
+ *
+ * @param {object} job a job row
+ */
+export async function withPetCount(job) {
+  if (!job) return job;
+  const { rows } = await query(
+    'SELECT count(*)::int AS c FROM job_pets WHERE job_id = $1', [job.id]
+  );
+  return { ...job, petCount: Math.max(1, rows[0]?.c || 1) };
+}
+
+/**
+ * The same for a list, in ONE query rather than one per job — the
+ * payout run and the offers list both price many jobs at once.
+ *
+ * @param {Array<object>} jobs
+ */
+export async function withPetCounts(jobs) {
+  if (!jobs?.length) return jobs;
+  const { rows } = await query(
+    `SELECT job_id, count(*)::int AS c FROM job_pets
+     WHERE job_id = ANY($1::uuid[]) GROUP BY job_id`,
+    [jobs.map((j) => j.id)]
+  );
+  const byJob = new Map(rows.map((r) => [r.job_id, r.c]));
+  return jobs.map((j) => ({ ...j, petCount: Math.max(1, byJob.get(j.id) || 1) }));
+}
+
+/**
  * The first pet's signature IMAGE.
  *
  * Separate from getPets because the image is a BYTEA that most callers

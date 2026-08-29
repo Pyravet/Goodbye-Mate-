@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { withPetCounts } from '../domain/jobPets.js';
 import { z } from 'zod';
 import { pool, query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -62,6 +63,7 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
      ORDER BY u.full_name, j.job_date`,
     [periodStart, periodEnd]
   );
+  const jobsWithPets = await withPetCounts(jobs);
 
   const { rows: existing } = await query(
     'SELECT * FROM vet_payout_periods WHERE period_start = $1',
@@ -86,7 +88,7 @@ router.get('/periods', requireAuth, requireRole('admin'), asyncHandler(async (re
   }
 
   const byVet = new Map();
-  for (const job of jobs) {
+  for (const job of jobsWithPets) {
     if (!byVet.has(job.assigned_vet_id)) {
       byVet.set(job.assigned_vet_id, {
         vetId: job.assigned_vet_id,
@@ -186,9 +188,16 @@ router.post('/periods/approve', requireAuth, requireRole('admin'), asyncHandler(
     const pricing = pricingRows[0].config;
 
     const { rows: jobs } = await client.query(
-      `SELECT * FROM jobs
-       WHERE assigned_vet_id = $1 AND status = 'completed' AND job_date BETWEEN $2 AND $3
-       ORDER BY job_date`,
+      `SELECT j.*, (
+         -- Counted in the same query: this is the figure that gets
+         -- FROZEN onto the RCTI, and an under-count here underpays the
+         -- vet permanently since approved totals are never recomputed.
+         SELECT count(*)::int FROM job_pets p WHERE p.job_id = j.id
+       ) AS "petCount"
+       FROM jobs j
+       WHERE j.assigned_vet_id = $1 AND j.status = 'completed'
+         AND j.job_date BETWEEN $2 AND $3
+       ORDER BY j.job_date`,
       [vetId, periodStart, periodEnd]
     );
     if (jobs.length === 0) {

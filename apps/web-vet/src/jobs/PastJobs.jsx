@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { jobStatusBadges, jobStatusTone } from '@goodbye-mate/web-shared';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchMyJobs } from './jobsApi.js';
@@ -27,7 +28,7 @@ export default function PastJobs() {
         if (toDate && jobDateStr > toDate) return false;
         if (search) {
           const q = search.toLowerCase();
-          const haystack = [j.pet_name, j.client_name, j.suburb, j.job_number].filter(Boolean).join(' ').toLowerCase();
+          const haystack = [j.pet_names || j.pet_name, j.client_name, j.suburb, j.job_number].filter(Boolean).join(' ').toLowerCase();
           if (!haystack.includes(q)) return false;
         }
         return true;
@@ -74,16 +75,28 @@ export default function PastJobs() {
           <div style={styles.list}>
             {filtered.map((job) => (
               <Link key={job.id} to={`/jobs/${job.id}`} style={styles.link}>
-                <div className="gm-card" style={styles.card}>
+                <div
+                  className="gm-card"
+                  style={{
+                    ...styles.card,
+                    borderLeft: `4px solid var(--gm-${jobStatusTone(job)})`,
+                  }}
+                >
                   <div style={styles.dateCol}>
                     <div style={styles.date}>{new Date(job.job_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</div>
                     <div style={styles.time}>{formatTime(job.job_time)}</div>
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={styles.petName}>{job.pet_name}</div>
+                    <div style={styles.petName}>{job.pet_names || job.pet_name}</div>
                     <div style={styles.subline}>{job.client_name} · {job.suburb || job.postcode}</div>
                   </div>
-                  {job.status === 'cancelled' && <span className="gm-badge gm-badge--brick">Cancelled</span>}
+                  {/* Every card, not just cancelled. A blank row could
+                      mean completed, unpaid, or never closed off, and
+                      the vet had no way to tell them apart. Shared with
+                      the jobs list and admin board. */}
+                  {jobStatusBadges(job).map((b) => (
+                    <span key={b.label} className={`gm-badge gm-badge--${b.tone}`}>{b.label}</span>
+                  ))}
                 </div>
               </Link>
             ))}

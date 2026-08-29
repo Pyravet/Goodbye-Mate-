@@ -160,7 +160,9 @@ const styles = {
   flags: { display: 'flex', gap: 8, marginBottom: 12 },
   flag: { fontSize: 11, padding: '3px 9px', borderRadius: 999, fontWeight: 500 },
   flagOk: { background: '#E3E9E1', color: 'var(--gm-forest)' },
-  flagPending: { background: 'var(--gm-honey-soft)', color: '#7A5A22' },
+  // Red, matching the jobs list, past jobs and the admin board.
+  // Consent unsigned an hour before a visit is a problem, not a note.
+  flagPending: { background: '#F5E3E0', color: 'var(--gm-brick)' },
   actions: { display: 'flex', gap: 8 },
   actionBtn: { flex: 1, textAlign: 'center', background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '11px 6px', fontSize: 13, fontWeight: 500, textDecoration: 'none', color: 'var(--gm-ink)', minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap' },
   actionBtnPrimary: { flex: 1, textAlign: 'center', background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', padding: '11px 6px', fontSize: 13, fontWeight: 500, textDecoration: 'none', minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' },

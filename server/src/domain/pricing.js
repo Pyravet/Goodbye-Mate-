@@ -1,4 +1,4 @@
-import { chargesTransferFee } from './handling.js';
+import { chargesTransferFee, chargesAssistantFee } from './handling.js';
 
 // Ported directly from the prototype's billBreakdown / payoutBreakdown.
 // GST note (from the brief): payout amounts are GST-inclusive — GST is
@@ -33,6 +33,13 @@ export function billBreakdown(job, pricing, lineItems = []) {
   if (chargesTransferFee(job)) {
     lines.push({ label: 'Transfer fee', amount: pricing.transferFee.clientPrice });
   }
+  // A second person to help carry. Real labour, so it's charged for.
+  if (chargesAssistantFee(job)) {
+    lines.push({
+      label: 'Extra person to assist',
+      amount: Number(pricing.assistantFee?.clientPrice) || 0,
+    });
+  }
   if (isAfterHours) lines.push({ label: 'After hours / weekend surcharge', amount: pricing.afterHoursSurcharge });
   if (job.is_public_holiday) lines.push({ label: 'Public holiday surcharge', amount: pricing.publicHolidaySurcharge || 0 });
   if (isMidnight) lines.push({ label: 'Midnight fee (12am\u20136am)', amount: pricing.midnightFeeSurcharge || 0 });
@@ -59,6 +66,10 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
   const transferAmt = chargesTransferFee(job)
     ? (isAfterHours ? pricing.transferFee.vetAfterhours : pricing.transferFee.vetWeekday)
     : 0;
+  // The vet arranges and pays the assistant, so the payout carries it.
+  const assistantAmt = chargesAssistantFee(job)
+    ? Number(pricing.assistantFee?.vetPayout) || 0
+    : 0;
   const travelAmt = Number(job.extra_travel_fee) || 0;
 
   // Only the portion of each line item explicitly marked as passing
@@ -71,9 +82,12 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
     serviceName: service ? service.name : 'Service',
     serviceAmt,
     transferAmt,
+    assistantAmt,
     travelAmt,
     lineItemsAmt,
-    total: Math.round((serviceAmt + transferAmt + travelAmt + lineItemsAmt) * 100) / 100,
+    total: Math.round(
+      (serviceAmt + transferAmt + assistantAmt + travelAmt + lineItemsAmt) * 100
+    ) / 100,
   };
 }
 

@@ -71,13 +71,16 @@ export function requiresManualDispatch(job, pricing) {
     };
   }
 
-  // Nobody can help and no pickup arranged: the visit cannot physically
-  // go ahead until someone is found, so it must not be offered as though
-  // it were a normal job.
+  // 'needs_help' means the family has said nobody can lift the pet and
+  // hasn't yet chosen between a direct pickup and us sending a second
+  // person. It's an unresolved decision, not an outcome — and until
+  // it's resolved the visit can't be costed or staffed, so it must not
+  // be offered as though it were a normal job.
   if (job?.handling_help === 'needs_help') {
     return {
       manual: true,
-      reason: 'Nobody at the home can help carry the pet. Assistance needs arranging before a vet is booked.',
+      reason: 'Nobody at the home can lift the pet. Agree a direct pickup or an extra person with '
+        + 'the client before booking a vet.',
       weightKg,
     };
   }
@@ -98,11 +101,24 @@ export function chargesTransferFee(job) {
   return job?.handling_help !== 'direct_pickup';
 }
 
+/**
+ * Are we sending a second person with the vet?
+ *
+ * Real labour, so it's charged for — and the vet is paid a share, since
+ * they arrange and pay the assistant.
+ */
+export function chargesAssistantFee(job) {
+  return job?.handling_help === 'assistant';
+}
+
 export const HANDLING_LABELS = {
   not_needed: 'No transport needed',
   client_helps: 'Someone at home will help carry',
   direct_pickup: 'Crematorium partner collects directly',
-  needs_help: 'Nobody can help — assistance required',
+  assistant: 'We send a second person to help',
+  // Deliberately worded as unresolved: it needs a decision from admin,
+  // it is not a valid final state for a booking.
+  needs_help: 'NOBODY CAN HELP — needs resolving',
 };
 
 export const PACE_LABELS = {

@@ -2,6 +2,7 @@ export { apiFetch, setAccessToken, getAccessToken, API_URL } from './api.js';
 export { AuthProvider, useAuth } from './AuthContext.jsx';
 export { default as RequireAuth } from './RequireAuth.jsx';
 export { default as ErrorBoundary } from './ErrorBoundary.jsx';
+export { jobStatusBadges, jobStatusTone } from './jobStatus.js';
 export {
   registerServiceWorker,
   getPushSubscriptionStatus,

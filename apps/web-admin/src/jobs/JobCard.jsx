@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { jobStatusBadges, jobStatusTone } from '@goodbye-mate/web-shared';
 import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
 const STATUS_LABELS = {
@@ -23,7 +24,15 @@ const STATUS_BADGE_CLASS = {
 export default function JobCard({ job, showDate }) {
   return (
     <Link to={`/jobs/${job.id}`} style={styles.link}>
-      <div className="gm-card" style={styles.card}>
+      <div
+        className="gm-card"
+        style={{
+          ...styles.card,
+          // Scannable at arm's length. Redundant with the badges by
+          // design — the stripe finds the row, the words explain it.
+          borderLeft: `4px solid var(--gm-${jobStatusTone(job)})`,
+        }}
+      >
         <div style={styles.timeCol}>
           <div style={styles.time}>{formatTime(job.job_time)}</div>
           {showDate && <div style={styles.date}>{new Date(job.job_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</div>}
@@ -40,6 +49,21 @@ export default function JobCard({ job, showDate }) {
         </div>
         <div style={styles.statusCol}>
           <span className={`gm-badge ${STATUS_BADGE_CLASS[job.status]}`}>{STATUS_LABELS[job.status]}</span>
+          {/* Readiness, which is a different question from dispatch
+              state: the dispatch badge says whether a vet has it, these
+              say whether the visit can actually go ahead. Shared with
+              the vet app so the two can't disagree. */}
+          {jobStatusBadges(job)
+            .filter((b) => b.tone === 'brick')
+            .map((b) => (
+              <span
+                key={b.label}
+                className={`gm-badge gm-badge--${b.tone}`}
+                style={{ marginTop: 4 }}
+              >
+                {b.label}
+              </span>
+            ))}
           {job.dispatch_state === 'unassigned' && (
             <span className="gm-badge gm-badge--brick" style={{ marginTop: 4 }}>Needs manual assign</span>
           )}

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { jobStatusBadges, jobStatusTone } from '@goodbye-mate/web-shared';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchMyJobs } from './jobsApi.js';
@@ -141,7 +142,17 @@ function formatDay(dateStr) {
 function JobRow({ job, muted }) {
   return (
     <Link to={`/jobs/${job.id}`} style={styles.link}>
-      <div className="gm-card" style={{ ...styles.card, opacity: muted ? 0.6 : 1 }}>
+      <div
+        className="gm-card"
+        style={{
+          ...styles.card,
+          opacity: muted ? 0.6 : 1,
+          // Redundant with the badges on purpose: the stripe is what
+          // makes a list scannable at arm's length, the words are what
+          // make it readable.
+          borderLeft: `4px solid var(--gm-${jobStatusTone(job)})`,
+        }}
+      >
         {/* The DAY as well as the time. Upcoming jobs are sorted by
             date, so an 8pm job on Friday sits above a 4:35pm job on
             Sunday — correct, but it reads as broken sorting when only
@@ -157,8 +168,13 @@ function JobRow({ job, muted }) {
             <span style={styles.petName}>{job.pet_names || job.pet_name}</span>
             {job.vet_unread_messages && <span style={styles.unreadDot} title="New message" />}
             {job.admin_notes && <span style={styles.noteFlag} title="Note from admin">📌</span>}
-            {job.status === 'in_route' && <span className="gm-badge gm-badge--forest">On the way</span>}
-            {job.status === 'started' && <span className="gm-badge gm-badge--honey">In progress</span>}
+            {/* Shared with the admin board so the two can't disagree
+                about what "done" means. Every badge carries a word as
+                well as a colour — roughly one man in twelve can't
+                reliably separate red from green. */}
+            {jobStatusBadges(job).map((b) => (
+              <span key={b.label} className={`gm-badge gm-badge--${b.tone}`}>{b.label}</span>
+            ))}
           </div>
           <div style={styles.subline}>{job.client_name} · {job.suburb || job.postcode}</div>
         </div>

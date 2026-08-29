@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 import { jobStatusBadges, jobStatusTone } from '@goodbye-mate/web-shared';
 import { formatTime as formatTime } from '@goodbye-mate/web-shared/src/format.js';
 
@@ -35,7 +36,7 @@ export default function JobCard({ job, showDate }) {
       >
         <div style={styles.timeCol}>
           <div style={styles.time}>{formatTime(job.job_time)}</div>
-          {showDate && <div style={styles.date}>{new Date(job.job_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</div>}
+          {showDate && <div style={styles.date}>{formatJobDate(job.job_date)}</div>}
         </div>
         <div style={styles.mainCol}>
           <div style={styles.petRow}>

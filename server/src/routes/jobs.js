@@ -1086,8 +1086,18 @@ router.get('/messages/inbox', requireAuth, requireRole('admin'), asyncHandler(as
     JOIN users u ON u.id = m.sender_user_id
     ORDER BY j.id, m.created_at DESC
   `);
+  // DISTINCT ON forces ORDER BY to lead with j.id, so the rows come back
+  // in job-id order and have to be re-sorted by recency here. Bounded
+  // afterwards: without a limit this loads every thread ever created,
+  // and the inbox is opened constantly.
   rows.sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at));
-  res.json({ threads: rows });
+  const threads = rows.slice(0, 100);
+  res.json({
+    threads,
+    // Told plainly rather than silently truncated — an admin who can't
+    // find an old thread should know the list is capped.
+    truncated: rows.length > threads.length,
+  });
 }));
 
 // Manual assignment — either from the ranked list or the "assign any
@@ -1772,6 +1782,13 @@ router.post('/:id/complete', requireAuth, asyncHandler(async (req, res) => {
   const job = rows[0];
   if (!job) return res.status(404).json({ error: 'Job not found' });
 
+  // Ownership. This took a job id and nothing else, so ANY authenticated
+  // vet could complete ANY job — including another vet's, which marks
+  // work done that never happened and moves it into a payout run.
+  if (!(await canAccessRecord(req, job))) {
+    return res.status(403).json({ error: 'This job is not assigned to you.' });
+  }
+
   const missing = [];
   if (!job.assigned_vet_id) missing.push('vet assigned');
   if (!job.consent_signed) missing.push('consent signed');
@@ -1824,6 +1841,15 @@ router.post('/:id/payment-received', requireAuth, requireRole('admin'), asyncHan
 // Admin legitimately needs to record this — e.g. the vet phoned it in,
 // or is fixing up a job after the fact.
 router.post('/:id/procedure-done', requireAuth, requireRole('vet', 'admin'), asyncHandler(async (req, res) => {
+  // Ownership, before anything else. Unscoped, a vet could mark another
+  // vet's procedure done — which notifies the client that their pet has
+  // been put to sleep. There is no worse message to send in error.
+  const { rows: ownerRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  if (!ownerRows[0]) return res.status(404).json({ error: 'Job not found' });
+  if (!(await canAccessRecord(req, ownerRows[0]))) {
+    return res.status(403).json({ error: 'This job is not assigned to you.' });
+  }
+
   // Advance to 'started' — the vet is on site and the procedure has been
   // carried out. The job only becomes 'completed' once every task gate
   // (consent, payment, cremation if applicable) is satisfied, which is

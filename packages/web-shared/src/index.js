@@ -13,3 +13,4 @@ export {
 //   import '@goodbye-mate/web-shared/src/theme.css';
 // since CSS can't be re-exported through a JS barrel file.
 export { formatTime, formatHourCompact, formatMoney, formatExpiry, timeAgo, toDateKey } from './format.js';
+export { formatJobDate, jobDateInputValue } from './format.js';

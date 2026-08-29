@@ -75,3 +75,44 @@ export function timeAgo(iso) {
 export function toDateKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * A job's date, formatted safely.
+ *
+ * job_date is a DATE column with no time or zone. The API serialises it
+ * as "2026-09-15T00:00:00.000Z", and `new Date(that)` is interpreted as
+ * UTC midnight — which renders as the PREVIOUS day anywhere west of
+ * Greenwich. Australia is east of UTC so this happens to be safe today,
+ * but it's a latent bug that would appear the moment anyone views a job
+ * from overseas, and it's the same class of fault that has already
+ * bitten four times.
+ *
+ * Taking the date part and pinning it to local midnight removes the
+ * timezone from the question entirely.
+ *
+ * @param {string|Date|null} value
+ * @param {object} [opts] Intl.DateTimeFormat options
+ */
+export function formatJobDate(value, opts = { day: 'numeric', month: 'short' }) {
+  if (!value) return '';
+  const iso = value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-AU', opts);
+}
+
+/**
+ * YYYY-MM-DD from a job date, for date inputs and comparisons.
+ *
+ * String(aDate).slice(0, 10) yields "Tue Sep 15", which a date input
+ * silently rejects — so the field appears blank and an edit can wipe the
+ * booking's date.
+ */
+export function jobDateInputValue(value) {
+  if (!value) return '';
+  return value instanceof Date
+    ? value.toISOString().slice(0, 10)
+    : String(value).slice(0, 10);
+}

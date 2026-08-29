@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
@@ -167,7 +168,7 @@ export default function JobDetail() {
         <div style={styles.headerRow}>
           <div>
             <h1 style={styles.title}>{job.pet_names || job.pet_name}</h1>
-            <p style={styles.subtitle}>{job.job_number} · {job.client_name} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
+            <p style={styles.subtitle}>{job.job_number} · {job.client_name} · {formatJobDate(job.job_date, { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
           </div>
           {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
             <span className="gm-badge gm-badge--honey">{job.pet_behaviour}</span>

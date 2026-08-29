@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 import HandlingFields from './HandlingFields.jsx';
 import { updateJob } from './jobsApi.js';
 
@@ -35,7 +36,10 @@ export default function EditJobForm({ job, onCancel, onSaved }) {
     petWeight: job.pet_weight || '',
     petAge: job.pet_age || '',
     serviceType: job.service_type || 'euthanasia_only',
-    date: String(job.job_date || '').slice(0, 10),
+    // jobDateInputValue, not String(...).slice: a Date object
+    // stringifies to "Tue Sep 15", which a date input silently
+    // rejects — the field appears blank and saving wipes the date.
+    date: jobDateInputValue(job.job_date),
     time: String(job.job_time || '').slice(0, 5),
     timeEnd: String(job.job_time_end || '').slice(0, 5),
     notes: job.notes || '',
@@ -49,7 +53,7 @@ export default function EditJobForm({ job, onCancel, onSaved }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const timeChanged =
-    form.date !== String(job.job_date || '').slice(0, 10)
+    form.date !== jobDateInputValue(job.job_date)
     || form.time !== String(job.job_time || '').slice(0, 5);
 
   const save = async (e) => {

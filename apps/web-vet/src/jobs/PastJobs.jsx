@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 import { jobStatusBadges, jobStatusTone } from '@goodbye-mate/web-shared';
 import { Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
@@ -83,7 +84,7 @@ export default function PastJobs() {
                   }}
                 >
                   <div style={styles.dateCol}>
-                    <div style={styles.date}>{new Date(job.job_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</div>
+                    <div style={styles.date}>{formatJobDate(job.job_date)}</div>
                     <div style={styles.time}>{formatTime(job.job_time)}</div>
                   </div>
                   <div style={{ flex: 1 }}>

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 /**
  * Every pet on the visit, not just the mirrored first one.
  *
@@ -126,7 +127,7 @@ export default function JobDetail() {
         <Link to="/" style={styles.back}>← Jobs</Link>
 
         <h1 style={styles.title}>{petNames(job)}</h1>
-        <p style={styles.subtitle}>{job.job_number} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
+        <p style={styles.subtitle}>{job.job_number} · {formatJobDate(job.job_date, { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}</p>
         {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
           <span className="gm-badge gm-badge--honey" style={{ marginTop: 8 }}>{job.pet_behaviour}</span>
         )}

@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import TerritoryMap from '../maps/TerritoryMap.jsx';
 import WeeklyAvailabilityGrid from './WeeklyAvailabilityGrid.jsx';
-import AvailabilityCalendar from './AvailabilityCalendar.jsx';
+import { AvailabilityCalendar } from '@goodbye-mate/web-shared';
 import { setDateOverride } from './vetsApi.js';
 import { fetchVetReliability, fetchVet, fetchTerritory, updateVetProfile, approveVet, deactivateVet } from './vetsApi.js';
 

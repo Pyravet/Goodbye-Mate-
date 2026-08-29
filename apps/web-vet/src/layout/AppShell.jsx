@@ -25,6 +25,9 @@ export default function AppShell({ children }) {
         <NavLink to="/offers" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Offers</span>
         </NavLink>
+        <NavLink to="/availability" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
+          <span style={styles.tabLabel}>Availability</span>
+        </NavLink>
         <NavLink to="/messages" style={({ isActive }) => ({ ...styles.tab, ...(isActive ? styles.tabActive : {}) })}>
           <span style={styles.tabLabel}>Messages</span>
         </NavLink>

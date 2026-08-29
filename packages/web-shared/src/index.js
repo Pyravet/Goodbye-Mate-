@@ -14,3 +14,6 @@ export {
 // since CSS can't be re-exported through a JS barrel file.
 export { formatTime, formatHourCompact, formatMoney, formatExpiry, timeAgo, toDateKey } from './format.js';
 export { formatJobDate, jobDateInputValue } from './format.js';
+
+export { default as AvailabilityCalendar } from './AvailabilityCalendar.jsx';
+export { isVetAvailableOnDate } from './availabilityHelpers.js';

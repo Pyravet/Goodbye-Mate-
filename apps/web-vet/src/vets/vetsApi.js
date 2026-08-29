@@ -21,8 +21,9 @@ export async function setDateOverride(vetId, date, available) {
     method: 'PUT',
     body: JSON.stringify({ available }),
   });
-  if (!res.ok) throw new Error('Failed to save date override');
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save that date');
+  return data;
 }
 
 export async function fetchEarnings(vetId) {

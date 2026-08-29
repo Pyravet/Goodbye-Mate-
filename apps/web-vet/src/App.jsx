@@ -14,6 +14,7 @@ import MessagesPage from './messages/MessagesPage.jsx';
 import OffersPage from './jobs/OffersPage.jsx';
 import DaySheet from './jobs/DaySheet.jsx';
 import ClinicPortal from './clinic/ClinicPortal.jsx';
+import AvailabilityPage from './vets/AvailabilityPage.jsx';
 import { useAuth } from './AuthContext.jsx';
 
 /**
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/offers" element={<RequireAuth><VetOnly><OffersPage /></VetOnly></RequireAuth>} />
           <Route path="/messages" element={<RequireAuth><VetOnly><MessagesPage /></VetOnly></RequireAuth>} />
           <Route path="/messages/:id" element={<RequireAuth><VetOnly><MessagesPage /></VetOnly></RequireAuth>} />
+          <Route path="/availability" element={<RequireAuth><VetOnly><AvailabilityPage /></VetOnly></RequireAuth>} />
           <Route path="/profile" element={<RequireAuth><VetOnly><Profile /></VetOnly></RequireAuth>} />
         </Routes>
       </BrowserRouter>

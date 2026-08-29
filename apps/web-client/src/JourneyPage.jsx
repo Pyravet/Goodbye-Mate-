@@ -118,7 +118,34 @@ export default function JourneyPage() {
   const activeIndex = steps.findIndex((s) => !s.done);
   const active = activeIndex === -1 ? steps.length - 1 : activeIndex;
 
-  const onConsentSigned = () => setData((d) => ({ ...d, job: { ...d.job, consentSigned: true } }));
+  /**
+   * A pet's consent was signed.
+   *
+   * Marks THAT pet signed, and the job only when none are left. Setting
+   * the job flag after the first signature closed the consent step and
+   * the second pet's form was never shown — which is why a two-pet
+   * visit only ever collected one consent.
+   *
+   * @param {Array<{id:string}>} remaining pets still unsigned, from the server
+   */
+  const onConsentSigned = (remaining) => setData((d) => {
+    const stillUnsigned = remaining ?? [];
+    const signedIds = new Set(
+      (d.content?.pets || [])
+        .filter((p) => !stillUnsigned.some((r) => r.id === p.id))
+        .map((p) => p.id)
+    );
+    return {
+      ...d,
+      content: {
+        ...d.content,
+        pets: (d.content?.pets || []).map((p) =>
+          signedIds.has(p.id) ? { ...p, consentSigned: true } : p),
+      },
+      // Only when every pet is done — the same rule the server applies.
+      job: { ...d.job, consentSigned: stillUnsigned.length === 0 },
+    };
+  });
   const onPaid = () => setData((d) => ({ ...d, job: { ...d.job, paymentStatus: 'paid' } }));
 
   return (
@@ -339,14 +366,17 @@ function ConsentSection({ token, content, job, isActive, onSigned, expanded, onT
       // the journey. Carrying the previous signature over would let
       // someone submit the same drawing for a different animal without
       // noticing.
-      if (result?.remaining?.length > 0) {
+      // The server tells us exactly who is left. Passing it up is what
+      // keeps the step open for the next pet.
+      const remaining = result?.remaining ?? [];
+      if (remaining.length > 0) {
         setSignature(null);
         setName('');
         setError('');
-        onSigned();
+        onSigned(remaining);
         return;
       }
-      onSigned();
+      onSigned([]);
     } catch (err) {
       setError(err.message);
     } finally {

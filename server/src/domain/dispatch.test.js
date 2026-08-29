@@ -179,3 +179,14 @@ test('boolean overrides still work exactly as before', () => {
   assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '23:00'), true, 'true = all day');
   assert.equal(isVetAvailableAtDateTime(vet, '2026-09-13', '09:00'), false, 'false = not at all');
 });
+
+test('dispatch honours availability at ANY hour, including overnight', () => {
+  // The weekly grid only rendered 6am–9pm, so a vet could not tick a
+  // 10pm call-out and "select all day" silently wiped one that existed —
+  // while dispatch happily matched it. The grid now covers all 24 hours;
+  // this asserts the engine side that made the gap matter.
+  const vet = { weekly_hours: { sun: { 22: true, 3: true } }, date_overrides: {} };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '22:00'), true, '10pm');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '03:00'), true, '3am');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '12:00'), false, 'midday not ticked');
+});

@@ -10,7 +10,12 @@ const DAYS = [
   { key: 'sat', label: 'Sat' },
   { key: 'sun', label: 'Sun' },
 ];
-const HOURS = Array.from({ length: 16 }, (_, i) => i + 6); // 6am – 9pm
+// All 24 hours. Dispatch honours any hour, and there's a whole
+// after-hours pricing band — but the grid only rendered 6am–9pm, so
+// a vet could not tick a 10pm call-out, an existing one was
+// invisible, and 'select all day' REBUILT the day from this list
+// and silently wiped it.
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 function formatHour(h) {
   const period = h >= 12 ? 'pm' : 'am';

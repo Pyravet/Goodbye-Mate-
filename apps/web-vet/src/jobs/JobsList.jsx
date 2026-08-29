@@ -25,9 +25,26 @@ export default function JobsList() {
   // Offers live on their own Offers screen — see OffersPage. They are
   // deliberately NOT shown here: the same decision in two places lets
   // one copy go stale after the vet acts on the other.
-  const assigned = jobs
-    .filter((j) => j.assigned_vet_id && j.status !== 'completed' && j.status !== 'cancelled')
-    .sort((a, b) => (a.job_date + a.job_time).localeCompare(b.job_date + b.job_time));
+  // Today, in the vet's own timezone. A job on today's date is still
+  // upcoming right up until midnight — using a timestamp would drop the
+  // afternoon's work off the list at lunchtime.
+  const todayKey = new Date().toLocaleDateString('en-CA');
+
+  const active = jobs.filter(
+    (j) => j.assigned_vet_id && j.status !== 'completed' && j.status !== 'cancelled'
+  );
+
+  // UPCOMING means today or later. Filtering on status alone left a job
+  // from last week sitting under "Upcoming" indefinitely, which is how a
+  // vet ends up scrolling past three dead entries to find tomorrow's
+  // work — and can't tell what's real.
+  const assigned = active.filter((j) => dateKey(j.job_date) >= todayKey).sort(byWhen);
+
+  // Past but never closed off. Surfaced separately rather than hidden:
+  // these are jobs that actually happened and were never completed, and
+  // the vet is the only person who can say what became of them.
+  const overdue = active.filter((j) => dateKey(j.job_date) < todayKey).sort(byWhen);
+
   const completed = jobs.filter((j) => j.status === 'completed');
 
 
@@ -82,6 +99,26 @@ function Section({ title, children, action }) {
  * Relative labels for the next two days because that's how a vet thinks
  * about their week; an explicit date beyond that.
  */
+/**
+ * A sortable YYYY-MM-DD key.
+ *
+ * node-postgres returns DATE columns as Date objects, and the old sort
+ * did `a.job_date + a.job_time`, which stringifies to "Sat Aug 22 2026
+ * ...". That compares WEEKDAY NAMES alphabetically — "Fri Aug 28" sorts
+ * before "Sat Aug 22" — so the order was wrong whenever two jobs fell
+ * on different weekdays.
+ */
+function dateKey(value) {
+  if (!value) return '';
+  return value instanceof Date
+    ? value.toLocaleDateString('en-CA')
+    : String(value).slice(0, 10);
+}
+
+function byWhen(a, b) {
+  return (dateKey(a.job_date) + a.job_time).localeCompare(dateKey(b.job_date) + b.job_time);
+}
+
 function formatDay(dateStr) {
   if (!dateStr) return '';
   // node-postgres returns DATE columns as Date objects, and

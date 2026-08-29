@@ -123,3 +123,59 @@ test('a vet on leave scores below the dispatch cutoff', () => {
   assert.equal(ranked.onLeave, true);
   assert.ok(ranked.score <= -150, `score ${ranked.score} must be at or below the -150 cutoff`);
 });
+
+// --- Per-date hour ranges ---
+
+test('a date range makes the vet available only within it', () => {
+  // "1pm to 10:30pm on the 6th" — the case the whole-day boolean
+  // couldn't express.
+  const vet = { weekly_hours: {}, date_overrides: { '2026-09-06': [{ start: '13:00', end: '22:30' }] } };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '12:59'), false, 'before the range');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '13:00'), true, 'the first minute');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '22:29'), true, 'the last minute');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '22:30'), false, 'the end is exclusive');
+});
+
+test('half-hour ends are honoured to the minute', () => {
+  // Rounding 10:30pm to 10pm loses the vet work; rounding to 11pm sends
+  // them out after they've stopped.
+  const vet = { weekly_hours: {}, date_overrides: { '2026-09-06': [{ start: '09:00', end: '17:30' }] } };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '17:15'), true);
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '17:29'), true);
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '17:30'), false);
+});
+
+test('several ranges on one date all count', () => {
+  // A vet working a morning and an evening, with a break between.
+  const vet = {
+    weekly_hours: {},
+    date_overrides: { '2026-09-06': [{ start: '09:00', end: '11:00' }, { start: '15:00', end: '18:00' }] },
+  };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '10:00'), true);
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '13:00'), false, 'the gap between');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '16:00'), true);
+});
+
+test('an EMPTY range list means unavailable, not "use the usual hours"', () => {
+  // The dangerous case: deleting every range must not silently restore
+  // the weekly pattern the vet was overriding.
+  const vet = { weekly_hours: { sun: { 9: true, 10: true } }, date_overrides: { '2026-09-06': [] } };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '09:00'), false);
+  assert.equal(isVetAvailableOnDate(vet, '2026-09-06'), false);
+});
+
+test('a date range takes precedence over the weekly pattern', () => {
+  const vet = {
+    weekly_hours: { sun: { 9: true, 10: true } },
+    date_overrides: { '2026-09-06': [{ start: '13:00', end: '17:00' }] },
+  };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '09:00'), false, 'usual hours no longer apply');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '14:00'), true);
+});
+
+test('boolean overrides still work exactly as before', () => {
+  // Existing data is all booleans; this must not regress.
+  const vet = { weekly_hours: { sun: { 9: true } }, date_overrides: { '2026-09-06': true, '2026-09-13': false } };
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-06', '23:00'), true, 'true = all day');
+  assert.equal(isVetAvailableAtDateTime(vet, '2026-09-13', '09:00'), false, 'false = not at all');
+});

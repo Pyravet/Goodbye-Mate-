@@ -14,6 +14,9 @@ const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
  */
 export function isVetAvailableOnDate(vet, dateStr) {
   const override = vet?.date_overrides ? vet.date_overrides[dateStr] : undefined;
+  // Hour ranges: available if any exist. An empty list means the date
+  // was set to "not working", not "fall back to the weekly pattern".
+  if (Array.isArray(override)) return override.length > 0;
   if (override !== undefined) return override;
   const dayKey = DAY_KEYS[new Date(`${dateStr}T00:00:00`).getDay()];
   const hours = vet?.weekly_hours?.[dayKey] || {};

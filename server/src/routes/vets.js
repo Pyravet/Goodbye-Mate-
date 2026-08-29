@@ -434,7 +434,26 @@ router.put('/:vetId/weekly-hours', requireAuth, asyncHandler(async (req, res) =>
 
 // One-off date overrides — blocked/available for a specific calendar date.
 router.put('/:vetId/date-overrides/:date', requireAuth, asyncHandler(async (req, res) => {
-  const { available } = req.body; // boolean, or null to clear the override
+  // Three shapes, all valid:
+  //   null           clear the override, fall back to the weekly pattern
+  //   true / false   available or unavailable ALL day
+  //   [{start,end}]  specific hours for this date only
+  const { available } = req.body;
+
+  // Validated because these feed dispatch directly: a malformed range
+  // would silently make a vet look unavailable, and nobody would know
+  // why they'd stopped being offered work.
+  if (Array.isArray(available)) {
+    for (const r of available) {
+      const ok = /^([01]\d|2[0-3]):[0-5]\d$/.test(r?.start) && /^([01]\d|2[0-3]):[0-5]\d$/.test(r?.end);
+      if (!ok) return res.status(400).json({ error: 'Each time must be in HH:MM format.' });
+      if (r.end <= r.start) {
+        return res.status(400).json({ error: 'A finish time must be after its start time.' });
+      }
+    }
+  } else if (available !== null && typeof available !== 'boolean') {
+    return res.status(400).json({ error: 'Invalid availability value.' });
+  }
   const { rows: vetRows } = await query('SELECT user_id, date_overrides FROM vets WHERE id = $1', [req.params.vetId]);
   if (!vetRows[0]) return res.status(404).json({ error: 'Vet not found' });
   if (req.user.role !== 'admin' && req.user.sub !== vetRows[0].user_id) {

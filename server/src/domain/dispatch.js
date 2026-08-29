@@ -37,10 +37,35 @@ export function isVetOnLeave(vet, dateStr) {
   return leave.some((l) => d >= toDateStr(l.starts_on) && d <= toDateStr(l.ends_on));
 }
 
+/**
+ * Minutes since midnight from "HH:MM".
+ * Ranges are stored to the minute so a vet can finish at 10:30pm —
+ * whole hours can't express that, and rounding it to 10pm or 11pm
+ * either loses them work or sends them out after they've stopped.
+ */
+function toMinutes(timeStr) {
+  const [h, m] = String(timeStr || '00:00').split(':');
+  return (Number(h) || 0) * 60 + (Number(m) || 0);
+}
+
 export function isVetAvailableAtDateTime(vet, dateStr, timeStr) {
   const override = vet.date_overrides ? vet.date_overrides[dateStr] : undefined;
+
+  // Whole-day overrides, the original shape. Still honoured.
   if (override === false) return false;
   if (override === true) return true;
+
+  // Hour ranges for a specific date: [{ start: '13:00', end: '22:30' }].
+  // Takes precedence over the weekly pattern, because it was set for
+  // this date deliberately.
+  if (Array.isArray(override)) {
+    // An explicitly EMPTY list means "set for this date, working none of
+    // it" — not "fall back to the usual hours", which would silently
+    // undo what the vet just said.
+    if (override.length === 0) return false;
+    const mins = toMinutes(timeStr);
+    return override.some((r) => mins >= toMinutes(r.start) && mins < toMinutes(r.end));
+  }
 
   const dayKey = DAY_KEYS[new Date(`${dateStr}T00:00:00`).getDay()];
   const hour = Number((timeStr || '00:00').split(':')[0]);
@@ -49,6 +74,7 @@ export function isVetAvailableAtDateTime(vet, dateStr, timeStr) {
 
 export function isVetAvailableOnDate(vet, dateStr) {
   const override = vet.date_overrides ? vet.date_overrides[dateStr] : undefined;
+  if (Array.isArray(override)) return override.length > 0;
   if (override !== undefined) return override;
   const dayKey = DAY_KEYS[new Date(`${dateStr}T00:00:00`).getDay()];
   const hours = vet.weekly_hours?.[dayKey] || {};

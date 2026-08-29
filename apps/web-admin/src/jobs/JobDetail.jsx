@@ -3,7 +3,7 @@ import { formatJobDate, jobDateInputValue } from '@goodbye-mate/web-shared';
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { apiFetch } from '../api.js';
-import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, fetchSuggestedVets, nudgeClient, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
+import { fetchJob, completeJob, downloadInvoice, downloadQuote, downloadRcti, emailDocument, sendQuoteEverywhere, sendJourneyLink, assignVet, fetchDispatchDebug, redispatchJob, openConsentPdf, fetchCancellationPreview, fetchSuggestedVets, nudgeClient, deleteJob, saveAdminNotes, cancelJob, reinstateJob, refundJob } from './jobsApi.js';
 import JobCharges from './JobCharges.jsx';
 import OfferControl from './OfferControl.jsx';
 import EditJobForm from './EditJobForm.jsx';
@@ -324,6 +324,10 @@ export default function JobDetail() {
 
             <Card title="Notes for the vet (from the office)">
               <AdminNotesCard jobId={id} initial={job.admin_notes} />
+            </Card>
+
+            <Card title="Delete this booking">
+              <DeleteJobCard job={job} jobId={id} />
             </Card>
 
             <Card title="Job status">
@@ -711,6 +715,76 @@ function AssignVetControl({ job, onAssigned }) {
  * knows something the schedule doesn't — the family just rang, or the
  * visit is tomorrow and consent still isn't signed.
  */
+/**
+ * Permanent deletion, for mistakes.
+ *
+ * Deliberately more friction than Cancel: typing the job number, and a
+ * reason. Cancelling keeps the record and is right for a real booking
+ * that isn't going ahead; this is for a duplicate or a test that
+ * shouldn't have existed. It cannot be undone.
+ */
+function DeleteJobCard({ job, jobId }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const remove = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await deleteJob(jobId, { confirm, reason });
+      navigate('/');
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <>
+        <p style={styles.docHint}>
+          Removes the booking and everything attached to it, permanently. For duplicates and
+          test bookings — to end a real booking, cancel it instead so the record survives.
+        </p>
+        <button onClick={() => setOpen(true)} style={styles.deleteBtn}>Delete permanently</button>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <p style={styles.deleteWarn}>
+        This cannot be undone. The pets, messages, notes and offer history go with it.
+      </p>
+      {error && <p style={styles.actionError}>{error}</p>}
+      <label style={styles.label}>
+        Type <strong>{job.job_number}</strong> to confirm
+        <input value={confirm} onChange={(e) => setConfirm(e.target.value)} style={styles.input} />
+      </label>
+      <label style={styles.label}>
+        Why (recorded in the audit log)
+        <input value={reason} onChange={(e) => setReason(e.target.value)} style={styles.input} />
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => { setOpen(false); setError(''); }} style={styles.secondaryBtn}>
+          Keep it
+        </button>
+        <button
+          onClick={remove}
+          disabled={busy || confirm !== job.job_number}
+          style={styles.deleteBtn}
+        >
+          {busy ? 'Deleting…' : 'Delete permanently'}
+        </button>
+      </div>
+    </>
+  );
+}
+
 function NudgeCard({ job, jobId, onSent }) {
   const [busy, setBusy] = useState('');
   const [result, setResult] = useState('');
@@ -1050,6 +1124,12 @@ const styles = {
   reviewComment: { fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' },
   clinicName: { fontSize: 15, fontWeight: 600 },
   clinicPhone: { fontSize: 13, color: 'var(--gm-forest)', textDecoration: 'none', display: 'block', marginTop: 2 },
+  // Referenced by the delete card's "Keep it" button, which had no
+  // style at all — lint doesn't flag a missing style key, so it would
+  // simply have rendered as a bare browser button.
+  secondaryBtn: { flex: 1, background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '10px 16px', fontSize: 13 },
+  deleteBtn: { flex: 1, background: '#fff', color: 'var(--gm-brick)', border: '1px solid var(--gm-brick)', borderRadius: 'var(--gm-radius-sm)', padding: '10px 16px', fontSize: 13, fontWeight: 500 },
+  deleteWarn: { fontSize: 12, color: 'var(--gm-brick)', background: '#F5E3E0', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)', marginBottom: 10, lineHeight: 1.5 },
   nudgeBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '10px', fontSize: 13, fontWeight: 500, marginTop: 8 },
   consentBtn: { width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '8px', fontSize: 12, fontWeight: 500, marginBottom: 10 },
   editBtn: { marginTop: 12, width: '100%', background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', padding: '9px', fontSize: 13, fontWeight: 500 },

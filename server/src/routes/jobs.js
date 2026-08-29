@@ -3044,4 +3044,113 @@ router.post('/:id/nudge', requireAuth, requireRole('admin'), asyncHandler(async 
   res.json({ ok: true, sentTo: job.client_phone, kind: parsed.data.kind });
 }));
 
+
+/**
+ * DELETE /jobs/:id — remove a job and its records entirely.
+ *
+ * Distinct from cancelling, which keeps the record. This is for
+ * mistakes: a duplicate, a test booking, a job entered against the wrong
+ * client. It is NOT the way to end a real booking that happened.
+ *
+ * REFUSED where the record has to survive. Eight tables cascade from
+ * jobs, and two of them hold financial records:
+ *
+ *   payments        cascade-deleted. A taken payment must remain
+ *                   reconcilable against the bank; deleting it makes the
+ *                   money unexplainable.
+ *   payout lines    orphaned. A vet has been PAID for this job, and an
+ *                   RCTI was issued naming it.
+ *
+ * Australian tax records must be kept five years. Deleting either would
+ * put a hole in that, so those jobs can only be cancelled.
+ */
+router.delete('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = rows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  const blockers = [];
+
+  // Money actually taken from the client.
+  const { rows: paid } = await query(
+    `SELECT count(*)::int AS c FROM payments
+     WHERE job_id = $1 AND status IN ('paid', 'refunded')`,
+    [req.params.id]
+  );
+  if (paid[0].c > 0 || job.payment_status === 'paid' || job.payment_status === 'refunded') {
+    blockers.push('a payment has been taken against it');
+  }
+
+  // Money already paid to a vet, and an RCTI issued naming this job.
+  // No .catch() fallback here. Swallowing an error would make a missing
+  // or renamed table look like "no payouts" and let a paid job be
+  // deleted — the guard failing open is worse than the request failing.
+  const { rows: payouts } = await query(
+    'SELECT count(*)::int AS c FROM vet_payout_period_items WHERE job_id = $1',
+    [req.params.id]
+  );
+  if (payouts[0].c > 0) {
+    blockers.push('it appears on a vet payout');
+  }
+
+  // A signed consent is a legal record of a decision about an animal's
+  // life. It does not get deleted because a booking was untidy.
+  const { rows: consented } = await query(
+    'SELECT count(*)::int AS c FROM job_pets WHERE job_id = $1 AND consent_signed = true',
+    [req.params.id]
+  );
+  if (consented[0].c > 0) {
+    blockers.push('a consent form has been signed');
+  }
+
+  if (job.status === 'completed') {
+    blockers.push('the visit has been completed');
+  }
+
+  if (blockers.length > 0) {
+    return res.status(409).json({
+      error: `This job can't be deleted because ${blockers.join(', and ')}. `
+        + 'Cancel it instead — that keeps the record while taking it out of the schedule.',
+      blockers,
+    });
+  }
+
+  // Typed confirmation. A delete button next to Cancel is too easy to
+  // hit by accident, and this cannot be undone.
+  if (req.body?.confirm !== job.job_number) {
+    return res.status(400).json({
+      error: `Type the job number (${job.job_number}) to confirm deletion.`,
+    });
+  }
+
+  // Logged BEFORE the delete, with enough detail to reconstruct what was
+  // removed — the audit row outlives the job, and afterwards nothing
+  // else records that this booking ever existed.
+  await logAction({
+    actorUserId: req.user.sub,
+    action: 'job_deleted',
+    targetType: 'job',
+    targetId: req.params.id,
+    metadata: {
+      jobNumber: job.job_number,
+      clientName: job.client_name,
+      clientPhone: job.client_phone,
+      petName: job.pet_name,
+      jobDate: job.job_date,
+      status: job.status,
+      reason: (req.body?.reason || '').slice(0, 500) || null,
+    },
+  });
+
+  // Cascades to pets, offers, messages, notes, line items and reviews.
+  await query('DELETE FROM jobs WHERE id = $1', [req.params.id]);
+
+  sendSlackMessage(
+    `🗑️ *Job deleted* — ${job.job_number} (${job.pet_name}, ${job.client_name}) `
+    + `by ${req.user.email || 'an admin'}. Reason: ${req.body?.reason || 'none given'}`
+  ).catch((e) => console.error('delete alert failed:', e.message));
+
+  res.json({ ok: true, deleted: job.job_number });
+}));
+
 export default router;

@@ -366,3 +366,20 @@ export async function removePet(jobId, petId) {
   if (!res.ok) throw new Error(data.error || 'Could not remove that pet');
   return data;
 }
+
+/**
+ * Permanently delete a job. For mistakes only — duplicates, test
+ * bookings, a job entered against the wrong client.
+ *
+ * The server refuses where a record must survive: a payment taken, a
+ * vet payout, a signed consent, or a completed visit.
+ */
+export async function deleteJob(id, { confirm, reason }) {
+  const res = await apiFetch(`/jobs/${id}`, {
+    method: 'DELETE',
+    body: JSON.stringify({ confirm, reason }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not delete that job');
+  return data;
+}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import DuplicateWarning from './DuplicateWarning.jsx';
+import HandlingFields from './HandlingFields.jsx';
 import { useNavigate } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import AddressAutocomplete from '../maps/AddressAutocomplete.jsx';
@@ -20,6 +21,7 @@ export default function NewJobForm() {
     clientName: '', clientPhone: '', clientEmail: '',
     address: '', suburb: '', postcode: '', state: 'VIC', lat: null, lng: null,
     petName: '', petType: '', petBreed: '', petWeight: '', petAge: '', petBehaviour: 'Friendly',
+    handlingHelp: 'not_needed', pace: 'normal', handlingNotes: '',
     serviceType: 'euthanasia_only',
     date: '', time: '',
     isPublicHoliday: false,

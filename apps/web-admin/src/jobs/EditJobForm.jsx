@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import HandlingFields from './HandlingFields.jsx';
 import { updateJob } from './jobsApi.js';
 
 const SERVICES = [
@@ -38,6 +39,9 @@ export default function EditJobForm({ job, onCancel, onSaved }) {
     time: String(job.job_time || '').slice(0, 5),
     timeEnd: String(job.job_time_end || '').slice(0, 5),
     notes: job.notes || '',
+    handlingHelp: job.handling_help || 'not_needed',
+    pace: job.pace || 'normal',
+    handlingNotes: job.handling_notes || '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -108,6 +112,8 @@ export default function EditJobForm({ job, onCancel, onSaved }) {
         window instead — usually more honest for an at-home visit, since the previous visit can't
         be rushed.
       </p>
+
+      <HandlingFields value={form} onChange={(v) => setForm((f) => ({ ...f, ...v }))} />
 
       <Field label="Notes"><textarea value={form.notes} onChange={set('notes')} rows={2} style={styles.input} /></Field>
 

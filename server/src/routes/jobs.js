@@ -117,6 +117,9 @@ const createJobSchema = z.object({
   serviceType: z.enum(['euthanasia_only', 'private_cremation', 'communal_cremation']),
   date: z.string().min(1), // YYYY-MM-DD
   time: z.string().min(1), // HH:MM — start of the window when timeEnd is set
+  handlingHelp: z.enum(['not_needed', 'client_helps', 'direct_pickup', 'needs_help', 'assistant']).optional(),
+  pace: z.enum(['slow', 'normal', 'quick']).optional(),
+  handlingNotes: z.string().trim().max(1000).optional().nullable(),
   timeEnd: z.string().regex(/^\d{2}:\d{2}$/).optional().nullable(),
   extraTravelFee: z.number().optional().default(0),
   isPublicHoliday: z.boolean().optional().default(false),
@@ -273,13 +276,15 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
     `INSERT INTO jobs (
       client_name, client_phone, client_email, address, suburb, postcode, state, lat, lng,
       pet_name, pet_type, pet_breed, pet_weight, pet_age, pet_behaviour,
-      service_id, service_type, job_date, job_time, job_time_end, time_category, extra_travel_fee, notes, is_public_holiday
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+      service_id, service_type, job_date, job_time, job_time_end, time_category, extra_travel_fee, notes, is_public_holiday,
+      handling_help, pace, handling_notes
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
     RETURNING *`,
     [
       d.clientName, d.clientPhone, d.clientEmail || null, d.address, d.suburb || null, d.postcode, d.state, d.lat ?? null, d.lng ?? null,
       d.petName, d.petType, d.petBreed || null, d.petWeight || null, d.petAge || null, d.petBehaviour || 'Friendly',
       d.serviceId, d.serviceType, d.date, d.time, d.timeEnd || null, timeCategory, d.extraTravelFee || 0, d.notes || null, d.isPublicHoliday || false,
+      d.handlingHelp || 'not_needed', d.pace || 'normal', d.handlingNotes || null,
     ]
   );
   const job = rows[0];
@@ -2485,7 +2490,9 @@ const updateJobSchema = z.object({
   time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   // Empty string clears the window back to a fixed time.
   timeEnd: z.union([z.string().regex(/^\d{2}:\d{2}$/), z.literal('')]).optional().nullable(),
-  notes: z.string().trim().optional().nullable(),
+  handlingHelp: z.enum(['not_needed', 'client_helps', 'direct_pickup', 'needs_help', 'assistant']).optional(),
+  pace: z.enum(['slow', 'normal', 'quick']).optional(),
+  handlingNotes: z.string().trim().max(1000).optional().nullable(),
 });
 
 /**
@@ -2549,8 +2556,11 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
                             ELSE job_time_end END,
        time_category = $17::job_time_category,
        notes         = CASE WHEN $18::text IS NOT NULL THEN $18 ELSE notes END,
+       handling_help = COALESCE($19, handling_help),
+       pace          = COALESCE($20, pace),
+       handling_notes = CASE WHEN $21::text IS NOT NULL THEN $21 ELSE handling_notes END,
        updated_at    = now()
-     WHERE id = $19
+     WHERE id = $22
      RETURNING *`,
     [
       d.clientName ?? null, d.clientPhone ?? null, d.clientEmail ?? null,
@@ -2560,6 +2570,7 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
       d.date ?? null, d.time ?? null, d.timeEnd ?? null,
       timeCategory,
       d.notes ?? null,
+      d.handlingHelp ?? null, d.pace ?? null, d.handlingNotes ?? null,
       req.params.id,
     ]
   );

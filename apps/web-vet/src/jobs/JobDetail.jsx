@@ -1,4 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
+const HANDLING_LABELS = {
+  not_needed: 'Small pet — no help needed',
+  client_helps: 'Someone at home will help carry',
+  direct_pickup: 'Cremation partner collects directly',
+  assistant: 'A second person is coming to help',
+  needs_help: 'Nobody can help carry — not yet resolved',
+};
+const PACE_LABELS = {
+  slow: 'Slow and unhurried — the family want time',
+  normal: 'Normal pace',
+  quick: 'Keep it brief',
+};
 import { useParams, useNavigate, Link } from 'react-router';
 import AppShell from '../layout/AppShell.jsx';
 import { fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
@@ -160,7 +172,19 @@ export default function JobDetail() {
           </Card>
         )}
 
-        <Card title="Pet">
+        {/* What the vet is walking into. Weight and who carries are the
+    two things that decide whether they can physically do the job,
+    so they sit high rather than buried under the clinical detail. */}
+<Card title="Before you go">
+  <p style={styles.plain}>
+    <strong>{job.pet_weight || 'Weight not recorded'}</strong>
+  </p>
+  <p style={styles.subline2}>{HANDLING_LABELS[job.handling_help] || '—'}</p>
+  <p style={styles.subline2}>{PACE_LABELS[job.pace] || 'Normal pace'}</p>
+  {job.handling_notes && <p style={styles.subline2}>Access: {job.handling_notes}</p>}
+</Card>
+
+<Card title="Pet">
           <p style={styles.plain}>{job.pet_type}{job.pet_breed ? `, ${job.pet_breed}` : ''}</p>
           <p style={styles.subline2}>{[job.pet_weight, job.pet_age].filter(Boolean).join(' · ')}</p>
         </Card>

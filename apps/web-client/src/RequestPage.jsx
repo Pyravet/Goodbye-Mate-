@@ -47,6 +47,7 @@ export default function RequestPage() {
     address: '', suburb: '', postcode: '', state: '',
     petName: '', petType: '', petBreed: '', petAge: '',
     servicePreference: '', preferredTiming: '', message: '',
+    handlingHelp: '', pace: '',
     website: '', // honeypot — hidden from real users
   });
   const [status, setStatus] = useState('idle'); // idle | sending | sent
@@ -173,6 +174,37 @@ export default function RequestPage() {
             style={styles.input}
           />
         </Field>
+        {/* Asked here because it decides whether the visit can happen
+            at all — a vet works alone, and finding out on the doorstep
+            that nobody can lift a large dog is the worst possible
+            moment. No prices are shown: if they answer no, admin talks
+            it through on the phone, which is kinder than presenting a
+            grieving family with a menu of surcharges. */}
+        <Field label="If your pet needs to be carried to the vehicle, will someone be able to help?">
+          <select value={form.handlingHelp} onChange={set('handlingHelp')} style={styles.input}>
+            <option value="">Choose one…</option>
+            <option value="client_helps">Yes, someone here can help</option>
+            <option value="needs_help">No, we won&apos;t be able to help</option>
+            <option value="not_needed">My pet is small enough to carry easily</option>
+          </select>
+        </Field>
+        {form.handlingHelp === 'needs_help' && (
+          <p style={styles.helpNote}>
+            That&apos;s completely fine — we&apos;ll call you to sort it out. We can either send
+            an extra person with the vet, or arrange for our cremation partner to collect
+            directly. We&apos;ll explain both and what each costs before anything is booked.
+          </p>
+        )}
+
+        <Field label="How would you like the visit to go?">
+          <select value={form.pace} onChange={set('pace')} style={styles.input}>
+            <option value="">Choose one…</option>
+            <option value="slow">Slowly — we&apos;d like time to say goodbye</option>
+            <option value="normal">At a normal pace</option>
+            <option value="quick">Fairly quickly, please</option>
+          </select>
+        </Field>
+
         <Field label={copy.messageLabel}>
           <textarea value={form.message} onChange={set('message')} rows={4} style={styles.input} />
         </Field>
@@ -226,6 +258,7 @@ const styles = {
   field: { display: 'block', marginBottom: 12 },
   label: { display: 'block', fontSize: 12, color: 'var(--gm-ink-soft)', marginBottom: 4 },
   req: { color: 'var(--gm-brick)' },
+  helpNote: { fontSize: 13, lineHeight: 1.6, color: '#7A5A22', background: 'var(--gm-honey-soft)', padding: '11px 13px', borderRadius: 'var(--gm-radius-sm)', marginTop: -4, marginBottom: 14 },
   input: { width: '100%', padding: '11px 12px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 16, fontFamily: 'inherit', background: '#fff' },
   row: { display: 'flex', gap: 10 },
   submitBtn: { width: '100%', padding: '14px', marginTop: 18, borderRadius: 'var(--gm-radius-sm)', border: 'none', background: 'var(--gm-forest)', color: '#fff', fontSize: 16, fontWeight: 500 },

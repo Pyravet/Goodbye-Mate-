@@ -76,14 +76,48 @@ function Section({ title, children, action }) {
   );
 }
 
+/**
+ * "Today", "Tomorrow", or "Fri 28 Aug".
+ *
+ * Relative labels for the next two days because that's how a vet thinks
+ * about their week; an explicit date beyond that.
+ */
+function formatDay(dateStr) {
+  if (!dateStr) return '';
+  // node-postgres returns DATE columns as Date objects, and
+  // String(aDate) gives "Fri Aug 28 2026 ..." — slicing that to 10
+  // chars yields "Fri Aug 28", which parses as Invalid Date. Normalise
+  // both shapes. This exact trap has bitten twice before.
+  const iso = dateStr instanceof Date
+    ? dateStr.toISOString().slice(0, 10)
+    : String(dateStr).slice(0, 10);
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 function JobRow({ job, muted }) {
   return (
     <Link to={`/jobs/${job.id}`} style={styles.link}>
       <div className="gm-card" style={{ ...styles.card, opacity: muted ? 0.6 : 1 }}>
-        <div style={styles.timeCol}>{formatTime(job.job_time)}</div>
+        {/* The DAY as well as the time. Upcoming jobs are sorted by
+            date, so an 8pm job on Friday sits above a 4:35pm job on
+            Sunday — correct, but it reads as broken sorting when only
+            the time is shown. */}
+        <div style={styles.timeCol}>
+          <div style={styles.dayLabel}>{formatDay(job.job_date)}</div>
+          <div>{formatTime(job.job_time)}</div>
+        </div>
         <div style={{ flex: 1 }}>
           <div style={styles.petRow}>
-            <span style={styles.petName}>{job.pet_name}</span>
+            {/* All pets. A double euthanasia listed as one animal is
+                the wrong work at a glance. */}
+            <span style={styles.petName}>{job.pet_names || job.pet_name}</span>
             {job.vet_unread_messages && <span style={styles.unreadDot} title="New message" />}
             {job.admin_notes && <span style={styles.noteFlag} title="Note from admin">📌</span>}
             {job.status === 'in_route' && <span className="gm-badge gm-badge--forest">On the way</span>}
@@ -106,6 +140,7 @@ const styles = {
   empty: { color: 'var(--gm-ink-soft)', fontSize: 13 },
   link: { textDecoration: 'none', color: 'inherit', display: 'block' },
   card: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', marginBottom: 8 },
+  dayLabel: { fontSize: 11, color: 'var(--gm-ink-soft)', fontWeight: 400, marginBottom: 2 },
   timeCol: { fontFamily: 'var(--gm-font-display)', fontSize: 15, fontWeight: 600, color: 'var(--gm-forest-dark)', width: 60, flexShrink: 0 },
   petRow: { display: 'flex', alignItems: 'center', gap: 8 },
   noteFlag: { fontSize: 12, flexShrink: 0 },

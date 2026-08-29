@@ -389,7 +389,15 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   // the calendar — could show WHETHER a vet was assigned but never WHO,
   // which is the thing admin actually needs at a glance.
   const { rows } = await query(
-    `SELECT jobs.*, u.full_name AS vet_name
+    `SELECT jobs.*, u.full_name AS vet_name,
+       (
+         -- Every pet's name, so a double euthanasia doesn't appear in
+         -- the list as a single animal. Aggregated in this query rather
+         -- than fetched per row: this list loads on every vet's home
+         -- screen and on the admin board.
+         SELECT string_agg(p.name, ', ' ORDER BY p.sort_order)
+         FROM job_pets p WHERE p.job_id = jobs.id
+       ) AS pet_names
      FROM jobs
      LEFT JOIN vets v ON v.id = jobs.assigned_vet_id
      LEFT JOIN users u ON u.id = v.user_id

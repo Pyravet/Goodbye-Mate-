@@ -39,8 +39,10 @@ export async function saveTemplate(id, payload) {
   return res.json();
 }
 
-export async function fetchBrochurePdf(kind) {
-  const res = await apiFetch(`/settings/content/brochure/${kind}`);
+export async function fetchBrochurePdf(kind, state = 'ALL') {
+  const res = await apiFetch(
+    `/settings/content/brochure/${kind}?state=${encodeURIComponent(state)}`
+  );
   if (!res.ok) throw new Error('Failed to load brochure');
   const data = await res.json();
   return data.document; // { filename, uploaded_at } | null
@@ -55,19 +57,32 @@ function fileToBase64(file) {
   });
 }
 
-export async function uploadBrochurePdf(kind, file) {
+/**
+ * Upload a brochure for one state, or 'ALL' as the nationwide fallback.
+ *
+ * The state was never sent, so every upload saved as 'ALL' and
+ * overwrote the last one — which is why there was only ever one
+ * brochure despite the backend supporting per-state versions all along.
+ */
+export async function uploadBrochurePdf(kind, file, state = 'ALL') {
   const dataBase64 = await fileToBase64(file);
   const res = await apiFetch(`/settings/content/brochure/${kind}`, {
     method: 'PUT',
-    body: JSON.stringify({ filename: file.name, dataBase64 }),
+    body: JSON.stringify({ filename: file.name, dataBase64, state }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to upload brochure');
   return data;
 }
 
-export async function removeBrochurePdf(kind) {
-  const res = await apiFetch(`/settings/content/brochure/${kind}`, { method: 'DELETE' });
+export async function listBrochurePdfs(kind) {
+  const res = await apiFetch(`/settings/content/brochures/${kind}`);
+  if (!res.ok) throw new Error('Could not load brochures');
+  return (await res.json()).documents;
+}
+
+export async function removeBrochurePdf(kind, state = 'ALL') {
+  const res = await apiFetch(`/settings/content/brochure/${kind}?state=${encodeURIComponent(state)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to remove brochure');
   return res.json();
 }

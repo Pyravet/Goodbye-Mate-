@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import BrochureManager from './BrochureManager.jsx';
 import TwoFactorCard from './TwoFactorCard.jsx';
 import { fetchClientResources, addClientResource, removeClientResource, verifyEmail, sendTestEmail, fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
 
@@ -224,11 +225,19 @@ export default function ContentTab() {
 
       <Card title="Brochure PDFs">
         <p style={{ ...styles.hint, marginBottom: 14 }}>
-          Optional — attach an actual PDF brochure for each cremation option. If uploaded, clients see a
-          download link on their journey page alongside the text above.
+          Attach a PDF brochure for each cremation option. Different cremation partners operate
+          in different states, so you can upload one brochure per state — a booking gets its own
+          state&apos;s brochure, or the nationwide copy if there isn&apos;t one.
         </p>
-        <BrochureUploader kind="private_cremation" label="Private cremation brochure" />
-        <BrochureUploader kind="communal_cremation" label="Communal cremation brochure" />
+        <BrochureManager
+          kind="private_cremation"
+          label="Private cremation brochure, per state"
+        />
+        <div style={{ height: 18 }} />
+        <BrochureManager
+          kind="communal_cremation"
+          label="Communal cremation brochure, per state"
+        />
       </Card>
 
       <button onClick={onSave} disabled={saving} style={styles.saveBtn}>{saving ? 'Saving…' : saved ? 'Saved' : 'Save content'}</button>
@@ -455,66 +464,6 @@ function EmailDiagnostics() {
   );
 }
 
-function BrochureUploader({ kind, label }) {
-  const [doc, setDoc] = useState(undefined); // undefined = loading, null = none, object = present
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const load = () => {
-    fetchBrochurePdf(kind).then(setDoc).catch(() => setDoc(null));
-  };
-  useEffect(load, [kind]);
-
-  const onFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ''; // allow re-selecting the same filename later
-    if (!file) return;
-    if (file.type !== 'application/pdf') {
-      setError('Please choose a PDF file.');
-      return;
-    }
-    setError('');
-    setBusy(true);
-    try {
-      await uploadBrochurePdf(kind, file);
-      load();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onRemove = async () => {
-    setBusy(true);
-    try {
-      await removeBrochurePdf(kind);
-      load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div style={styles.brochureRow}>
-      <div style={styles.brochureLabel}>{label}</div>
-      {doc === undefined ? (
-        <span style={styles.hint}>Loading…</span>
-      ) : doc ? (
-        <div style={styles.brochureCurrent}>
-          <span className="gm-badge gm-badge--forest">📄 {doc.filename}</span>
-          <button onClick={onRemove} disabled={busy} style={styles.brochureRemoveBtn}>Remove</button>
-        </div>
-      ) : (
-        <label style={styles.brochureUploadBtn}>
-          {busy ? 'Uploading…' : 'Upload PDF'}
-          <input type="file" accept="application/pdf" onChange={onFileChange} disabled={busy} style={{ display: 'none' }} />
-        </label>
-      )}
-      {error && <p style={{ ...styles.hint, color: 'var(--gm-brick)' }}>{error}</p>}
-    </div>
-  );
-}
 
 function Card({ title, children }) {
   return (

@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { createBurstGate } from './schedule.js';
 import { createBackoff } from './backoff.js';
 import { notifyUser } from '../notifications/notify.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
@@ -22,10 +23,20 @@ const BUSINESS_TZ = 'Australia/Melbourne';
  */
 export function startReminderWorker() {
   const backoff = createBackoff('Reminder worker');
+  // Work in bursts and leave real gaps. Neon bills COMPUTE TIME and
+  // suspends after ~5 min idle; continuous polling meant it never
+  // suspended — 720 compute-hours a month against a ~191 allowance.
+  // Hourly is plenty: reminders are sent N hours before an appointment,
+  // so being up to an hour early or late is immaterial.
+  const gate = createBurstGate({ windowMinutes: 60, burstSeconds: 60 });
   setInterval(async () => {
     // Skip entirely while the database is refusing work — retrying
     // every 30s cannot help and burns the quota that's exhausted.
     if (backoff.shouldSkip()) return;
+    // Outside a burst, or outside working hours: don't touch the
+    // database at all. This gap is the whole point — it's what lets the
+    // compute suspend.
+    if (!gate.allow()) return;
     try {
       const { rows: settingsRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
       const config = settingsRows[0]?.config || {};
@@ -120,10 +131,18 @@ const CIVIL_END_HOUR = 19;
  */
 export function startReviewReminderWorker() {
   const backoff = createBackoff('Review reminder worker');
+  // Its own gate: this is a separate function and can't see the
+  // appointment worker's. Reviews are asked for days after a visit, so
+  // an hour either way is immaterial.
+  const gate = createBurstGate({ windowMinutes: 60, burstSeconds: 60 });
   setInterval(async () => {
     // Same guard as the other workers: pointless to retry against a
     // database that is refusing every query.
     if (backoff.shouldSkip()) return;
+    // Outside a burst, or outside working hours: don't touch the
+    // database at all. This gap is the whole point — it's what lets the
+    // compute suspend.
+    if (!gate.allow()) return;
     try {
       const { rows: settingsRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
       const config = settingsRows[0]?.config || {};

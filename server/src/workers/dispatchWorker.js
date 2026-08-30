@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { createBurstGate } from './schedule.js';
 import { createBackoff } from './backoff.js';
 import { startOrRollDispatch } from '../routes/jobs.js';
 
@@ -12,10 +13,25 @@ const CHECK_INTERVAL_MS = 30 * 1000;
 // rollover doesn't fire redundantly from every instance.
 export function startDispatchWorker() {
   const backoff = createBackoff('Dispatch worker');
+  // Work in bursts and leave real gaps. Neon bills COMPUTE TIME and
+  // suspends after ~5 min idle; continuous polling meant it never
+  // suspended — 720 compute-hours a month against a ~191 allowance.
+  // 15 minutes, not longer: an offer expires after 30, so a wider
+  // window would leave a family waiting up to an hour before the next
+  // vet is even asked. Responsiveness wins over the last few compute
+  // hours here.
+  const gate = createBurstGate({
+    windowMinutes: Number(process.env.DISPATCH_WINDOW_MINUTES) || 15,
+    burstSeconds: 60,
+  });
   setInterval(async () => {
     // Skip entirely while the database is refusing work — retrying
     // every 30s cannot help and burns the quota that's exhausted.
     if (backoff.shouldSkip()) return;
+    // Outside a burst, or outside working hours: don't touch the
+    // database at all. This gap is the whole point — it's what lets the
+    // compute suspend.
+    if (!gate.allow()) return;
     try {
       const { rows } = await query(
         `SELECT id, dispatch_offered_vet_id FROM jobs

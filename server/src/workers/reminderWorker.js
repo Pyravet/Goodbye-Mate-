@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { createBackoff } from './backoff.js';
 import { notifyUser } from '../notifications/notify.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
 import { isTemplateConfigured } from '../integrations/sms/templates.js';
@@ -20,7 +21,11 @@ const BUSINESS_TZ = 'Australia/Melbourne';
  * instance will send its own copy of each reminder.
  */
 export function startReminderWorker() {
+  const backoff = createBackoff('Reminder worker');
   setInterval(async () => {
+    // Skip entirely while the database is refusing work — retrying
+    // every 30s cannot help and burns the quota that's exhausted.
+    if (backoff.shouldSkip()) return;
     try {
       const { rows: settingsRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
       const config = settingsRows[0]?.config || {};
@@ -86,7 +91,9 @@ export function startReminderWorker() {
           }).catch((e) => console.error('reminder SMS failed:', e.message));
         }
       }
+      backoff.ok();
     } catch (err) {
+      backoff.fail(err);
       console.error('Reminder worker error:', err.message);
     }
   }, CHECK_INTERVAL_MS);
@@ -112,7 +119,11 @@ const CIVIL_END_HOUR = 19;
  * without a nudge reviews only come from the handful who happen to.
  */
 export function startReviewReminderWorker() {
+  const backoff = createBackoff('Review reminder worker');
   setInterval(async () => {
+    // Same guard as the other workers: pointless to retry against a
+    // database that is refusing every query.
+    if (backoff.shouldSkip()) return;
     try {
       const { rows: settingsRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
       const config = settingsRows[0]?.config || {};
@@ -157,7 +168,9 @@ export function startReviewReminderWorker() {
           }).catch((e) => console.error('review reminder SMS failed:', e.message));
         }
       }
+      backoff.ok();
     } catch (err) {
+      backoff.fail(err);
       console.error('Review reminder worker error:', err.message);
     }
   }, REVIEW_CHECK_INTERVAL_MS);

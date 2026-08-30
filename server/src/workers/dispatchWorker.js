@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { createBackoff } from './backoff.js';
 import { startOrRollDispatch } from '../routes/jobs.js';
 
 const CHECK_INTERVAL_MS = 30 * 1000;
@@ -10,7 +11,11 @@ const CHECK_INTERVAL_MS = 30 * 1000;
 // dedicated worker process, or a Postgres-backed job queue) so the
 // rollover doesn't fire redundantly from every instance.
 export function startDispatchWorker() {
+  const backoff = createBackoff('Dispatch worker');
   setInterval(async () => {
+    // Skip entirely while the database is refusing work — retrying
+    // every 30s cannot help and burns the quota that's exhausted.
+    if (backoff.shouldSkip()) return;
     try {
       const { rows } = await query(
         `SELECT id, dispatch_offered_vet_id FROM jobs
@@ -36,7 +41,9 @@ export function startDispatchWorker() {
         }
         await startOrRollDispatch(job.id);
       }
+      backoff.ok();
     } catch (err) {
+      backoff.fail(err);
       console.error('Dispatch worker error:', err);
     }
   }, CHECK_INTERVAL_MS);

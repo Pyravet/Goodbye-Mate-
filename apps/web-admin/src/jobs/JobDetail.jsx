@@ -836,6 +836,18 @@ function NudgeCard({ job, jobId, onSent }) {
       </p>
 
       <button
+        onClick={() => send('qol')}
+        disabled={!!busy}
+        style={styles.nudgeBtn}
+      >
+        {busy === 'qol' ? 'Sending…' : 'Send quality-of-life questions'}
+      </button>
+      <p style={styles.docHint}>
+        Eight questions to help them think it through. Nothing is recorded — it&apos;s for
+        them, and for the conversation with their vet.
+      </p>
+
+      <button
         onClick={() => send('review')}
         disabled={!!busy || !done}
         style={styles.nudgeBtn}

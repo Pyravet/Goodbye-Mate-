@@ -2954,7 +2954,7 @@ router.delete('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandle
 
 
 const nudgeSchema = z.object({
-  kind: z.enum(['finalise', 'review']),
+  kind: z.enum(['finalise', 'review', 'qol']),
 });
 
 /**
@@ -2982,7 +2982,12 @@ router.post('/:id/nudge', requireAuth, requireRole('admin'), asyncHandler(async 
 
   const link = `${process.env.CLIENT_APP_URL || ''}/${job.client_token}`;
 
-  if (parsed.data.kind === 'review') {
+  // The quality-of-life questionnaire. Sent BEFORE a booking is firm —
+  // often to someone who rang unsure whether it's time — so unlike the
+  // others it has no precondition beyond having a phone number.
+  if (parsed.data.kind === 'qol') {
+    // no gate: this is exactly the person who should receive it
+  } else if (parsed.data.kind === 'review') {
     // Asking for a review before the visit has happened would be
     // appalling. The worker gates on this too; so must the manual path.
     if (job.status !== 'completed') {
@@ -3006,9 +3011,16 @@ router.post('/:id/nudge', requireAuth, requireRole('admin'), asyncHandler(async 
     return res.status(503).json({ error: 'SMS is not configured, so nothing was sent.' });
   }
 
+  const qolLink = `${process.env.CLIENT_APP_URL || ''}/quality-of-life`;
   const template = parsed.data.kind === 'review' ? 'clientReviewReminder' : 'genericMessage';
   const vars = parsed.data.kind === 'review'
     ? { client_name: job.client_name, pet_name: job.pet_name, link }
+    : parsed.data.kind === 'qol'
+    ? {
+        message: `Hi ${job.client_name}, this may help you think through how `
+          + `${await petNamesTextFor(job)} is doing. It takes a couple of minutes and `
+          + `nothing is recorded: ${qolLink}`,
+      }
     : {
         message: `Hi ${job.client_name}, there are still a couple of steps to finish for `
           + `${job.pet_name}'s visit. You can complete them here: ${link}`,

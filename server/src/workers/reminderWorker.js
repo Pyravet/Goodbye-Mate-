@@ -1,7 +1,7 @@
 import { query } from '../db/pool.js';
 import { createBurstGate } from './schedule.js';
 import { createBackoff } from './backoff.js';
-import { notifyUser } from '../notifications/notify.js';
+import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { sendTemplatedSms, isMsg91Configured } from '../integrations/sms/msg91.js';
 import { isTemplateConfigured } from '../integrations/sms/templates.js';
 
@@ -81,6 +81,23 @@ export function startReminderWorker() {
         // Missing one is much better than that.
         await query('UPDATE jobs SET reminder_sent_at = now() WHERE id = $1', [job.id]);
 
+        // A reminder whose window closed while the worker was down is
+        // skipped permanently — the query is bounded on both sides, so
+        // it never comes back round. Tell someone rather than losing it
+        // silently: after a two-day outage that could be several vets
+        // who were never reminded of a visit.
+        const startsAt = new Date(job.starts_at);
+        if (startsAt < new Date(Date.now() - 15 * 60_000)) {
+          notifyAdmins({
+            title: 'A vet reminder was missed',
+            body: `${job.pet_name} (${job.job_number}) was due at `
+              + `${String(job.job_time).slice(0, 5)} and the reminder never went out. `
+              + 'Worth checking the vet knows.',
+            url: `/jobs/${job.id}`,
+            category: 'job',
+          }).catch((e) => console.error('missed-reminder notify failed:', e.message));
+        }
+
         const timeStr = String(job.job_time).slice(0, 5);
         const where = job.suburb || job.address || '';
 
@@ -109,7 +126,7 @@ export function startReminderWorker() {
     }
   }, CHECK_INTERVAL_MS);
 
-  console.log(`Appointment reminder worker started (checking every ${CHECK_INTERVAL_MS / 1000}s)`);
+  console.log('Appointment reminder worker started — bursts hourly, 6am-11pm.');
 }
 
 // Checked hourly, not every minute: the delay is measured in DAYS, so
@@ -194,5 +211,5 @@ export function startReviewReminderWorker() {
     }
   }, REVIEW_CHECK_INTERVAL_MS);
 
-  console.log(`Review reminder worker started (checking hourly)`);
+  console.log('Review reminder worker started — bursts hourly, 6am-11pm.');
 }

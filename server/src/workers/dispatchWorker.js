@@ -64,5 +64,8 @@ export function startDispatchWorker() {
     }
   }, CHECK_INTERVAL_MS);
 
-  console.log(`Dispatch rollover worker started (checking every ${CHECK_INTERVAL_MS / 1000}s)`);
+  console.log(
+    `Dispatch rollover worker started — bursts every ${Number(process.env.DISPATCH_WINDOW_MINUTES) || 15}min, `
+    + '6am-11pm. New bookings dispatch immediately and do not wait for a window.'
+  );
 }

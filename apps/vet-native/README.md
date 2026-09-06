@@ -9,6 +9,13 @@ half-new `node_modules` — which is what produces errors like
 
 If you already have a broken folder, that's fixable — see Troubleshooting.
 
+**SDK 57.** Apple only allows the LATEST Expo Go on the App Store — you
+cannot install an older one — so the project has to match whatever Expo
+Go currently ships. If you ever see "Project is incompatible with this
+version of Expo Go", that's what has happened: Expo released a new SDK
+and the App Store updated your Expo Go. The fix is to upgrade the
+project, not to downgrade the app.
+
 **Node 20 or 22.** Check with `node -v`. Node 24 is newer than this
 Expo version's toolchain was tested against.
 

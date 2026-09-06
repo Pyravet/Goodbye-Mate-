@@ -33,3 +33,25 @@ export async function removeLeave(vetId, leaveId) {
   if (!res.ok) throw new Error('Could not remove that leave');
   return res.json();
 }
+
+/**
+ * The signed-in vet's own record.
+ *
+ * Named fetchMe because that's what /vets/me returns — the whole
+ * envelope { vet, bankDetails }, not just the vet. Callers that only
+ * want the profile use fetchMyVetProfile above, which unwraps it.
+ */
+export async function fetchMe() {
+  const res = await apiFetch('/vets/me');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load your profile');
+  return data;
+}
+
+/** Today / this week / this month / all-time payout totals. */
+export async function fetchEarnings(vetId) {
+  const res = await apiFetch(`/vets/${vetId}/earnings`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load earnings');
+  return data;
+}

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { apiFetch, setAccessToken, getStoredRefreshToken, setStoredRefreshToken, API_URL } from '../api/client.js';
+import { apiFetch, setAccessToken, getStoredRefreshToken, setStoredRefreshToken, API_URL } from './api/client.js';
 
 const AuthContext = createContext(null);
 

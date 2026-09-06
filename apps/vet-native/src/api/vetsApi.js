@@ -55,3 +55,34 @@ export async function fetchEarnings(vetId) {
   if (!res.ok) throw new Error(data.error || 'Could not load earnings');
   return data;
 }
+
+/**
+ * Set or clear a single date's availability.
+ *
+ * @param {Array<{start:string,end:string}>|boolean|null} available
+ *   ranges for that date, true/false for a whole day, or null to clear
+ *   the override and fall back to the weekly pattern.
+ */
+export async function setDateOverride(vetId, date, available) {
+  const res = await apiFetch(`/vets/${vetId}/date-overrides/${date}`, {
+    method: 'PUT',
+    body: JSON.stringify({ available }),
+  });
+  const data = await res.json().catch(() => ({}));
+  // The server gives a specific reason — a finish before its start, a
+  // bad time format. Swallowing it leaves the vet with a failure and
+  // nothing to change.
+  if (!res.ok) throw new Error(data.error || 'Could not save that date');
+  return data;
+}
+
+/** Replace the weekly hour-by-hour pattern. */
+export async function updateWeeklyHours(vetId, weeklyHours) {
+  const res = await apiFetch(`/vets/${vetId}/weekly-hours`, {
+    method: 'PUT',
+    body: JSON.stringify(weeklyHours),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save your hours');
+  return data;
+}

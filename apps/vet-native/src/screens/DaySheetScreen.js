@@ -198,7 +198,10 @@ const styles = StyleSheet.create({
   pet: { fontSize: 18, fontWeight: '600', color: colors.ink },
   meta: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
   donePill: { backgroundColor: '#E3E9E1', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  donePillText: { fontSize: 11, color: colors.forest, fontWeight: '500' },
+  // forestDark, not forest: `forest` means "tappable" throughout this
+  // app, and this pill is a status badge. Reusing the interactive colour
+  // for a non-interactive element is what erodes trust in the UI.
+  donePillText: { fontSize: 11, color: colors.forestDark, fontWeight: '500' },
   noteBox: { backgroundColor: colors.honeySoft, borderRadius: 8, padding: 11, marginBottom: 10 },
   noteText: { fontSize: 13, color: '#7A5A22', lineHeight: 19 },
   noteLabel: { fontWeight: '600' },

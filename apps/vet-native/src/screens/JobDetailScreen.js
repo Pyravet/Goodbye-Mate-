@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   notes: { fontSize: 13, color: colors.inkSoft, marginTop: 8, fontStyle: 'italic' },
   linkText: { color: colors.forest, fontSize: 15, fontWeight: '600', marginTop: 6 },
   doneNote: { fontSize: 14, color: colors.forestDark },
-  doneBtn: { backgroundColor: colors.forest, borderRadius: 6, padding: 12, alignItems: 'center' },
+  doneBtn: { backgroundColor: colors.forest, borderRadius: 6, padding: 12, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   textarea: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 12, fontSize: 15, minHeight: 100, textAlignVertical: 'top' },
   saveBtn: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.forest, borderRadius: 6, padding: 10, alignItems: 'center', marginTop: 10 },
 });

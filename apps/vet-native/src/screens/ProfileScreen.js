@@ -323,7 +323,7 @@ const styles = StyleSheet.create({
   logoutBtn: { borderWidth: 1, borderColor: colors.line, borderRadius: 6, padding: 13, alignItems: 'center', marginTop: 24, marginBottom: 8, backgroundColor: '#fff' },
   logoutText: { color: colors.brick, fontSize: 14, fontWeight: '600' },
   stateRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
-  stateChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.lineSoft },
+  stateChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.lineSoft },
   stateChipActive: { backgroundColor: colors.forest, borderColor: colors.forest },
   stateChipText: { fontSize: 12, fontWeight: '600', color: colors.inkSoft },
   stateChipTextActive: { color: '#fff' },

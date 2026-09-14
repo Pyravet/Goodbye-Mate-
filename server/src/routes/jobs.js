@@ -646,11 +646,27 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
     petsByJob.get(pet.job_id).push(pet);
   }
 
-  const offers = withCounts.map((r) => ({
-    ...r,
-    pets: petsByJob.get(r.id) || [],
-    payout: payoutBreakdown(r, pricing, itemsByJob.get(r.id) || []).total,
-  }));
+  const offers = withCounts.map((r) => {
+    const pay = payoutBreakdown(r, pricing, itemsByJob.get(r.id) || []);
+    return {
+      ...r,
+      pets: petsByJob.get(r.id) || [],
+      payout: pay.total,
+      // The components, so the figure explains itself. A bare total on
+      // an after-hours double euthanasia with an assistant reads as a
+      // mistake — a vet can't sanity-check a number they can't see
+      // inside, and one that looks wrong doesn't get accepted.
+      payoutBreakdown: [
+        { label: r.petCount > 1 ? `Euthanasia × ${r.petCount}` : 'Euthanasia', amount: pay.serviceAmt },
+        { label: 'Transfer', amount: pay.transferAmt },
+        { label: 'Extra person', amount: pay.assistantAmt },
+        { label: 'Extra travel', amount: pay.travelAmt },
+        { label: 'Adjustments', amount: pay.lineItemsAmt },
+      // Zero lines dropped: "Extra travel $0.00" invites the question
+      // of why it's there at all.
+      ].filter((l) => Number(l.amount) > 0),
+    };
+  });
 
   res.json({ offers });
 }));

@@ -143,6 +143,18 @@ export default function OffersPage() {
                 {o.payout != null && (
                   <Row label="You'd earn" value={`$${Number(o.payout).toFixed(2)}`} />
                 )}
+                {/* Same breakdown the native app shows, so a vet sees
+                    the same explanation whichever they open. */}
+                {o.payoutBreakdown?.length > 1 && (
+                  <div style={styles.breakdown}>
+                    {o.payoutBreakdown.map((l) => (
+                      <div key={l.label} style={styles.breakdownRow}>
+                        <span>{l.label}</span>
+                        <span>${Number(l.amount).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {o.outcome === 'proposed' ? (
@@ -247,6 +259,8 @@ function Row({ label, value }) {
 }
 
 const styles = {
+  breakdown: { marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--gm-line-soft)' },
+  breakdownRow: { display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--gm-ink-soft)', padding: '1px 0' },
   page: { padding: '20px 16px' },
   title: { fontSize: 22, marginBottom: 14 },
   empty: { color: 'var(--gm-ink-soft)', fontSize: 14, lineHeight: 1.6 },

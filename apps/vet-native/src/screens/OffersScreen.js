@@ -137,6 +137,19 @@ export default function OffersScreen() {
               {o.payout != null && (
                 <Row label="You'd earn" value={`$${Number(o.payout).toFixed(2)}`} strong />
               )}
+              {/* What makes up that figure. Without it an after-hours
+                  double euthanasia with an assistant looks like a
+                  pricing error rather than a well-paid job. */}
+              {o.payoutBreakdown?.length > 1 && (
+                <View style={styles.breakdown}>
+                  {o.payoutBreakdown.map((l) => (
+                    <View key={l.label} style={styles.breakdownRow}>
+                      <Text style={styles.breakdownLabel}>{l.label}</Text>
+                      <Text style={styles.breakdownAmount}>${Number(l.amount).toFixed(2)}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
 
             {o.outcome === 'proposed' ? (
@@ -320,6 +333,10 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: colors.inkSoft, marginTop: 2 },
   pill: { backgroundColor: colors.honeySoft, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
   pillText: { fontSize: 11, color: '#7A5A22', fontWeight: '500' },
+  breakdown: { marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: colors.lineSoft },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 },
+  breakdownLabel: { fontSize: 12, color: colors.inkSoft },
+  breakdownAmount: { fontSize: 12, color: colors.inkSoft },
   detail: { borderTopWidth: 1, borderTopColor: colors.lineSoft, paddingTop: 10, marginBottom: 10 },
   row: { flexDirection: 'row', gap: 10, paddingVertical: 3 },
   rowLabel: { width: 74, fontSize: 12, color: colors.inkSoft },

@@ -1,4 +1,5 @@
 import { query } from '../db/pool.js';
+import { shouldDeliverPush } from '../domain/notifications.js';
 import { sendPushToUser } from '../integrations/push/webPush.js';
 import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 
@@ -36,6 +37,19 @@ export async function notifyUser(userId, { title, body, url, category, push = tr
   );
 
   if (!push) return;
+
+  // Respect the vet's pause and quiet hours — but only for the PUSH.
+  // The in-app notification above is always written, so nothing is
+  // lost: they see it next time they open the app rather than never.
+  // Reminders, cancellations and reassignments ignore both, because a
+  // vet who has committed to a job must hear about it changing.
+  const { rows: prefRows } = await query(
+    `SELECT notifications_paused_until, quiet_hours_start, quiet_hours_end
+     FROM users WHERE id = $1`,
+    [userId]
+  );
+  const decision = shouldDeliverPush(prefRows[0] || {}, category);
+  if (!decision.deliver) return;
 
   sendPushToUser(userId, { title, body, url })
     .catch((err) => console.error('web push failed:', err.message));

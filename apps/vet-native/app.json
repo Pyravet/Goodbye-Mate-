@@ -14,7 +14,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "au.com.goodbyemate.vet"
+      "bundleIdentifier": "au.com.goodbyemate.vet",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Used only when you tap \"On my way\", to work out a rough arrival time for the family. Your location is never stored or tracked."
+      }
     },
     "android": {
       "adaptiveIcon": {

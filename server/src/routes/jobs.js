@@ -42,6 +42,7 @@ import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.j
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
 import { getPets, syncPrimaryPet, createFirstPet, withPetCount, withPetCounts, petNamesText, petNamesTextFor } from '../domain/jobPets.js';
 import { requiresManualDispatch } from '../domain/handling.js';
+import { estimateEtaMinutes } from '../domain/notifications.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
 import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
@@ -1944,6 +1945,18 @@ router.post('/:id/en-route', outboundMessageLimiter, requireAuth, requireRole('v
       // A maps outage must not block the vet from setting off.
       console.error('Driving ETA failed, continuing without it:', err.message);
     }
+  }
+
+  // Still nothing? Estimate it ourselves from the coordinates. Maps has
+  // been unavailable for the whole life of this feature, so without
+  // this the client is told "a vet is on the way" and nothing more —
+  // and the one thing a family watching the window wants is roughly
+  // when. Rounded to 5 minutes so it doesn't imply precision it lacks.
+  if (etaMinutes == null && lat != null && lng != null && job.lat != null && job.lng != null) {
+    etaMinutes = estimateEtaMinutes({
+      fromLat: lat, fromLng: lng, toLat: job.lat, toLng: job.lng,
+    });
+    if (etaMinutes != null) distanceText = 'approximate';
   }
   // 3. Neither — the client is still told a vet is on the way, which is
   // the part that actually matters to them.

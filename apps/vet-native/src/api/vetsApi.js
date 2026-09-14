@@ -86,3 +86,46 @@ export async function updateWeeklyHours(vetId, weeklyHours) {
   if (!res.ok) throw new Error(data.error || 'Could not save your hours');
   return data;
 }
+
+// --- Note templates ---
+
+export async function fetchNoteTemplates(vetId) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load your templates');
+  return data.templates || [];
+}
+
+export async function addNoteTemplate(vetId, { title, body }) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates`, {
+    method: 'POST', body: JSON.stringify({ title, body }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save that template');
+  return data;
+}
+
+export async function removeNoteTemplate(vetId, templateId) {
+  const res = await apiFetch(`/vets/${vetId}/note-templates/${templateId}`, { method: 'DELETE' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not remove that template');
+  return data;
+}
+
+// --- Notification preferences ---
+
+export async function fetchNotificationPrefs() {
+  const res = await apiFetch('/push/preferences');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load your settings');
+  return data;
+}
+
+export async function saveNotificationPrefs(prefs) {
+  const res = await apiFetch('/push/preferences', {
+    method: 'PUT', body: JSON.stringify(prefs),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save your settings');
+  return data;
+}

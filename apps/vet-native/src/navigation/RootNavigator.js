@@ -7,6 +7,7 @@ import MessagesScreen from '../screens/MessagesScreen.js';
 import EarningsScreen from '../screens/EarningsScreen.js';
 import OffersScreen from '../screens/OffersScreen.js';
 import AvailabilityScreen from '../screens/AvailabilityScreen.js';
+import SettingsScreen from '../screens/SettingsScreen.js';
 import DaySheetScreen from '../screens/DaySheetScreen.js';
 import LeaveScreen from '../screens/LeaveScreen.js';
 import { Ionicons } from '@expo/vector-icons';
@@ -48,6 +49,7 @@ function ProfileStackNavigator() {
     <ProfileStack.Navigator>
       <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} options={{ title: 'Your profile' }} />
       <ProfileStack.Screen name="Leave" component={LeaveScreen} options={{ title: 'Time off' }} />
+      <ProfileStack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Notifications & notes' }} />
     </ProfileStack.Navigator>
   );
 }

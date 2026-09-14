@@ -89,3 +89,21 @@ export async function proposeTime(jobId, { date, time, note }) {
   if (!res.ok) throw new Error(data.error || 'Could not send your suggestion');
   return data;
 }
+
+/**
+ * Tell the client you're on the way.
+ *
+ * Location is optional: a vet who declined the permission prompt must
+ * still be able to say they're coming. With coordinates the server
+ * works out a rough ETA; without, the client simply learns someone is
+ * en route, which is the part that matters most to them.
+ */
+export async function notifyEnRoute(jobId, { lat, lng, etaMinutes } = {}) {
+  const res = await apiFetch(`/jobs/${jobId}/en-route`, {
+    method: 'POST',
+    body: JSON.stringify({ lat, lng, etaMinutes }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not let the client know');
+  return data;
+}

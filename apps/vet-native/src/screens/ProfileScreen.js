@@ -79,6 +79,15 @@ export default function ProfileScreen({ navigation }) {
         <Text style={styles.leaveLinkChevron}>›</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('Settings')}
+        style={styles.leaveLink}
+      >
+        <Text style={styles.leaveLinkText}>Notifications & note templates</Text>
+        <Text style={styles.leaveLinkChevron}>›</Text>
+      </TouchableOpacity>
+
       <Text style={styles.title}>Profile</Text>
       <Text style={styles.name}>{user?.fullName}</Text>
       <Text style={styles.email}>{user?.email}</Text>

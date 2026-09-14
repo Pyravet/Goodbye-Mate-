@@ -46,3 +46,65 @@ router.post('/register-expo-token', requireAuth, asyncHandler(async (req, res) =
 }));
 
 export default router;
+
+/**
+ * GET /push/preferences — the caller's own pause and quiet hours.
+ */
+router.get('/preferences', requireAuth, asyncHandler(async (req, res) => {
+  const { rows } = await query(
+    `SELECT notifications_paused_until, quiet_hours_start, quiet_hours_end
+     FROM users WHERE id = $1`,
+    [req.user.sub]
+  );
+  res.json(rows[0] || {});
+}));
+
+/**
+ * PUT /push/preferences — pause notifications, or set quiet hours.
+ *
+ * Replaces reaching for /unsubscribe, which DELETED the subscription:
+ * a vet who wanted quiet overnight would have had to re-register the
+ * device, and if they forgot they'd stop receiving offers permanently
+ * without realising.
+ *
+ * Always scoped to req.user.sub — there is no route to change someone
+ * else's notification settings, deliberately.
+ */
+router.put('/preferences', requireAuth, asyncHandler(async (req, res) => {
+  const { pauseMinutes, quietHoursStart, quietHoursEnd } = req.body || {};
+
+  let pausedUntil;
+  if (pauseMinutes === null || pauseMinutes === 0) {
+    pausedUntil = null; // resume now
+  } else if (pauseMinutes !== undefined) {
+    const mins = Number(pauseMinutes);
+    // Capped at a week. An indefinite pause is how a vet goes quiet for
+    // a month and blames the app for having no work.
+    if (!Number.isFinite(mins) || mins < 0 || mins > 7 * 24 * 60) {
+      return res.status(400).json({ error: 'Choose a pause of up to 7 days.' });
+    }
+    pausedUntil = new Date(Date.now() + mins * 60_000);
+  }
+
+  for (const [label, v] of [['start', quietHoursStart], ['end', quietHoursEnd]]) {
+    if (v !== undefined && v !== null && !(Number.isInteger(Number(v)) && v >= 0 && v <= 23)) {
+      return res.status(400).json({ error: `Quiet hours ${label} must be an hour from 0 to 23.` });
+    }
+  }
+
+  const { rows } = await query(
+    `UPDATE users SET
+       notifications_paused_until = CASE WHEN $1::boolean THEN $2 ELSE notifications_paused_until END,
+       quiet_hours_start = CASE WHEN $3::boolean THEN $4 ELSE quiet_hours_start END,
+       quiet_hours_end   = CASE WHEN $5::boolean THEN $6 ELSE quiet_hours_end END
+     WHERE id = $7
+     RETURNING notifications_paused_until, quiet_hours_start, quiet_hours_end`,
+    [
+      pausedUntil !== undefined, pausedUntil ?? null,
+      quietHoursStart !== undefined, quietHoursStart ?? null,
+      quietHoursEnd !== undefined, quietHoursEnd ?? null,
+      req.user.sub,
+    ]
+  );
+  res.json(rows[0]);
+}));

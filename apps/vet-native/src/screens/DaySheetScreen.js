@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { petNames } from '../format.js';
 import {
   View, Text, TouchableOpacity, ScrollView, ActivityIndicator,
   StyleSheet, Linking, RefreshControl,
@@ -95,7 +96,7 @@ export default function DaySheetScreen({ navigation }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.pet}>
-                  <Text style={styles.index}>{i + 1}. </Text>{job.pet_name}
+                  <Text style={styles.index}>{i + 1}. </Text>{petNames(job)}
                 </Text>
                 <Text style={styles.meta}>
                   {[job.pet_type, job.pet_breed, job.pet_weight].filter(Boolean).join(' · ')}

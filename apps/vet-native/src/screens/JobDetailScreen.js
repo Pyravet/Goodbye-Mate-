@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { petNames, formatJobDate } from '../format.js';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { fetchJob, acceptOffer, declineOffer, markProcedureDone, fetchMedicalNotes, addMedicalNote } from '../api/jobsApi.js';
@@ -73,9 +74,9 @@ export default function JobDetailScreen({ route, navigation }) {
 
   return (
     <ScrollView style={styles.wrap} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>{job.pet_name}</Text>
+      <Text style={styles.title}>{petNames(job)}</Text>
       <Text style={styles.subtitle}>
-        {job.job_number} · {new Date(job.job_date).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long' })} at {job.job_time}
+        {job.job_number} · {formatJobDate(job.job_date)} at {job.job_time}
       </Text>
       {job.pet_behaviour && job.pet_behaviour !== 'Friendly' && (
         <View style={styles.badge}><Text style={styles.badgeText}>{job.pet_behaviour}</Text></View>

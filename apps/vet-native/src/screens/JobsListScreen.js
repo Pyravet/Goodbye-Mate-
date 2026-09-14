@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { petNames } from '../format.js';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { fetchMyJobs, acceptOffer, declineOffer } from '../api/jobsApi.js';
@@ -89,7 +90,7 @@ export default function JobsListScreen({ navigation }) {
                   style={styles.cardMain}
                   onPress={() => navigation.navigate('JobDetail', { id: job.id })}
                 >
-                  <Text style={styles.petName}>{job.pet_name}</Text>
+                  <Text style={styles.petName}>{petNames(job)}</Text>
                   <Text style={styles.subline}>
                     {job.suburb || job.postcode} · {formatDate(job.job_date)}, {formatTime(job.job_time)}
                     {section.isPast ? ` · ${STATUS_LABELS[job.status]}` : ''}

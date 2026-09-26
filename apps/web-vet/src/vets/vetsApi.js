@@ -114,3 +114,22 @@ export async function removeNoteTemplate(vetId, templateId) {
   if (!res.ok) throw new Error('Could not remove that template');
   return res.json();
 }
+
+// --- Notification preferences ---
+
+export async function fetchNotificationPrefs() {
+  const res = await apiFetch('/push/preferences');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not load your settings');
+  return data;
+}
+
+export async function saveNotificationPrefs(prefs) {
+  const res = await apiFetch('/push/preferences', {
+    method: 'PUT',
+    body: JSON.stringify(prefs),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save your settings');
+  return data;
+}

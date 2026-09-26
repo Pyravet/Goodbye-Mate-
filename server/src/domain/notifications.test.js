@@ -105,3 +105,15 @@ test('missing coordinates return null, not NaN', () => {
     assert.equal(estimateEtaMinutes(args), null, JSON.stringify(args));
   }
 });
+
+test('offer, status, note and message pushes are all suppressed by a pause', () => {
+  // These four call sites in routes/jobs.js originally called
+  // sendPushToUser directly, bypassing this check entirely — a paused
+  // vet still got every job offer, which is the one category this
+  // feature exists to silence. Regression coverage for all four
+  // categories those sites now pass.
+  const paused = { notifications_paused_until: new Date(Date.now() + 3600_000).toISOString() };
+  for (const category of ['offer', 'status', 'note', 'message']) {
+    assert.equal(shouldDeliverPush(paused, category).deliver, false, category);
+  }
+});

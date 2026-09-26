@@ -44,10 +44,8 @@ import { getPets, syncPrimaryPet, createFirstPet, withPetCount, withPetCounts, p
 import { requiresManualDispatch } from '../domain/handling.js';
 import { estimateEtaMinutes } from '../domain/notifications.js';
 import { getVetsWithContextForJob, getVetIdForUser } from '../domain/vetContext.js';
-import { sendPushToUser, sendPushToAdmins } from '../integrations/push/webPush.js';
 import { getDrivingEta } from '../integrations/maps/distanceMatrix.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
-import { sendExpoPushToUser } from '../integrations/push/expoPush.js';
 import { generateRctiPdf, generateRctiPdfBuffer, rctiFilename } from '../pdf/generateRcti.js';
 import { generateVetRecordPdf, generateVetRecordPdfBuffer, vetRecordFilename } from '../pdf/generateVetRecord.js';
 import { generateConsentPdf, consentFilename } from '../pdf/generateConsent.js';
@@ -222,13 +220,16 @@ export async function startOrRollDispatch(jobId) {
       [next.vetId]
     );
     if (vetUserRows[0]) {
-      const pushPayload = {
+      // notifyUser, not sendPushToUser directly: this is the exact
+      // category — a job offer — that the pause feature exists to
+      // silence, and calling the sender directly skipped that check
+      // entirely. A vet who paused for a week still got every offer.
+      notifyUser(vetUserRows[0].user_id, {
         title: 'New job offer',
         body: `${await petNamesTextFor(job)} in ${job.suburb || job.postcode} — respond soon, this offer expires.`,
         url: `/jobs/${jobId}`,
-      };
-      sendPushToUser(vetUserRows[0].user_id, pushPayload).catch((err) => console.error('Web push failed:', err));
-      sendExpoPushToUser(vetUserRows[0].user_id, pushPayload).catch((err) => console.error('Expo push failed:', err));
+        category: 'offer',
+      }).catch((err) => console.error('Offer push failed:', err.message));
     }
 
     return { state: 'offered', offeredVetId: next.vetId, expiresAt };
@@ -1244,10 +1245,8 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
     );
     const vet = rows[0];
     if (vet) {
-      await sendPushToUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}` })
+      await notifyUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}`, category: 'status' })
         .catch((e) => console.error('status push failed:', e.message));
-      await sendExpoPushToUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}` })
-        .catch((e) => console.error('status expo push failed:', e.message));
       // Cancellation is the one case worth an SMS — the vet may have
       // already set off, and a push alone can be missed while driving.
       if (newStatus === 'cancelled' && vet.phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
@@ -1382,8 +1381,9 @@ router.put('/:id/admin-notes', requireAuth, requireRole('admin'), asyncHandler(a
       [rows[0].assigned_vet_id]
     );
     if (vetRows[0]) {
-      sendPushToUser(vetRows[0].user_id, {
+      notifyUser(vetRows[0].user_id, {
         title: `Note added — ${rows[0].pet_name}`,
+        category: 'note',
         body: notes.trim().slice(0, 120),
         url: `/jobs/${req.params.id}`,
       }).catch((e) => console.error('admin note push failed:', e.message));
@@ -2207,10 +2207,10 @@ router.post('/:id/internal-messages', requireAuth, asyncHandler(async (req, res)
       const { rows: vetUserRows } = await query('SELECT user_id FROM vets WHERE id = $1', [job.assigned_vet_id]);
       const vetUserId = vetUserRows[0]?.user_id;
       if (vetUserId) {
-        sendPushToUser(vetUserId, { title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
-          .catch((err) => console.error('Vet message push failed:', err.message));
-        sendExpoPushToUser(vetUserId, { title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120), url: `/jobs/${job.id}` })
-          .catch((err) => console.error('Vet message Expo push failed:', err.message));
+        notifyUser(vetUserId, {
+          title: `New message — ${job.pet_name}`, body: body.trim().slice(0, 120),
+          url: `/jobs/${job.id}`, category: 'message',
+        }).catch((err) => console.error('Vet message push failed:', err.message));
       }
     }
   } else {

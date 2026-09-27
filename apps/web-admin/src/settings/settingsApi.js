@@ -127,3 +127,34 @@ export async function removeClientResource(id) {
   if (!res.ok) throw new Error('Could not remove that resource');
   return res.json();
 }
+
+// --- Extra services catalog ---
+
+export async function fetchExtraServices(includeRetired = false) {
+  const res = await apiFetch(`/extra-services${includeRetired ? '?all=1' : ''}`);
+  if (!res.ok) throw new Error('Could not load extra services');
+  return (await res.json()).services;
+}
+
+export async function createExtraService({ name, clientPrice, vetPayout }) {
+  const res = await apiFetch('/extra-services', {
+    method: 'POST', body: JSON.stringify({ name, clientPrice, vetPayout }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not save that service');
+  return data.service;
+}
+
+export async function updateExtraService(id, patch) {
+  const res = await apiFetch(`/extra-services/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not update that service');
+  return data.service;
+}
+
+export async function retireExtraService(id) {
+  const res = await apiFetch(`/extra-services/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not retire that service');
+  return data.service;
+}

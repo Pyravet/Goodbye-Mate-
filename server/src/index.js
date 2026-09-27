@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import partnerInvoicesRouter from './routes/partnerInvoices.js';
 import clinicsRouter from './routes/clinics.js';
 import qolRouter from './routes/qol.js';
+import extraServicesRouter from './routes/extraServices.js';
 import healthRoutes from './routes/health.js';
 import vetsRoutes from './routes/vets.js';
 import messagesRoutes from './routes/messages.js';
@@ -110,6 +111,7 @@ app.use('/api/clinics', clinicsRouter);
 // Public and unauthenticated: a family should not need an account to
 // work out whether their pet is suffering.
 app.use('/api/qol', qolRouter);
+app.use('/api/extra-services', extraServicesRouter);
 
 // 404 for unmatched API routes. Without this, an unknown path falls
 // through to Express's HTML error page, which is confusing for an API

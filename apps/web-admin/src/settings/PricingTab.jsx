@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchPricing, savePricing } from './settingsApi.js';
+import ExtraServicesCard from './ExtraServicesCard.jsx';
 
 export default function PricingTab() {
   const [pricing, setPricing] = useState(null);
@@ -92,6 +93,33 @@ export default function PricingTab() {
           tiers={pricing.cancellationTiers || []}
           onChange={(tiers) => updateField(['cancellationTiers'], tiers)}
         />
+      </Card>
+
+      <Card title="Extra services">
+        <ExtraServicesCard />
+      </Card>
+
+      <Card title="Oversize / heavy pet threshold">
+        <p style={styles.gstHint}>
+          At or above this weight, a job is held for manual assignment instead of being offered
+          automatically — a vet needs to know what they&apos;re taking on before they accept, and
+          arrange help if needed. This has always applied; it just wasn&apos;t adjustable from
+          here before now.
+        </p>
+        <div style={styles.serviceRow}>
+          <FieldInline label="Manual assignment above (kg)">
+            <input
+              type="number" min="1" step="1"
+              value={pricing.manualDispatchWeightKg ?? 30}
+              onChange={(e) => updateField(['manualDispatchWeightKg'], e.target.value)}
+              style={styles.numInput}
+            />
+          </FieldInline>
+        </div>
+        <p style={styles.gstHint}>
+          A pet with no weight recorded is always held regardless of this number — the job can&apos;t
+          know it&apos;s light until someone checks.
+        </p>
       </Card>
 
       <Card title="Transfer fee">

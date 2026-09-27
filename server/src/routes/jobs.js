@@ -662,6 +662,7 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
         { label: r.petCount > 1 ? `Euthanasia × ${r.petCount}` : 'Euthanasia', amount: pay.serviceAmt },
         { label: 'Transfer', amount: pay.transferAmt },
         { label: 'Extra person', amount: pay.assistantAmt },
+        { label: 'Oversize pet fee', amount: pay.oversizeAmt },
         { label: 'Extra travel', amount: pay.travelAmt },
         { label: 'Adjustments', amount: pay.lineItemsAmt },
       // Zero lines dropped: "Extra travel $0.00" invites the question

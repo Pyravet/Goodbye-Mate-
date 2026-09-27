@@ -63,6 +63,7 @@ function drawRctiDoc(doc, { job, vet, payout, gst, company }) {
   // than shown as $0.00, which invites the question of why.
   if (payout.transferAmt > 0) rows.push(['Transfer fee', payout.transferAmt]);
   if (payout.assistantAmt > 0) rows.push(['Extra person to assist', payout.assistantAmt]);
+  if (payout.oversizeAmt > 0) rows.push(['Oversize pet fee', payout.oversizeAmt]);
   if (payout.travelAmt > 0) rows.push(['Extra travel fee', payout.travelAmt]);
   // Itemised individually where available, so an adjustment is
   // explained rather than appearing as an unlabelled sum.

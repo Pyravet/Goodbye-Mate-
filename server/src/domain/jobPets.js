@@ -26,9 +26,13 @@ import { query } from '../db/pool.js';
 export async function withPetCount(job) {
   if (!job) return job;
   const { rows } = await query(
-    'SELECT count(*)::int AS c FROM job_pets WHERE job_id = $1', [job.id]
+    'SELECT name, weight FROM job_pets WHERE job_id = $1 ORDER BY sort_order', [job.id]
   );
-  return { ...job, petCount: Math.max(1, rows[0]?.c || 1) };
+  // pets carried alongside petCount for the same reason: an oversize-pet
+  // surcharge needs every animal's weight, not just the count, and
+  // reading job.pet_weight alone only ever sees the mirrored FIRST pet —
+  // a light cat booked with a heavy dog would silently miss the fee.
+  return { ...job, petCount: Math.max(1, rows.length || 1), pets: rows };
 }
 
 /**
@@ -40,12 +44,19 @@ export async function withPetCount(job) {
 export async function withPetCounts(jobs) {
   if (!jobs?.length) return jobs;
   const { rows } = await query(
-    `SELECT job_id, count(*)::int AS c FROM job_pets
-     WHERE job_id = ANY($1::uuid[]) GROUP BY job_id`,
+    `SELECT job_id, name, weight FROM job_pets
+     WHERE job_id = ANY($1::uuid[]) ORDER BY sort_order`,
     [jobs.map((j) => j.id)]
   );
-  const byJob = new Map(rows.map((r) => [r.job_id, r.c]));
-  return jobs.map((j) => ({ ...j, petCount: Math.max(1, byJob.get(j.id) || 1) }));
+  const byJob = new Map();
+  for (const r of rows) {
+    if (!byJob.has(r.job_id)) byJob.set(r.job_id, []);
+    byJob.get(r.job_id).push({ name: r.name, weight: r.weight });
+  }
+  return jobs.map((j) => {
+    const pets = byJob.get(j.id) || [];
+    return { ...j, petCount: Math.max(1, pets.length || 1), pets };
+  });
 }
 
 /**

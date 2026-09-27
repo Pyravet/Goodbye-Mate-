@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWeightKg, requiresManualDispatch, chargesTransferFee, chargesAssistantFee } from './handling.js';
+import { parseWeightKg, requiresManualDispatch, chargesTransferFee, chargesAssistantFee, isOversizePet } from './handling.js';
 
 const PRICING = { manualDispatchWeightKg: 30 };
 
@@ -156,4 +156,56 @@ test('called without a pet list, it still behaves as before', () => {
   // start dispatching heavy animals.
   const job = { pet_weight: '45kg', handling_help: 'client_helps' };
   assert.equal(requiresManualDispatch(job, PRICING).manual, true);
+});
+
+// --- Oversize pet fee ---
+
+test('isOversizePet is true at or above the threshold', () => {
+  const pricing = { manualDispatchWeightKg: 30 };
+  assert.equal(isOversizePet({ pet_weight: '30kg' }, pricing), true, 'exactly at the threshold');
+  assert.equal(isOversizePet({ pet_weight: '35kg' }, pricing), true);
+  assert.equal(isOversizePet({ pet_weight: '29kg' }, pricing), false);
+});
+
+test('isOversizePet defaults to 30kg when no threshold is configured', () => {
+  assert.equal(isOversizePet({ pet_weight: '35kg' }, {}), true);
+  assert.equal(isOversizePet({ pet_weight: '25kg' }, {}), false);
+});
+
+test('an unrecorded weight is NOT treated as oversized', () => {
+  // requiresManualDispatch holds an unknown weight back for review, but
+  // that is a caution, not a fact about size — it must never itself
+  // trigger a charge the family hasn't actually earned.
+  const pricing = { manualDispatchWeightKg: 30 };
+  assert.equal(isOversizePet({ pet_weight: null }, pricing), false);
+  assert.equal(isOversizePet({}, pricing), false);
+});
+
+test('a heavy SECOND pet is caught even when the mirrored first pet is light', () => {
+  // job.pet_weight mirrors only the first pet. Without checking every
+  // pet, a light cat booked alongside a heavy dog would silently miss
+  // the fee — the exact gap that once affected requiresManualDispatch.
+  const pricing = { manualDispatchWeightKg: 30 };
+  const job = { pet_weight: '4kg' }; // mirrored: the light cat
+  const pets = [{ weight: '4kg' }, { weight: '40kg' }];
+  assert.equal(isOversizePet(job, pricing, pets), true);
+});
+
+test('order does not matter — heavy pet first or second', () => {
+  const pricing = { manualDispatchWeightKg: 30 };
+  assert.equal(isOversizePet({}, pricing, [{ weight: '40kg' }, { weight: '4kg' }]), true);
+  assert.equal(isOversizePet({}, pricing, [{ weight: '4kg' }, { weight: '40kg' }]), true);
+});
+
+test('all pets light means no oversize fee', () => {
+  const pricing = { manualDispatchWeightKg: 30 };
+  assert.equal(isOversizePet({}, pricing, [{ weight: '4kg' }, { weight: '5kg' }]), false);
+});
+
+test('called without a pets list falls back to the mirrored weight', () => {
+  // Every caller SHOULD pass pets, but a missed one must still behave
+  // sanely for the common single-pet case rather than throwing or
+  // silently always returning false.
+  const pricing = { manualDispatchWeightKg: 30 };
+  assert.equal(isOversizePet({ pet_weight: '35kg' }, pricing), true);
 });

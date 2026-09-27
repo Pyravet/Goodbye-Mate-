@@ -123,6 +123,29 @@ export function chargesTransferFee(job) {
  * Real labour, so it's charged for — and the vet is paid a share, since
  * they arrange and pay the assistant.
  */
+/**
+ * Does this job include a pet at or above the oversize threshold?
+ *
+ * Distinct from requiresManualDispatch: that function also holds a job
+ * back for an UNKNOWN weight, which must never itself trigger a charge —
+ * "we don't know" is not "this is oversized". This only returns true
+ * when a weight was actually recorded and it's at or above the limit.
+ *
+ * @param {Array<{weight:string}>} [pets] every pet on the visit. Without
+ *   it this reads job.pet_weight, which mirrors the FIRST pet only — a
+ *   light cat booked alongside a heavy dog would silently miss the fee
+ *   if only the mirrored field were checked. The same gap already bit
+ *   requiresManualDispatch once; this must not repeat it.
+ */
+export function isOversizePet(job, pricing, pets) {
+  const threshold = Number(pricing?.manualDispatchWeightKg) || 30;
+  const list = pets?.length ? pets : [{ weight: job?.pet_weight }];
+  return list.some((p) => {
+    const kg = parseWeightKg(p.weight);
+    return kg != null && kg >= threshold;
+  });
+}
+
 export function chargesAssistantFee(job) {
   return job?.handling_help === 'assistant';
 }

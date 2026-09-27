@@ -161,3 +161,61 @@ test('clientGstSplit: honours a non-default GST rate', () => {
   assert.equal(r.gst, 15);
   assert.equal(r.subtotal, 100);
 });
+
+// --- Oversize pet fee ---
+
+test('bill includes the oversize fee for a heavy pet', () => {
+  const withOversize = { ...pricing, manualDispatchWeightKg: 30, oversizeFee: { clientPrice: 60, vetPayout: 45 } };
+  const job = { ...baseJob, pet_weight: '35kg' };
+  const bill = billBreakdown(job, withOversize);
+  const line = bill.lines.find((l) => l.label === 'Oversize pet fee');
+  assert.ok(line, 'expected an Oversize pet fee line');
+  assert.equal(line.amount, 60);
+});
+
+test('bill has NO oversize line for a light pet', () => {
+  const withOversize = { ...pricing, manualDispatchWeightKg: 30, oversizeFee: { clientPrice: 60, vetPayout: 45 } };
+  const job = { ...baseJob, pet_weight: '10kg' };
+  const bill = billBreakdown(job, withOversize);
+  assert.equal(bill.lines.some((l) => l.label === 'Oversize pet fee'), false);
+});
+
+test('payout carries oversizeAmt and folds it into the total', () => {
+  const withOversize = { ...pricing, manualDispatchWeightKg: 30, oversizeFee: { clientPrice: 60, vetPayout: 45 } };
+  const job = { ...baseJob, pet_weight: '35kg' };
+  const withoutFee = payoutBreakdown(job, pricing);
+  const withFee = payoutBreakdown(job, withOversize);
+  assert.equal(withFee.oversizeAmt, 45);
+  assert.equal(withFee.total, withoutFee.total + 45, 'total must increase by exactly the vet payout');
+});
+
+test('the oversize fee and the assistant fee are independent — both can apply at once', () => {
+  // A heavy pet AND a booked assistant are two separate real costs; one
+  // must not silently substitute for or suppress the other.
+  const cfg = {
+    ...pricing,
+    manualDispatchWeightKg: 30,
+    oversizeFee: { clientPrice: 60, vetPayout: 45 },
+    assistantFee: { clientPrice: 90, vetPayout: 70 },
+  };
+  const job = { ...baseJob, pet_weight: '35kg', handling_help: 'assistant' };
+  const bill = billBreakdown(job, cfg);
+  assert.ok(bill.lines.some((l) => l.label === 'Oversize pet fee'));
+  assert.ok(bill.lines.some((l) => l.label === 'Extra person to assist'));
+
+  const payout = payoutBreakdown(job, cfg);
+  assert.equal(payout.oversizeAmt, 45);
+  assert.equal(payout.assistantAmt, 70);
+});
+
+test('a heavy pet among several on one job still charges the fee once, not per pet', () => {
+  // One oversize fee per VISIT, not per animal — it compensates for the
+  // extra difficulty of that one heavy pet, not a multiplier on the
+  // whole job the way the euthanasia service fee is.
+  const withOversize = { ...pricing, manualDispatchWeightKg: 30, oversizeFee: { clientPrice: 60, vetPayout: 45 } };
+  const job = { ...baseJob, pet_weight: '4kg', petCount: 2, pets: [{ weight: '4kg' }, { weight: '40kg' }] };
+  const bill = billBreakdown(job, withOversize);
+  const lines = bill.lines.filter((l) => l.label === 'Oversize pet fee');
+  assert.equal(lines.length, 1, 'exactly one oversize line, regardless of pet count');
+  assert.equal(lines[0].amount, 60);
+});

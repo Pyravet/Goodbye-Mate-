@@ -120,6 +120,31 @@ export default function PricingTab() {
           A pet with no weight recorded is always held regardless of this number — the job can&apos;t
           know it&apos;s light until someone checks.
         </p>
+
+        <p style={styles.gstHint}>
+          <strong>Oversize pet fee.</strong> Charged whenever a job includes a pet at or above the
+          weight above, on top of anything already charged for an extra person to help carry —
+          the two are independent, since a heavy pet is harder work for the vet even when they
+          manage without help.
+        </p>
+        <div style={styles.serviceRow}>
+          <FieldInline label="Client pays">
+            <input
+              type="number" min="0" step="1"
+              value={pricing.oversizeFee?.clientPrice ?? 0}
+              onChange={(e) => updateField(['oversizeFee', 'clientPrice'], e.target.value)}
+              style={styles.numInput}
+            />
+          </FieldInline>
+          <FieldInline label="Vet payout">
+            <input
+              type="number" min="0" step="1"
+              value={pricing.oversizeFee?.vetPayout ?? 0}
+              onChange={(e) => updateField(['oversizeFee', 'vetPayout'], e.target.value)}
+              style={styles.numInput}
+            />
+          </FieldInline>
+        </div>
       </Card>
 
       <Card title="Transfer fee">
@@ -136,7 +161,15 @@ export default function PricingTab() {
         </div>
       </Card>
 
-      <Card title="General">
+      {/*
+        Previously one 10-field unwrapping flex row under a single
+        "General" heading — each field squeezed to a sliver, values and
+        labels both cut off. Split into named groups that wrap onto
+        their own lines, with each control's explanation directly
+        beneath it rather than three paragraphs at the bottom nobody
+        could match back to a specific field.
+      */}
+      <Card title="Surcharges and fees">
         <div style={styles.serviceRow}>
           <FieldInline label="After-hours surcharge">
             <input type="number" value={pricing.afterHoursSurcharge} onChange={(e) => updateField(['afterHoursSurcharge'], e.target.value)} style={styles.numInput} />
@@ -150,9 +183,33 @@ export default function PricingTab() {
           <FieldInline label="Communal cremation fee">
             <input type="number" value={pricing.communalCremationFee} onChange={(e) => updateField(['communalCremationFee'], e.target.value)} style={styles.numInput} />
           </FieldInline>
+        </div>
+      </Card>
+
+      <Card title="GST">
+        <div style={styles.serviceRow}>
           <FieldInline label="GST %">
             <input type="number" value={pricing.gstPercent} onChange={(e) => updateField(['gstPercent'], e.target.value)} style={styles.numInput} />
           </FieldInline>
+          <FieldInline label="Business is GST registered">
+            <input
+              type="checkbox"
+              checked={pricing.isGstRegistered === true}
+              onChange={(e) => updateField(['isGstRegistered'], e.target.checked)}
+            />
+          </FieldInline>
+        </div>
+        <p style={styles.gstHint}>
+          When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
+          invoices. Prices stay exactly as entered — GST is shown as the portion already included in
+          the total, not added on top, so what the client pays doesn&apos;t change.
+          {' '}Leave unticked if the business isn&apos;t registered: showing GST when you&apos;re not
+          registered misstates a tax position. Check with your accountant if unsure.
+        </p>
+      </Card>
+
+      <Card title="Vet appointment reminders">
+        <div style={styles.serviceRow}>
           <FieldInline label="Remind vets before appointments">
             <input
               type="checkbox"
@@ -168,6 +225,16 @@ export default function PricingTab() {
               style={styles.numInput}
             />
           </FieldInline>
+        </div>
+        <p style={styles.gstHint}>
+          Vets get a push notification (and an SMS once the MSG91 template is configured) this many
+          hours before each appointment they&apos;ve accepted. Reminders are sent once per job —
+          changing the hours won&apos;t re-notify anyone already reminded.
+        </p>
+      </Card>
+
+      <Card title="Client review reminders">
+        <div style={styles.serviceRow}>
           <FieldInline label="Ask clients for feedback">
             <input
               type="checkbox"
@@ -183,33 +250,12 @@ export default function PricingTab() {
               style={styles.numInput}
             />
           </FieldInline>
-          <FieldInline label="Business is GST registered">
-            <input
-              type="checkbox"
-              checked={pricing.isGstRegistered === true}
-              onChange={(e) => updateField(['isGstRegistered'], e.target.checked)}
-            />
-          </FieldInline>
         </div>
         <p style={styles.gstHint}>
           Clients who haven&apos;t left feedback get one text this many days after the visit, asking
           them to finalise their booking. Sent once, only between 9am and 7pm, and never to someone
           who has already reviewed.
         </p>
-        <p style={styles.gstHint}>
-          Vets get a push notification (and an SMS once the MSG91 template is configured) this many
-          hours before each appointment they&apos;ve accepted. Reminders are sent once per job —
-          changing the hours won&apos;t re-notify anyone already reminded.
-        </p>
-        <p style={styles.gstHint}>
-          When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
-          invoices. Prices stay exactly as entered — GST is shown as the portion already included in
-          the total, not added on top, so what the client pays doesn't change.
-          {' '}Leave unticked if the business isn't registered: showing GST when you're not
-          registered misstates a tax position. Check with your accountant if unsure.
-        </p>
-        <div>
-        </div>
       </Card>
 
       <button onClick={onSave} disabled={saving} style={styles.saveBtn}>{saving ? 'Saving…' : saved ? 'Saved' : 'Save pricing'}</button>
@@ -227,7 +273,10 @@ function Card({ title, children }) {
 }
 function FieldInline({ label, children }) {
   return (
-    <label style={{ fontSize: 11, color: 'var(--gm-ink-soft)', flex: 1 }}>
+    // minWidth stops a field shrinking toward zero once several share a
+    // wrapping row — flex:1 alone let width go to whatever was left
+    // over, which is what made labels and values unreadable.
+    <label style={{ fontSize: 11, color: 'var(--gm-ink-soft)', flex: '1 1 160px', minWidth: 160 }}>
       {label}
       <div style={{ marginTop: 4 }}>{children}</div>
     </label>
@@ -324,8 +373,13 @@ const styles = {
   tierAdd: { background: 'var(--gm-line-soft)', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', padding: '7px 14px', fontSize: 12, marginBottom: 12 },
   tierSummary: { fontSize: 12, color: 'var(--gm-ink-soft)', lineHeight: 1.8, background: 'var(--gm-line-soft)', padding: '10px 12px', borderRadius: 'var(--gm-radius-sm)' },
   gstHint: { fontSize: 11, color: 'var(--gm-ink-soft)', lineHeight: 1.5, marginTop: 10, fontStyle: 'italic' },
-  serviceRow: { display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 12 },
+  // flexWrap fixes the actual defect: with a fixed row and flex:1 fields,
+  // adding a 5th or 10th field into one row squeezed every field to a
+  // sliver — labels truncated and number values became unreadable. Wrap
+  // plus a real minWidth on each field means extra fields drop to a new
+  // line instead of crushing the ones already there.
+  serviceRow: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 12 },
   input: { padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
-  numInput: { width: '100%', padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
+  numInput: { width: '100%', minWidth: 110, padding: '8px 10px', borderRadius: 'var(--gm-radius-sm)', border: '1px solid var(--gm-line)', fontSize: 14, background: '#fff' },
   saveBtn: { background: 'var(--gm-forest)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 'var(--gm-radius-sm)', fontSize: 13, fontWeight: 500 },
 };

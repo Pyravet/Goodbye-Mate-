@@ -1,4 +1,4 @@
-import { chargesTransferFee, chargesAssistantFee } from './handling.js';
+import { chargesTransferFee, chargesAssistantFee, isOversizePet } from './handling.js';
 
 // Ported directly from the prototype's billBreakdown / payoutBreakdown.
 // GST note (from the brief): payout amounts are GST-inclusive — GST is
@@ -50,6 +50,15 @@ export function billBreakdown(job, pricing, lineItems = []) {
       amount: Number(pricing.assistantFee?.clientPrice) || 0,
     });
   }
+  // The pet itself being oversized, independent of whether an assistant
+  // was booked — a solo vet may still take a heavy-pet job, and the
+  // extra time and equipment involved is real regardless.
+  if (isOversizePet(job, pricing, job.pets)) {
+    lines.push({
+      label: 'Oversize pet fee',
+      amount: Number(pricing.oversizeFee?.clientPrice) || 0,
+    });
+  }
   if (isAfterHours) lines.push({ label: 'After hours / weekend surcharge', amount: pricing.afterHoursSurcharge });
   if (job.is_public_holiday) lines.push({ label: 'Public holiday surcharge', amount: pricing.publicHolidaySurcharge || 0 });
   if (isMidnight) lines.push({ label: 'Midnight fee (12am\u20136am)', amount: pricing.midnightFeeSurcharge || 0 });
@@ -87,6 +96,12 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
   const assistantAmt = chargesAssistantFee(job)
     ? Number(pricing.assistantFee?.vetPayout) || 0
     : 0;
+  // Paid to the vet regardless of whether an assistant was also booked —
+  // the extra difficulty of a heavy pet exists even when they manage
+  // alone, and it's the vet's own body absorbing that.
+  const oversizeAmt = isOversizePet(job, pricing, job.pets)
+    ? Number(pricing.oversizeFee?.vetPayout) || 0
+    : 0;
   const travelAmt = Number(job.extra_travel_fee) || 0;
 
   // Only the portion of each line item explicitly marked as passing
@@ -100,6 +115,7 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
     serviceAmt: Math.round(serviceAmt * payoutPetCount * 100) / 100,
     transferAmt,
     assistantAmt,
+    oversizeAmt,
     travelAmt,
     lineItemsAmt,
     // Passed through so the RCTI can itemise each adjustment rather
@@ -113,7 +129,7 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
       // The service is per pet — the vet performs each euthanasia. The
       // transfer, assistant and travel are per VISIT: one trip, one
       // extra person, however many animals.
-      (serviceAmt * payoutPetCount + transferAmt + assistantAmt + travelAmt + lineItemsAmt) * 100
+      (serviceAmt * payoutPetCount + transferAmt + assistantAmt + oversizeAmt + travelAmt + lineItemsAmt) * 100
     ) / 100,
   };
 }

@@ -191,13 +191,13 @@ router.get('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res)
             r.converted_job_id, r.admin_notes, r.created_at,
             r.handled_at, u.full_name AS handled_by_name,
             -- Attribution was recorded but never surfaced, so admin
-            -- couldn't tell a clinic referral from a web enquiry — and a
-            -- referral is more urgent: a vet has a family in front of
+            -- couldn't tell a partner referral from a web enquiry — and a
+            -- referral is more urgent: someone has a family in front of
             -- them expecting a call back.
-            r.referred_by_clinic_id, c.name AS referred_by_clinic_name
+            r.referred_by_partner_id, p.name AS referred_by_partner_name
      FROM booking_requests r
      LEFT JOIN users u ON u.id = r.handled_by
-     LEFT JOIN clinics c ON c.id = r.referred_by_clinic_id
+     LEFT JOIN referral_partners p ON p.id = r.referred_by_partner_id
      ${where}
      ORDER BY (r.status = 'new') DESC, r.created_at DESC
      LIMIT 200`,
@@ -310,10 +310,10 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
        service_id, service_type, job_date, job_time, time_category, notes,
        -- Attribution carries from the request onto the JOB, so the link
        -- survives even if the request is later tidied away. Without this
-       -- the clinic portal could show a referral but never that it
+       -- the partner portal could show a referral but never that it
        -- became a completed visit — which is the only outcome that
        -- matters to them.
-       referred_by_clinic_id, handling_help, pace, handling_notes
+       referred_by_partner_id, handling_help, pace, handling_notes
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'svc_euth',$15,$16,$17,$18,$19,$20,$21,$22,$23)
      RETURNING *`,
     [
@@ -325,7 +325,7 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
       // genuinely benefits from, and it would otherwise be stranded on
       // the request record.
       [request.message, d.notes].filter(Boolean).join('\n\n') || null,
-      request.referred_by_clinic_id,
+      request.referred_by_partner_id,
       // Carried from the enquiry so the vet sees what the family said,
       // rather than it being stranded on a request nobody reopens.
       request.handling_help || 'not_needed',
@@ -338,7 +338,7 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
 
   // Same as the New Booking path: a job with no pet row cannot take
   // consent. This was missed here, so every converted request — every
-  // web enquiry AND every clinic referral — produced a job whose client
+  // web enquiry AND every partner referral — produced a job whose client
   // could never sign.
   await createFirstPet(job);
 

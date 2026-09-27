@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../AuthContext.jsx';
 import { LOGO_DATA_URI } from '../assets.js';
-import { fetchMyClinic, fetchMyReferrals, submitReferral } from './clinicApi.js';
+import { fetchMyPartner, fetchMyReferrals, submitReferral, fetchMyPayouts } from './referralPartnerApi.js';
 
 const EMPTY = {
   clientName: '', clientPhone: '', clientEmail: '',
@@ -18,25 +18,25 @@ const SERVICE_OPTIONS = [
 ];
 
 /**
- * Clinic portal.
+ * Referral partner portal.
  *
- * A clinic refers a client and can then see what happened. Today they
- * hand over a phone number and never find out whether the family was
- * looked after — which is the whole reason this exists, before any
- * question of commission.
+ * Any business referring clients on a commission basis — a vet clinic, a
+ * funeral home, a pet store, or anything else. A partner refers a client
+ * and can then see what happened, and what they're owed for it.
  *
  * They see the OUTCOME of their own referrals only: no address, no
  * pricing, no vet details, no clinical notes. The server enforces that;
  * this screen simply has nothing else to show.
  */
-export default function ClinicPortal() {
+export default function ReferralPartnerPortal() {
   const { user, logout } = useAuth();
-  const [clinic, setClinic] = useState(null);
+  const [partner, setPartner] = useState(null);
   const [data, setData] = useState(null);
+  const [payouts, setPayouts] = useState(null);
   const [tab, setTab] = useState('refer');
   const [error, setError] = useState('');
   // Distinguished from a transient error: an account that isn't linked
-  // to a clinic, or whose clinic is deactivated, can never submit.
+  // to a partner, or whose partner is deactivated, can never submit.
   // Showing the form anyway means filling it in and being rejected at
   // the end — after typing a grieving client's details.
   const [blocked, setBlocked] = useState(null);
@@ -45,9 +45,13 @@ export default function ClinicPortal() {
     fetchMyReferrals().then(setData).catch((e) => { setError(e.message); setData({ referrals: [] }); });
   }, []);
 
+  const loadPayouts = useCallback(() => {
+    fetchMyPayouts().then(setPayouts).catch(() => setPayouts([]));
+  }, []);
+
   useEffect(() => {
-    fetchMyClinic()
-      .then(setClinic)
+    fetchMyPartner()
+      .then(setPartner)
       .catch((e) => setBlocked(e.message));
     load();
   }, [load]);
@@ -63,7 +67,7 @@ export default function ClinicPortal() {
           <img src={LOGO_DATA_URI} alt="Goodbye Mate" style={styles.logo} />
         </button>
         <div style={styles.headerRight}>
-          <span style={styles.clinicName}>{clinic?.name || ''}</span>
+          <span style={styles.partnerName}>{partner?.name || ''}</span>
           <button onClick={logout} style={styles.logout}>Sign out</button>
         </div>
       </header>
@@ -82,6 +86,12 @@ export default function ClinicPortal() {
         >
           Your referrals{data?.stats ? ` (${data.stats.total})` : ''}
         </button>
+        <button
+          onClick={() => { setTab('payouts'); loadPayouts(); }}
+          style={{ ...styles.tab, ...(tab === 'payouts' ? styles.tabOn : {}) }}
+        >
+          Payouts
+        </button>
       </div>
       )}
 
@@ -98,9 +108,9 @@ export default function ClinicPortal() {
           <>
         {error && <p style={styles.error}>{error}</p>}
 
-        {tab === 'refer'
-          ? <ReferralForm onSent={() => { load(); setTab('list'); }} userName={user?.fullName} />
-          : <ReferralList data={data} />}
+        {tab === 'refer' && <ReferralForm onSent={() => { load(); setTab('list'); }} userName={user?.fullName} />}
+        {tab === 'list' && <ReferralList data={data} />}
+        {tab === 'payouts' && <PayoutList payouts={payouts} />}
           </>
         )}
       </main>
@@ -208,7 +218,7 @@ function ReferralForm({ onSent, userName }) {
       <Field label="Anything we should know">
         <textarea
           value={form.message} onChange={set('message')} rows={3}
-          placeholder="Clinical background, the family's situation, anything that would help us handle this well"
+          placeholder="Background, the family's situation, anything that would help us handle this well"
           style={styles.input}
         />
       </Field>
@@ -263,10 +273,44 @@ function ReferralList({ data }) {
 }
 
 /**
- * Outcome in the clinic's terms, not ours.
+ * A partner's own payout history — totals and status only. The itemised
+ * job list behind each one lives on the PDF statement, not this list.
+ */
+function PayoutList({ payouts }) {
+  if (!payouts) return <p style={styles.empty}>Loading…</p>;
+  if (payouts.length === 0) {
+    return (
+      <p style={styles.empty}>
+        Nothing here yet — a payout appears once a referred job is completed and the period is
+        finalised.
+      </p>
+    );
+  }
+  return payouts.map((p) => (
+    <div key={p.id} style={styles.refCard}>
+      <div style={styles.refTop}>
+        <div>
+          <div style={styles.refPet}>${Number(p.total).toFixed(2)}</div>
+          <div style={styles.refClient}>{p.statement_number}</div>
+        </div>
+        <span style={{ ...styles.status, ...(p.status === 'paid' ? styles.statusGood : styles.statusPending) }}>
+          {p.status === 'paid' ? 'Paid' : 'Approved'}
+        </span>
+      </div>
+      <div style={styles.refMeta}>
+        {p.period_start} – {p.period_end}
+        {p.paid_at && ` · paid ${new Date(p.paid_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}`}
+      </div>
+    </div>
+  ));
+}
+
+/**
+ * Outcome in the partner's own terms, not ours.
  *
- * Internal statuses like "converted" mean nothing to a referring vet;
- * what they want to know is whether the family was looked after.
+ * Internal statuses like "converted" mean nothing to a referring
+ * partner; what they want to know is whether the family was looked
+ * after.
  */
 function statusLabel(r) {
   if (r.job_status === 'completed') return 'Visit completed';
@@ -309,7 +353,7 @@ const styles = {
   // and appear to do nothing.
   logoBtn: { background: 'none', border: 'none', padding: 0, lineHeight: 0, cursor: 'pointer' },
   headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
-  clinicName: { color: '#fff', fontSize: 13, opacity: 0.9 },
+  partnerName: { color: '#fff', fontSize: 13, opacity: 0.9 },
   logout: { background: 'none', border: '1px solid rgba(255,255,255,0.4)', color: '#fff', borderRadius: 'var(--gm-radius-sm)', padding: '5px 12px', fontSize: 12 },
   tabs: { display: 'flex', gap: 4, padding: '12px 18px 0', maxWidth: 640, margin: '0 auto' },
   tab: { flex: 1, background: 'none', border: 'none', borderBottom: '2px solid transparent', padding: '10px 0', fontSize: 14, color: 'var(--gm-ink-soft)', minHeight: 44 },

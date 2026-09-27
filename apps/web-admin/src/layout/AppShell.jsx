@@ -10,7 +10,7 @@ const navItems = [
   { to: '/', label: 'Jobs', short: 'Jobs', end: true },
   { to: '/requests', label: 'Requests', short: 'Reqs' },
   { to: '/vets', label: 'Vets', short: 'Vets' },
-  { to: '/clinics', label: 'Clinics', short: 'Clinics' },
+  { to: '/referral-partners', label: 'Referral partners', short: 'Referrals' },
   { to: '/calendar', label: 'Calendar', short: 'Cal' },
   { to: '/payouts', label: 'Payouts', short: 'Pay' },
   { to: '/invoices', label: 'Invoices', short: 'Inv' },

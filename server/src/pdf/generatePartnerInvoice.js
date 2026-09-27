@@ -5,7 +5,7 @@ const money = (n) => `$${Number(n || 0).toFixed(2)}`;
 
 /**
  * Invoice issued to another business — a crematorium partner, a
- * referring clinic, a corporate account.
+ * referral partner, a corporate account.
  *
  * Distinct from both existing documents: the client invoice is issued to
  * a pet owner for one job, and the RCTI is issued on behalf of a vet

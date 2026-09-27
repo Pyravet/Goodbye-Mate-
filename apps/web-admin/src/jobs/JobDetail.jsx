@@ -155,7 +155,7 @@ export default function JobDetail() {
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
 
-  const { job, bill, review, referredByClinic } = data;
+  const { job, bill, review, referredByPartner } = data;
   const clientAppBase = import.meta.env.VITE_CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
   const journeyLink = `${clientAppBase.replace(/\/$/, '')}/${job.client_token}`;
   const isCommunalOrPrivate = job.service_type !== 'euthanasia_only';
@@ -267,16 +267,17 @@ export default function JobDetail() {
           </div>
 
           <div>
-            {referredByClinic && (
+            {referredByPartner && (
               <Card title="Referred by">
-                <div style={styles.clinicName}>{referredByClinic.name}</div>
-                {referredByClinic.phone && (
-                  <a href={`tel:${referredByClinic.phone}`} style={styles.clinicPhone}>
-                    {referredByClinic.phone}
+                <div style={styles.partnerName}>{referredByPartner.name}</div>
+                {referredByPartner.phone && (
+                  <a href={`tel:${referredByPartner.phone}`} style={styles.partnerPhone}>
+                    {referredByPartner.phone}
                   </a>
                 )}
                 <p style={styles.docHint}>
-                  This clinic can see the outcome of this referral in their portal.
+                  This partner can see the outcome of this referral, and its commission once
+                  the job is completed, in their portal.
                 </p>
               </Card>
             )}
@@ -1134,8 +1135,8 @@ const styles = {
   reviewStar: { fontSize: 20, color: 'var(--gm-honey)' },
   reviewDate: { fontSize: 11, color: 'var(--gm-ink-soft)', marginLeft: 8 },
   reviewComment: { fontSize: 14, lineHeight: 1.6, fontStyle: 'italic' },
-  clinicName: { fontSize: 15, fontWeight: 600 },
-  clinicPhone: { fontSize: 13, color: 'var(--gm-forest)', textDecoration: 'none', display: 'block', marginTop: 2 },
+  partnerName: { fontSize: 15, fontWeight: 600 },
+  partnerPhone: { fontSize: 13, color: 'var(--gm-forest)', textDecoration: 'none', display: 'block', marginTop: 2 },
   // Referenced by the delete card's "Keep it" button, which had no
   // style at all — lint doesn't flag a missing style key, so it would
   // simply have rendered as a bare browser button.

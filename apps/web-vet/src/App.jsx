@@ -13,36 +13,36 @@ import PastJobs from './jobs/PastJobs.jsx';
 import MessagesPage from './messages/MessagesPage.jsx';
 import OffersPage from './jobs/OffersPage.jsx';
 import DaySheet from './jobs/DaySheet.jsx';
-import ClinicPortal from './clinic/ClinicPortal.jsx';
+import ReferralPartnerPortal from './referralPartner/ReferralPartnerPortal.jsx';
 import AvailabilityPage from './vets/AvailabilityPage.jsx';
 import { useAuth } from './AuthContext.jsx';
 
 /**
  * Send each role to its own home.
  *
- * Clinic logins share this app because they share its authentication —
- * login, refresh, password reset — and a fourth deploy target would be
- * more to go wrong than it's worth for a portal this size. But a clinic
- * user must never see a vet screen: the routing below is what enforces
- * that on the client, and every clinic API route is scoped by session on
- * the server regardless.
+ * Referral partner logins share this app because they share its
+ * authentication — login, refresh, password reset — and a fourth deploy
+ * target would be more to go wrong than it's worth for a portal this
+ * size. But a partner user must never see a vet screen: the routing
+ * below is what enforces that on the client, and every partner API
+ * route is scoped by session on the server regardless.
  */
 function RoleHome() {
   const { user } = useAuth();
-  return user?.role === 'clinic' ? <ClinicPortal /> : <DaySheet />;
+  return user?.role === 'referral_partner' ? <ReferralPartnerPortal /> : <DaySheet />;
 }
 
 /**
  * Vet-only screens.
  *
- * Gating the root alone wasn't enough: a clinic user typing /earnings
+ * Gating the root alone wasn't enough: a partner user typing /earnings
  * would reach a vet screen that fires vet API calls, all of which 403.
  * They'd see a broken page rather than being told they're in the wrong
  * place. Anything vet-only now falls back to the portal.
  */
 function VetOnly({ children }) {
   const { user } = useAuth();
-  return user?.role === 'clinic' ? <ClinicPortal /> : children;
+  return user?.role === 'referral_partner' ? <ReferralPartnerPortal /> : children;
 }
 
 export default function App() {

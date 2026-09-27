@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 
 import authRoutes from './routes/auth.js';
 import partnerInvoicesRouter from './routes/partnerInvoices.js';
-import clinicsRouter from './routes/clinics.js';
+import referralPartnersRouter from './routes/referralPartners.js';
 import qolRouter from './routes/qol.js';
 import extraServicesRouter from './routes/extraServices.js';
 import healthRoutes from './routes/health.js';
@@ -107,7 +107,7 @@ app.use('/api/booking-requests', bookingRequestRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
 app.use('/api/partner-invoices', partnerInvoicesRouter);
-app.use('/api/clinics', clinicsRouter);
+app.use('/api/referral-partners', referralPartnersRouter);
 // Public and unauthenticated: a family should not need an account to
 // work out whether their pet is suffering.
 app.use('/api/qol', qolRouter);

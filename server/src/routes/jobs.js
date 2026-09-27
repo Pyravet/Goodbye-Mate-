@@ -757,16 +757,16 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   );
 
   // Where the job came from. Recorded at conversion but never read
-  // back, so a clinic referral looked identical to a walk-in.
-  let referredByClinic = null;
-  if (rows[0].referred_by_clinic_id) {
-    const { rows: clinicRows } = await query(
-      'SELECT id, name, phone FROM clinics WHERE id = $1', [rows[0].referred_by_clinic_id]
+  // back, so a referral looked identical to a walk-in.
+  let referredByPartner = null;
+  if (rows[0].referred_by_partner_id) {
+    const { rows: partnerRows } = await query(
+      'SELECT id, name, type, phone FROM referral_partners WHERE id = $1', [rows[0].referred_by_partner_id]
     );
-    referredByClinic = clinicRows[0] || null;
+    referredByPartner = partnerRows[0] || null;
   }
 
-  res.json({ job: jobWithPets, review: reviewRows[0] || null, referredByClinic, bill, payout });
+  res.json({ job: jobWithPets, review: reviewRows[0] || null, referredByPartner, bill, payout });
 }));
 
 // RCTI PDF — what the vet is owed for this job. Admin can view any job's

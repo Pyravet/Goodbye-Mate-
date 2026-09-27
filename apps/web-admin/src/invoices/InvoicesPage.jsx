@@ -15,7 +15,7 @@ const fmtDate = (d) =>
 
 /**
  * Invoices issued to other businesses — crematorium partners, referring
- * clinics, corporate accounts.
+ * referral partners, corporate accounts.
  *
  * Separate from client invoices (issued to a pet owner for one job) and
  * from RCTIs (issued on behalf of a vet). Different recipient, different
@@ -56,7 +56,7 @@ export default function InvoicesPage() {
           <button onClick={() => setEditing('new')} style={styles.newBtn}>+ New invoice</button>
         </div>
         <p style={styles.subtitle}>
-          Invoices you issue to other businesses — crematorium partners, clinics, corporate
+          Invoices you issue to other businesses — crematorium partners, referral partners, corporate
           accounts. Client invoices and vet RCTIs are handled separately.
         </p>
 

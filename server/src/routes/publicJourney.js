@@ -265,6 +265,14 @@ const consentSchema = z.object({
 router.post('/:token/consent', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  // A cancelled booking must never collect a signature. This is a legal
+  // record authorising euthanasia, and nothing anywhere else in this
+  // endpoint checked job status — a client reopening an old link after
+  // cancellation could otherwise sign consent for a procedure that was
+  // never going to happen.
+  if (job.status === 'cancelled') {
+    return res.status(409).json({ error: 'This appointment has been cancelled. Please contact us.' });
+  }
   const parsed = consentSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid submission' });
 
@@ -380,6 +388,13 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
 
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  // Nothing here checked job status either — a client could otherwise
+  // pay for an appointment that was cancelled, taking real money for a
+  // visit that will not happen and that admin would then have to notice
+  // and refund.
+  if (job.status === 'cancelled') {
+    return res.status(409).json({ error: 'This appointment has been cancelled. Please contact us.' });
+  }
   if (job.payment_status === 'paid') return res.json({ ok: true, alreadyPaid: true });
 
   const parsed = chargeSchema.safeParse(req.body);

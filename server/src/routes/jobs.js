@@ -1339,6 +1339,19 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async
   notifyStatusChange(rows[0], 'cancelled', { actorRole: 'admin', reason })
     .catch((e) => console.error('cancel notify failed:', e.message));
 
+  // The CLIENT, not just the vet and admin. notifyStatusChange above
+  // never reached them at all — a family could be left not knowing
+  // their own appointment had been cancelled, which is the one person
+  // this notification matters most to.
+  if (rows[0].client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+    const feeNote = fee > 0 ? ` A cancellation fee of $${fee.toFixed(2)} applies.` : '';
+    sendTemplatedSms(rows[0].client_phone, 'genericMessage', {
+      message: `Hi ${rows[0].client_name}, your Goodbye Mate appointment for ${rows[0].pet_name} `
+        + `has been cancelled${reason ? ` (${reason})` : ''}.${feeNote} `
+        + `If this isn't right, please call us.`,
+    }).catch((e) => console.error('client cancel sms failed:', e.message));
+  }
+
   res.json({
     job: rows[0],
     cancellation: { fee, waived, calculated, hoursNotice: notice },
@@ -2727,6 +2740,17 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
           category: 'job',
         }).catch((e) => console.error('time change notify failed:', e.message));
       }
+    }
+
+    // The CLIENT, who was never told either. The journey page itself
+    // reads the time live and will show the new slot correctly, but
+    // nothing proactively told them it had moved — someone could be
+    // waiting at home for the ORIGINAL time with no idea it changed.
+    if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+      sendTemplatedSms(job.client_phone, 'genericMessage', {
+        message: `Hi ${job.client_name}, your Goodbye Mate appointment for ${job.pet_name} `
+          + `has moved to ${newDate} at ${newTime}. If this time doesn't work, please call us.`,
+      }).catch((e) => console.error('client reschedule sms failed:', e.message));
     }
   }
 

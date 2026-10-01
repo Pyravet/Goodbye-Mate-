@@ -98,6 +98,26 @@ export default function JourneyPage() {
   }
 
   const { job, bill, content, company, eway } = data;
+
+  // A cancelled booking must show as cancelled, plainly, before anything
+  // else. Nothing here previously checked status at all: the normal
+  // consent and payment steps rendered exactly as if the appointment
+  // were still happening, which is how a client could sign consent or
+  // pay for a visit that was never going to take place.
+  if (job.status === 'cancelled') {
+    return (
+      <Centered>
+        <div style={styles.cancelledCard}>
+          <h2 style={styles.cancelledTitle}>This appointment has been cancelled</h2>
+          <p style={styles.muted}>
+            If you believe this is a mistake, or you&apos;d like to arrange a new time, please
+            call us — we&apos;re here to help.
+          </p>
+        </div>
+      </Centered>
+    );
+  }
+
   const hasAftercare = job.serviceType !== 'euthanasia_only';
   // Falls back to the server value until the client submits a rating in
   // this session. Must NOT be its own useState down here — hooks can't
@@ -804,6 +824,8 @@ const styles = {
   page: { maxWidth: 480, margin: '0 auto', padding: '28px 16px 60px' },
   centeredWrap: { display: 'flex', minHeight: '100dvh', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' },
   muted: { color: 'var(--gm-ink-soft)', fontSize: 14 },
+  cancelledCard: { background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius)', padding: 28, maxWidth: 420, textAlign: 'center' },
+  cancelledTitle: { fontFamily: 'var(--gm-font-display)', fontSize: 20, fontWeight: 600, color: 'var(--gm-brick)', marginBottom: 10 },
   errorText: { color: 'var(--gm-brick)', fontSize: 13, marginBottom: 12 },
   header: { textAlign: 'center', marginBottom: 24 },
   brand: { fontSize: 22, marginBottom: 6 },

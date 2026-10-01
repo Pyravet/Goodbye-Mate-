@@ -10,6 +10,7 @@ import partnerInvoicesRouter from './routes/partnerInvoices.js';
 import referralPartnersRouter from './routes/referralPartners.js';
 import qolRouter from './routes/qol.js';
 import extraServicesRouter from './routes/extraServices.js';
+import statsRouter from './routes/stats.js';
 import healthRoutes from './routes/health.js';
 import vetsRoutes from './routes/vets.js';
 import messagesRoutes from './routes/messages.js';
@@ -112,6 +113,7 @@ app.use('/api/referral-partners', referralPartnersRouter);
 // work out whether their pet is suffering.
 app.use('/api/qol', qolRouter);
 app.use('/api/extra-services', extraServicesRouter);
+app.use('/api/stats', statsRouter);
 
 // 404 for unmatched API routes. Without this, an unknown path falls
 // through to Express's HTML error page, which is confusing for an API

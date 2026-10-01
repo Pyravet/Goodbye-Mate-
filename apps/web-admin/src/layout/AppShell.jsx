@@ -15,6 +15,7 @@ const navItems = [
   { to: '/payouts', label: 'Payouts', short: 'Pay' },
   { to: '/invoices', label: 'Invoices', short: 'Inv' },
   { to: '/activity', label: 'Activity', short: 'Inbox' },
+  { to: '/stats', label: 'Statistics', short: 'Stats' },
   { to: '/reviews', label: 'Feedback', short: 'Stars' },
   { to: '/settings', label: 'Settings', short: 'More' },
 ];

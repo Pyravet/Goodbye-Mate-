@@ -103,12 +103,23 @@ export function statsByLocation(jobs, field = 'state') {
 }
 
 /**
- * Per-vet completed job count and revenue they GENERATED (the client
- * bill total, not their own payout — "how much business did this vet
- * bring in" and "how much was this vet paid" are different questions;
- * the payout figure already exists on the vet payout pages, so this
- * stays on the first one to avoid the two numbers being read as the
- * same thing side by side).
+ * Per-vet job count and what they actually EARNED — their own payout
+ * for each job, not the client bill total.
+ *
+ * These are genuinely different numbers: a $449 euthanasia bills the
+ * client $449 but pays the vet their weekday or after-hours rate, which
+ * is a smaller figure with its own surcharges and fees. Someone looking
+ * at "per vet" stats is asking what that vet is owed or has earned, not
+ * how much business they generated for the company — the two
+ * questions have different answers, and showing the bill total here
+ * would overstate every vet's earnings by whatever margin the business
+ * keeps.
+ *
+ * "Jobs done" means COMPLETED jobs specifically — a job merely assigned
+ * to a vet isn't something they've done yet. completedJobs is the count
+ * that answers that question directly; totalJobs is kept alongside it
+ * as useful context (how much was offered vs. how much was finished),
+ * not as the headline figure.
  */
 export function statsByVet(jobs) {
   const buckets = new Map();
@@ -116,16 +127,16 @@ export function statsByVet(jobs) {
     if (!job.assigned_vet_id) continue;
     const key = job.assigned_vet_id;
     if (!buckets.has(key)) {
-      buckets.set(key, { vetId: key, vetName: job.vetName || 'Unknown', totalJobs: 0, completedJobs: 0, revenue: 0 });
+      buckets.set(key, { vetId: key, vetName: job.vetName || 'Unknown', totalJobs: 0, completedJobs: 0, earned: 0 });
     }
     const b = buckets.get(key);
     b.totalJobs += 1;
     if (job.status === 'completed') {
       b.completedJobs += 1;
-      b.revenue += Number(job.billTotal) || 0;
+      b.earned += Number(job.payoutTotal) || 0;
     }
   }
-  return [...buckets.values()].sort((a, b) => b.revenue - a.revenue);
+  return [...buckets.values()].sort((a, b) => b.earned - a.earned);
 }
 
 /** Headline figures for the top of the dashboard. */

@@ -93,21 +93,40 @@ test('a missing location field is grouped as Unknown rather than dropped', () =>
 
 test('a job with no assigned vet is excluded, not grouped under undefined', () => {
   const jobs = [
-    { assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', billTotal: 300 },
-    { assigned_vet_id: null, status: 'completed', billTotal: 500 },
+    { assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', payoutTotal: 300 },
+    { assigned_vet_id: null, status: 'completed', payoutTotal: 500 },
   ];
   const result = statsByVet(jobs);
   assert.equal(result.length, 1);
   assert.equal(result[0].vetId, 'v1');
 });
 
-test('revenue per vet is what they BILLED, not their own payout', () => {
-  // The payout figure already exists elsewhere; this module intentionally
-  // reports a different number so the two are never read as the same
-  // thing side by side.
-  const jobs = [{ assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', billTotal: 449 }];
+test('a vet\'s earnings are their own PAYOUT, not what the client was billed', () => {
+  // These are genuinely different numbers — a $449 client bill does not
+  // mean the vet earned $449. Using billTotal here would overstate every
+  // vet's earnings by whatever margin the business keeps.
+  const jobs = [{ assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', billTotal: 449, payoutTotal: 340 }];
   const [vet] = statsByVet(jobs);
-  assert.equal(vet.revenue, 449);
+  assert.equal(vet.earned, 340, 'must use payoutTotal, not billTotal');
+});
+
+test('"jobs done" is completedJobs specifically — an assigned-but-not-done job does not count', () => {
+  const jobs = [
+    { assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', payoutTotal: 340 },
+    { assigned_vet_id: 'v1', vetName: 'Dr A', status: 'assigned', payoutTotal: 0 },
+  ];
+  const [vet] = statsByVet(jobs);
+  assert.equal(vet.totalJobs, 2, 'both count toward total assigned');
+  assert.equal(vet.completedJobs, 1, 'only the completed one counts as done');
+});
+
+test('vets are ranked by what they earned, highest first', () => {
+  const jobs = [
+    { assigned_vet_id: 'v1', vetName: 'Dr A', status: 'completed', payoutTotal: 300 },
+    { assigned_vet_id: 'v2', vetName: 'Dr B', status: 'completed', payoutTotal: 800 },
+  ];
+  const result = statsByVet(jobs);
+  assert.equal(result[0].vetId, 'v2', 'highest earner first');
 });
 
 // --- summaryStats ---

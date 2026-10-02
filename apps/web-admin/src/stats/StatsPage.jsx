@@ -240,18 +240,21 @@ function VetTable({ rows }) {
       <thead>
         <tr>
           <th style={styles.th}>Vet</th>
-          <th style={styles.th}>Jobs</th>
-          <th style={styles.th}>Completed</th>
-          <th style={styles.thRight}>Revenue generated</th>
+          <th style={styles.th}>Jobs done</th>
+          <th style={styles.th}>Jobs assigned</th>
+          <th style={styles.thRight}>Earned</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((r) => (
           <tr key={r.vetId}>
             <td style={styles.td}>{r.vetName}</td>
-            <td style={styles.td}>{r.totalJobs}</td>
+            {/* "Jobs done" first and bold-weighted by position: a job
+                merely assigned isn't done yet, and that's the number a
+                vet actually cares about seeing first. */}
             <td style={styles.td}>{r.completedJobs}</td>
-            <td style={styles.tdRight}>{money(r.revenue)}</td>
+            <td style={styles.td}>{r.totalJobs}</td>
+            <td style={styles.tdRight}>{money(r.earned)}</td>
           </tr>
         ))}
       </tbody>

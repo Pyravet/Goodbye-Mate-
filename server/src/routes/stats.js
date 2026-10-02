@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
-import { billBreakdown } from '../domain/pricing.js';
+import { billBreakdown, payoutBreakdown } from '../domain/pricing.js';
 import { withPetCounts } from '../domain/jobPets.js';
 import { statsByPeriod, statsByLocation, statsByVet, summaryStats } from '../domain/stats.js';
 
@@ -61,14 +61,24 @@ async function loadPricedJobs({ from, to }) {
   const pricing = pricingRows[0].config;
 
   const withCounts = await withPetCounts(jobs);
-  const priced = withCounts.map((job) => ({
-    ...job,
-    vetName: job.vet_name,
-    // Only completed jobs are ever billed for real, but pricing every
-    // job regardless costs nothing extra and means a status filter
-    // applied downstream doesn't need a second code path.
-    billTotal: billBreakdown(job, pricing, itemsByJob.get(job.id) || []).total,
-  }));
+  const priced = withCounts.map((job) => {
+    const items = itemsByJob.get(job.id) || [];
+    return {
+      ...job,
+      vetName: job.vet_name,
+      // Only completed jobs are ever billed for real, but pricing every
+      // job regardless costs nothing extra and means a status filter
+      // applied downstream doesn't need a second code path.
+      billTotal: billBreakdown(job, pricing, items).total,
+      // What the VET was paid, separate from what the client was
+      // billed — the per-vet breakdown needs this one, not billTotal.
+      // Computed from the same payoutBreakdown the vet payout periods
+      // and RCTIs already use, for the same reason billTotal reuses
+      // billBreakdown: a second pricing calculation is how a dashboard
+      // ends up disagreeing with the documents actually issued.
+      payoutTotal: payoutBreakdown(job, pricing, items).total,
+    };
+  });
 
   return { jobs: priced, fromDate, toDate };
 }
@@ -115,7 +125,7 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
 
   const header = [
     'Job number', 'Date', 'Status', 'Service type', 'Vet', 'Suburb', 'Postcode', 'State',
-    'Bill total', 'Cancellation fee', 'Refunded', 'Referred by',
+    'Bill total', 'Vet payout', 'Cancellation fee', 'Refunded', 'Referred by',
   ];
   const escape = (v) => {
     const s = v == null ? '' : String(v);
@@ -133,6 +143,7 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     j.postcode || '',
     j.state || '',
     j.status === 'completed' ? j.billTotal.toFixed(2) : '',
+    j.status === 'completed' ? j.payoutTotal.toFixed(2) : '',
     Number(j.cancellation_fee || 0).toFixed(2),
     Number(j.refunded_amount || 0).toFixed(2),
     j.referred_by_partner_id ? 'yes' : '',

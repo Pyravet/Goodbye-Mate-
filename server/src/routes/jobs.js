@@ -1414,6 +1414,27 @@ const lineItemSchema = z.object({
   vetPayout: z.number().min(0).optional().default(0),
 });
 
+/**
+ * Is this job's vet payout already frozen into an approved or paid
+ * period? If so, a line item added NOW cannot change what the vet
+ * actually receives — the RCTI already states a fixed total, and the
+ * whole point of freezing it at approval is that it never silently
+ * changes afterwards. Admin needs to be told this explicitly, because
+ * the natural assumption — "I added $70 to the payout, the vet gets
+ * $70 more" — is false once this is true, and nothing else surfaces
+ * that.
+ */
+async function vetPayoutIsFrozen(jobId) {
+  const { rows } = await query(
+    `SELECT pp.status FROM vet_payout_period_items ppi
+     JOIN vet_payout_periods pp ON pp.id = ppi.period_id
+     WHERE ppi.job_id = $1 AND pp.status IN ('approved', 'paid')
+     LIMIT 1`,
+    [jobId]
+  );
+  return !!rows[0];
+}
+
 
 // ========================================================================
 // MONEY ==================================================================
@@ -1451,18 +1472,135 @@ router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(a
     return res.status(400).json({ error: 'A discount cannot also increase the vet payout.' });
   }
 
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  // Nothing here previously checked whether the client had already
+  // paid, or whether the vet had already been paid out, before silently
+  // changing the total either of them was told. Both are handled below;
+  // everything else about a line item added BEFORE payment is unchanged,
+  // since the client's eventual payment already reads the live total.
+  const wasAlreadyPaid = job.payment_status === 'paid';
+  const payoutFrozen = await vetPayoutIsFrozen(req.params.id);
+
   const { rows } = await query(
     'INSERT INTO job_line_items (job_id, label, amount, vet_payout, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
     [req.params.id, label, amount, vetPayout, req.user.sub]
   );
-  await logAction({ actorUserId: req.user.sub, action: amount < 0 ? 'discount_added' : 'extra_charge_added', targetType: 'job', targetId: req.params.id, metadata: { label, amount } });
-  res.status(201).json({ id: rows[0].id });
+  await logAction({ actorUserId: req.user.sub, action: amount < 0 ? 'discount_added' : 'extra_charge_added', targetType: 'job', targetId: req.params.id, metadata: { label, amount, afterPayment: wasAlreadyPaid, payoutFrozen } });
+
+  const warnings = [];
+
+  if (wasAlreadyPaid) {
+    if (amount > 0) {
+      // A genuine new balance is now owed. The payment flag must stop
+      // claiming the job is settled — the "nothing outstanding" nudge
+      // check reads exactly this field, and would otherwise refuse to
+      // let admin chase money that is now actually owed.
+      await query("UPDATE jobs SET payment_status = 'pending' WHERE id = $1", [req.params.id]);
+      if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+        sendTemplatedSms(job.client_phone, 'genericMessage', {
+          message: `Hi ${job.client_name}, an additional charge of $${amount.toFixed(2)} (${label}) has been `
+            + `added to your Goodbye Mate invoice for ${await petNamesTextFor(job)}. `
+            + `You can view and pay the updated total on your journey page.`,
+        }).catch((e) => console.error('post-payment charge sms failed:', e.message));
+      }
+    } else {
+      // A discount after payment means the client may now be owed money
+      // back. This does NOT trigger a refund automatically — refunds go
+      // through their own deliberate flow — but the client is told, and
+      // admin is told plainly that nothing further happens by itself.
+      if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+        sendTemplatedSms(job.client_phone, 'genericMessage', {
+          message: `Hi ${job.client_name}, a discount of $${Math.abs(amount).toFixed(2)} has been applied to your `
+            + `Goodbye Mate invoice for ${await petNamesTextFor(job)}. If a refund is owed, we will be in touch.`,
+        }).catch((e) => console.error('post-payment discount sms failed:', e.message));
+      }
+      warnings.push('This discount does not refund the client automatically — use Refund if one is owed.');
+    }
+  }
+
+  if (vetPayout > 0 && job.assigned_vet_id) {
+    if (payoutFrozen) {
+      // The vet's RCTI for this job already states a fixed total and
+      // will not change. Telling admin "added" here, with nothing more,
+      // would wrongly imply the vet's pay just increased.
+      warnings.push(
+        "This job's vet payout has already been approved — the extra payout will NOT appear on that "
+        + 'RCTI. Pay the vet separately if this amount is owed to them.'
+      );
+    } else {
+      const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [job.assigned_vet_id]);
+      if (vetRows[0]) {
+        notifyUser(vetRows[0].user_id, {
+          title: 'Payout updated',
+          body: `An extra $${vetPayout.toFixed(2)} (${label}) has been added to your payout for `
+            + `${job.job_number}.`,
+          url: `/jobs/${req.params.id}`,
+          category: 'status',
+        }).catch((e) => console.error('vet payout-change notify failed:', e.message));
+      }
+    }
+  }
+
+  res.status(201).json({ id: rows[0].id, warnings });
 }));
 
 router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  // Fetched BEFORE deleting, so the amount being removed is known —
+  // removing a $70 extra charge from an already-paid job means the
+  // client has now overpaid by $70, and removing a vet-payout-bearing
+  // item means the vet's pay just dropped. Neither was visible to
+  // anyone before this.
+  const { rows: itemRows } = await query(
+    'SELECT * FROM job_line_items WHERE id = $1 AND job_id = $2', [req.params.itemId, req.params.id]
+  );
+  const item = itemRows[0];
+  const { rows: jobRows } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  const job = jobRows[0];
+  const payoutFrozen = item ? await vetPayoutIsFrozen(req.params.id) : false;
+
   await query('DELETE FROM job_line_items WHERE id = $1 AND job_id = $2', [req.params.itemId, req.params.id]);
-  await logAction({ actorUserId: req.user.sub, action: 'line_item_removed', targetType: 'job', targetId: req.params.id });
-  res.json({ ok: true });
+  await logAction({ actorUserId: req.user.sub, action: 'line_item_removed', targetType: 'job', targetId: req.params.id, metadata: item ? { label: item.label, amount: item.amount } : undefined });
+
+  const warnings = [];
+
+  if (item && job?.payment_status === 'paid' && Number(item.amount) > 0) {
+    // Removing a charge the client already paid means they've now
+    // overpaid by exactly that amount. Same treatment as a post-payment
+    // discount: the client is told, nothing is refunded automatically.
+    if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
+      sendTemplatedSms(job.client_phone, 'genericMessage', {
+        message: `Hi ${job.client_name}, a charge of $${Number(item.amount).toFixed(2)} (${item.label}) has been `
+          + `removed from your Goodbye Mate invoice for ${await petNamesTextFor(job)}. `
+          + `If a refund is owed, we will be in touch.`,
+      }).catch((e) => console.error('line item removal sms failed:', e.message));
+    }
+    warnings.push('The client has now overpaid by this amount — use Refund if one is owed.');
+  }
+
+  if (item && Number(item.vet_payout) > 0 && job?.assigned_vet_id) {
+    if (payoutFrozen) {
+      warnings.push(
+        "This job's vet payout has already been approved — it will NOT be reduced on that RCTI. "
+        + 'Recover the amount separately if needed.'
+      );
+    } else {
+      const { rows: vetRows } = await query('SELECT user_id FROM vets WHERE id = $1', [job.assigned_vet_id]);
+      if (vetRows[0]) {
+        notifyUser(vetRows[0].user_id, {
+          title: 'Payout updated',
+          body: `$${Number(item.vet_payout).toFixed(2)} (${item.label}) has been removed from your payout for `
+            + `${job.job_number}.`,
+          url: `/jobs/${req.params.id}`,
+          category: 'status',
+        }).catch((e) => console.error('vet payout-change notify failed:', e.message));
+      }
+    }
+  }
+
+  res.json({ ok: true, warnings });
 }));
 
 /**

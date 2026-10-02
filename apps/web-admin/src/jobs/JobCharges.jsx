@@ -24,6 +24,12 @@ export default function JobCharges({ jobId, onChanged }) {
   const [form, setForm] = useState({ label: '', amount: '', vetPayout: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Separate from error: these aren't failures, they're real financial
+  // consequences of a charge made AFTER payment or after a payout was
+  // already approved — a client now owes more, or a vet's already-issued
+  // RCTI won't reflect this, and admin needs to see that plainly rather
+  // than assume the usual "it just works" case still applies.
+  const [warnings, setWarnings] = useState([]);
 
   const load = () => fetchLineItems(jobId).then(setItems).catch(() => setItems([]));
   useEffect(() => { load(); }, [jobId]);
@@ -64,7 +70,7 @@ export default function JobCharges({ jobId, onChanged }) {
     setBusy(true);
     setError('');
     try {
-      await addLineItem(jobId, {
+      const result = await addLineItem(jobId, {
         label: form.label.trim(),
         // The user always types a positive number; the sign is decided by
         // which button they pressed, so a discount can't be entered as a
@@ -73,6 +79,7 @@ export default function JobCharges({ jobId, onChanged }) {
         vetPayout: mode === 'discount' ? 0 : Number(form.vetPayout) || 0,
       });
       setMode(null);
+      setWarnings(result?.warnings || []);
       await load();
       onChanged?.();
     } catch (err) {
@@ -85,7 +92,8 @@ export default function JobCharges({ jobId, onChanged }) {
   const remove = async (itemId) => {
     setBusy(true);
     try {
-      await removeLineItem(jobId, itemId);
+      const result = await removeLineItem(jobId, itemId);
+      setWarnings(result?.warnings || []);
       await load();
       onChanged?.();
     } finally {
@@ -95,6 +103,12 @@ export default function JobCharges({ jobId, onChanged }) {
 
   return (
     <div>
+      {warnings.length > 0 && (
+        <div style={styles.warnBox}>
+          {warnings.map((w) => <p key={w} style={styles.warnText}>⚠ {w}</p>)}
+          <button onClick={() => setWarnings([])} style={styles.warnDismiss}>Dismiss</button>
+        </div>
+      )}
       {items === null ? (
         <p style={styles.hint}>Loading…</p>
       ) : items.length === 0 ? (
@@ -192,6 +206,9 @@ export default function JobCharges({ jobId, onChanged }) {
 
 const styles = {
   hint: { fontSize: 12, color: 'var(--gm-ink-soft)', fontStyle: 'italic', margin: '0 0 10px' },
+  warnBox: { background: '#FDF6EC', border: '1px solid #E8D9BE', borderRadius: 8, padding: '10px 12px', marginBottom: 12 },
+  warnText: { fontSize: 12.5, color: '#7A5A22', margin: '0 0 6px', lineHeight: 1.5 },
+  warnDismiss: { background: 'none', border: 'none', color: '#7A5A22', fontSize: 11, textDecoration: 'underline', padding: 0, cursor: 'pointer' },
   list: { marginBottom: 12 },
   row: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--gm-line-soft)', fontSize: 13 },
   rowLabel: { flex: 1, minWidth: 0 },

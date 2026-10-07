@@ -11,6 +11,7 @@ import PetsCard from './PetsCard.jsx';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { openVetRecord, emailVetRecord } from './jobsApi.js';
 import TakePayment from './TakePayment.jsx';
+import JourneyBlocksEditor from '../journey/JourneyBlocksEditor.jsx';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -325,6 +326,10 @@ export default function JobDetail() {
 
             <Card title="Notes for the vet (from the office)">
               <AdminNotesCard jobId={id} initial={job.admin_notes} />
+            </Card>
+
+            <Card title="Extra info for this client (shown on their link)">
+              <JourneyBlocksEditor jobId={id} />
             </Card>
 
             <Card title="Delete this booking">

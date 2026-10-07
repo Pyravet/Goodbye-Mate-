@@ -14,6 +14,7 @@ import { generateConsentPdf, generateConsentPdfBuffer, consentFilename } from '.
 import { getPets, syncPrimaryPet, withPetCount } from '../domain/jobPets.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 import { logAction } from '../audit/log.js';
+import { shapeBlockForClient } from '../domain/journeyBlocks.js';
 
 const router = Router();
 
@@ -30,6 +31,9 @@ const publicJourneyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests. Try again shortly.' },
+  // A page with several photos would burn the budget on image loads alone.
+  // Files are still gated by the unguessable token.
+  skip: (req) => req.path.includes('/extra-file/'),
 });
 router.use(publicJourneyLimiter);
 
@@ -179,6 +183,19 @@ router.get('/:token', asyncHandler(async (req, res) => {
     [(job.state || '').toUpperCase()]
   );
 
+  // Admin-defined extras: global blocks plus any added for this job only.
+  const { rows: blockRows } = await query(
+    `SELECT id, title, body, video_url FROM journey_blocks
+     WHERE is_active = true AND (job_id IS NULL OR job_id = $1)
+     ORDER BY (job_id IS NULL) DESC, sort_order, created_at`, [job.id]);
+  const { rows: blockFiles } = blockRows.length
+    ? await query(
+        `SELECT id, block_id, filename, mime_type FROM journey_block_files
+         WHERE block_id = ANY($1::uuid[]) ORDER BY created_at`, [blockRows.map((b) => b.id)])
+    : { rows: [] };
+  const extras = blockRows.map((b) => shapeBlockForClient(
+    b, blockFiles.filter((f) => f.block_id === b.id), req.params.token, API_BASE_PATH));
+
   const { rows: reviewRows } = await query('SELECT rating FROM job_reviews WHERE job_id = $1', [job.id]);
 
   res.json({
@@ -245,6 +262,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
         isPdf: !r.url,
       })),
     },
+    extras,
     company: content.company,
     eway: { configured: isEwayConfigured() },
   });
@@ -569,6 +587,28 @@ router.get('/:token/resource/:id.pdf', asyncHandler(async (req, res) => {
   res.setHeader('Content-Type', doc.mime_type || 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${(doc.filename || 'document.pdf').replace(/"/g, '')}"`);
   res.send(doc.data);
+}));
+
+// Serves an admin-uploaded extra-field photo/PDF. Only files belonging to a
+// global block or to THIS job's own block are reachable with this token.
+router.get('/:token/extra-file/:fileId', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.fileId)) return res.status(404).json({ error: 'Not found.' });
+  const { rows } = await query(
+    `SELECT f.filename, f.mime_type, f.data FROM journey_block_files f
+     JOIN journey_blocks b ON b.id = f.block_id
+     WHERE f.id = $1 AND b.is_active = true AND (b.job_id IS NULL OR b.job_id = $2)`,
+    [req.params.fileId, job.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Not found.' });
+  res.setHeader('Content-Type', rows[0].mime_type);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  // helmet defaults to same-origin, which would stop the client app (a
+  // different host) from showing these as <img>. The token gates access.
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].filename.replace(/[\r\n"]/g, '')}"`);
+  res.send(rows[0].data);
 }));
 
 export default router;

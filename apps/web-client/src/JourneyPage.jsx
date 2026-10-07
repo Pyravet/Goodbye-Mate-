@@ -206,6 +206,8 @@ export default function JourneyPage() {
         </div>
       )}
 
+      <ExtraBlocks extras={data.extras} />
+
       {steps.map((s, i) => {
         if (i > active) return null; // future steps stay hidden until reached
         const isActive = i === active;
@@ -652,6 +654,53 @@ function AftercareSection({ token, content, isActive, onContinue, expanded, onTo
   );
 }
 
+// The API returns same-origin style paths (/api/public/journey/...). This
+// app is served from a different host than the API, so a bare path would
+// hit the web host and 404. Absolute links (external resources) pass through.
+function apiHref(href) {
+  if (!href || !href.startsWith('/api/')) return href;
+  return `${API_URL.replace(/\/api\/?$/, '')}${href}`;
+}
+
+function ExtraBlocks({ extras }) {
+  if (!extras || extras.length === 0) return null;
+  return (
+    <>
+      {extras.map((b) => (
+        <section key={b.id} className="gm-card" style={styles.card}>
+          <h3 style={styles.sectionTitle}>{b.title}</h3>
+          {b.body && <p style={{ ...styles.bodyText, whiteSpace: 'pre-wrap' }}>{b.body}</p>}
+          {b.video && b.video.kind === 'embed' && (
+            <div style={{ position: 'relative', paddingTop: '56.25%', margin: '12px 0' }}>
+              <iframe
+                src={b.video.src}
+                title={b.title}
+                allow="encrypted-media; picture-in-picture"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, borderRadius: 8 }}
+              />
+            </div>
+          )}
+          {b.video && b.video.kind === 'file' && (
+            <video src={b.video.src} controls playsInline style={{ width: '100%', borderRadius: 8, margin: '12px 0' }} />
+          )}
+          {b.files.filter((f) => f.isImage).map((f) => (
+            <a key={f.id} href={apiHref(f.href)} target="_blank" rel="noreferrer">
+              <img src={apiHref(f.href)} alt={f.filename} style={{ width: '100%', borderRadius: 8, margin: '8px 0' }} />
+            </a>
+          ))}
+          {b.files.filter((f) => !f.isImage).map((f) => (
+            <a key={f.id} href={apiHref(f.href)} target="_blank" rel="noreferrer" style={styles.resourceLink}>
+              <span>{'\u{1F4C4}'} {f.filename}</span>
+            </a>
+          ))}
+        </section>
+      ))}
+    </>
+  );
+}
+
 function ResourceLinks({ resources }) {
   if (!resources || resources.length === 0) return null;
   return (
@@ -660,7 +709,7 @@ function ResourceLinks({ resources }) {
       {resources.map((r) => (
         <a
           key={r.id}
-          href={r.href}
+          href={apiHref(r.href)}
           target="_blank"
           rel="noreferrer"
           style={styles.resourceLink}

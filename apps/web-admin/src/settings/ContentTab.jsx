@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import BrochureManager from './BrochureManager.jsx';
 import TwoFactorCard from './TwoFactorCard.jsx';
+import JourneyBlocksEditor from '../journey/JourneyBlocksEditor.jsx';
 import { fetchClientResources, addClientResource, removeClientResource, verifyEmail, sendTestEmail, fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
 
 const TEXT_FIELDS = [
@@ -86,6 +87,10 @@ export default function ContentTab() {
           </Field>
         ))}
         <p style={styles.hint}>Use placeholders like {'{petName}'}, {'{date}'}, {'{time}'}, {'{vetName}'}, {'{crematorium}'} — these get filled in automatically.</p>
+      </Card>
+
+      <Card title="Extra info for every client journey (text, photos, PDFs, video)">
+        <JourneyBlocksEditor />
       </Card>
 
       <Card title="Support & grief resources">

@@ -19,6 +19,7 @@ import jobsRoutes from './routes/jobs.js';
 import pushRoutes from './routes/push.js';
 import auditRoutes from './routes/audit.js';
 import publicJourneyRoutes from './routes/publicJourney.js';
+import journeyBlocksRoutes from './routes/journeyBlocks.js';
 import payoutRoutes from './routes/payouts.js';
 import conversationRoutes from './routes/conversations.js';
 import notificationRoutes from './routes/notifications.js';
@@ -81,6 +82,8 @@ app.use('/api/settings/content/brochure', express.json({ limit: '20mb' }));
 // can exceed the global 1mb limit. Same ordering rule as above: this
 // must be mounted before the global parser or it never runs.
 app.use('/api/public/journey', express.json({ limit: '8mb' }));
+// Journey extra-field attachments (photos/PDFs up to 6MB, base64 ~8MB).
+app.use('/api/journey-blocks', express.json({ limit: '10mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
@@ -107,6 +110,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/booking-requests', bookingRequestRoutes);
 app.use('/api/exports', exportRoutes);
 app.use('/api/public/journey', publicJourneyRoutes);
+app.use('/api/journey-blocks', journeyBlocksRoutes);
 app.use('/api/partner-invoices', partnerInvoicesRouter);
 app.use('/api/referral-partners', referralPartnersRouter);
 // Public and unauthenticated: a family should not need an account to

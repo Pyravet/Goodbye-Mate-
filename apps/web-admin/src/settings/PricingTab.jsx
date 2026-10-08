@@ -32,13 +32,20 @@ export default function PricingTab() {
     setSaved(false);
   };
 
+  // Only text-input values (always strings) are coerced to numbers.
+  // This used to run Number() on everything, which turned every checkbox
+  // into 1/0 — and since the checkboxes test `=== true` / `!== false`,
+  // ticking "GST registered" snapped straight back to unticked, and the
+  // reminder toggles could never be switched off. Booleans, arrays and
+  // objects now pass through untouched.
+  const coerce = (value) => (typeof value === 'string' ? Number(value) : value);
   const updateField = (path, value) => {
     setPricing((p) => {
       const next = { ...p };
       if (path.length === 1) {
-        next[path[0]] = Number(value);
+        next[path[0]] = coerce(value);
       } else {
-        next[path[0]] = { ...next[path[0]], [path[1]]: Number(value) };
+        next[path[0]] = { ...next[path[0]], [path[1]]: coerce(value) };
       }
       return next;
     });

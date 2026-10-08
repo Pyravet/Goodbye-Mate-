@@ -2846,6 +2846,33 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     ]
   );
 
+  // job_pets is the source of truth for animals; jobs.pet_* only MIRRORS
+  // the first one. The UPDATE above wrote the mirror alone, so editing
+  // the weight (or name, breed, age, species) here left the real pet row
+  // untouched — the pet card, the oversize surcharge and the vet payout
+  // all read job_pets and stayed stuck on the old value, and the next
+  // syncPrimaryPet() silently reverted the edit. Write the first pet,
+  // then re-mirror.
+  const petFieldGiven = ['petName', 'petType', 'petBreed', 'petWeight', 'petAge'].some((k) => k in d);
+  let updatedJob = rows[0];
+  if (petFieldGiven) {
+    await query(
+      `UPDATE job_pets SET
+         name    = COALESCE($1, name),
+         species = COALESCE($2, species),
+         breed   = CASE WHEN $3::boolean THEN $4 ELSE breed END,
+         weight  = CASE WHEN $5::boolean THEN $6 ELSE weight END,
+         age     = CASE WHEN $7::boolean THEN $8 ELSE age END
+       WHERE id = (SELECT id FROM job_pets WHERE job_id = $9 ORDER BY sort_order, created_at LIMIT 1)`,
+      [d.petName || null, d.petType || null,
+       'petBreed' in d, d.petBreed || null,
+       'petWeight' in d, d.petWeight || null,
+       'petAge' in d, d.petAge || null,
+       req.params.id]
+    );
+    updatedJob = await syncPrimaryPet(req.params.id);
+  }
+
   await logAction({
     actorUserId: req.user.sub,
     action: 'job_updated',
@@ -2890,7 +2917,7 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     }
   }
 
-  res.json({ job: rows[0], offersWithdrawn: timeChanged });
+  res.json({ job: updatedJob, offersWithdrawn: timeChanged });
 }));
 
 /**

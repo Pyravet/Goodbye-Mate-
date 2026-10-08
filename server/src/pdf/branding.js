@@ -54,6 +54,7 @@ export function drawHeader(doc, { company = {}, docTitle, meta = [] }) {
     company.address || null,
     company.phone || null,
     company.email || null,
+    company.website || null,
   ].filter(Boolean);
   for (const line of details) {
     doc.text(line, left, y, { width: 250 });

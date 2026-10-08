@@ -50,6 +50,33 @@ export default function PricingTab() {
 
   return (
     <div>
+      <Card title="GST — client invoices">
+        <div style={styles.serviceRow}>
+          <FieldInline label="GST %">
+            <input type="number" value={pricing.gstPercent} onChange={(e) => updateField(['gstPercent'], e.target.value)} style={styles.numInput} />
+          </FieldInline>
+          <FieldInline label="Business is GST registered">
+            <input
+              type="checkbox"
+              checked={pricing.isGstRegistered === true}
+              onChange={(e) => updateField(['isGstRegistered'], e.target.checked)}
+            />
+          </FieldInline>
+        </div>
+        {pricing.isGstRegistered !== true && (
+          <p style={{ ...styles.gstHint, color: 'var(--gm-brick)', fontWeight: 600 }}>
+            GST is currently OFF — client invoices show no GST. Tick the box and save if the business is registered.
+          </p>
+        )}
+        <p style={styles.gstHint}>
+          When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
+          invoices. Prices stay exactly as entered — GST is shown as the portion already included in
+          the total, not added on top, so what the client pays doesn&apos;t change.
+          {' '}Leave unticked if the business isn&apos;t registered: showing GST when you&apos;re not
+          registered misstates a tax position. Check with your accountant if unsure.
+        </p>
+      </Card>
+
       <Card title="Services">
         {pricing.services.map((svc, i) => (
           <div key={svc.id} style={styles.serviceRow}>
@@ -186,27 +213,6 @@ export default function PricingTab() {
         </div>
       </Card>
 
-      <Card title="GST">
-        <div style={styles.serviceRow}>
-          <FieldInline label="GST %">
-            <input type="number" value={pricing.gstPercent} onChange={(e) => updateField(['gstPercent'], e.target.value)} style={styles.numInput} />
-          </FieldInline>
-          <FieldInline label="Business is GST registered">
-            <input
-              type="checkbox"
-              checked={pricing.isGstRegistered === true}
-              onChange={(e) => updateField(['isGstRegistered'], e.target.checked)}
-            />
-          </FieldInline>
-        </div>
-        <p style={styles.gstHint}>
-          When ticked, client invoices and receipts show a GST breakdown and are labelled as tax
-          invoices. Prices stay exactly as entered — GST is shown as the portion already included in
-          the total, not added on top, so what the client pays doesn&apos;t change.
-          {' '}Leave unticked if the business isn&apos;t registered: showing GST when you&apos;re not
-          registered misstates a tax position. Check with your accountant if unsure.
-        </p>
-      </Card>
 
       <Card title="Vet appointment reminders">
         <div style={styles.serviceRow}>

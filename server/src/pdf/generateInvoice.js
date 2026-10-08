@@ -18,9 +18,10 @@ function drawInvoiceDoc(doc, { job, bill, company, asQuote, gst }) {
 
   const top = drawHeader(doc, {
     company,
-    // Tax Invoice is the legally meaningful label once GST has been
-    // charged; a quote and a receipt are not tax invoices.
-    docTitle: asQuote ? 'Quote' : isPaid ? 'Receipt' : 'Tax Invoice',
+    // "Tax Invoice" is only correct for a GST-registered supplier; an
+    // unregistered business must not issue one. A quote and a receipt
+    // are not tax invoices.
+    docTitle: asQuote ? 'Quote' : isPaid ? 'Receipt' : (gst && gst.isGstRegistered ? 'Tax Invoice' : 'Invoice'),
     meta: [
       [docLabel, job.job_number],
       ['Date', formatDate(new Date())],

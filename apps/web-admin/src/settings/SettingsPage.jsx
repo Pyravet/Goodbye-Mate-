@@ -2,12 +2,14 @@ import { useState } from 'react';
 import AppShell from '../layout/AppShell.jsx';
 import PricingTab from './PricingTab.jsx';
 import ContentTab from './ContentTab.jsx';
+import CompanyTab from './CompanyTab.jsx';
 import ExportsTab from './ExportsTab.jsx';
 import TemplatesTab from './TemplatesTab.jsx';
 import NotificationsTab from './NotificationsTab.jsx';
 
 const TABS = [
   { key: 'pricing', label: 'Pricing' },
+  { key: 'company', label: 'Company' },
   { key: 'content', label: 'Content' },
   { key: 'templates', label: 'Message templates' },
   { key: 'exports', label: 'Exports' },
@@ -35,6 +37,7 @@ export default function SettingsPage() {
         </div>
 
         {tab === 'pricing' && <PricingTab />}
+        {tab === 'company' && <CompanyTab />}
         {tab === 'content' && <ContentTab />}
         {tab === 'templates' && <TemplatesTab />}
         {tab === 'exports' && <ExportsTab />}

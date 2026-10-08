@@ -154,6 +154,25 @@ export default function JobDetailScreen({ route, navigation }) {
         <Text style={styles.subline2}>{[job.pet_weight, job.pet_age].filter(Boolean).join(' · ')}</Text>
       </Card>
 
+      {/* What this job pays the vet, itemised. The client bill is
+          deliberately never sent to vets. */}
+      {data?.payoutLines?.length > 0 && (
+        <Card title="Your earnings">
+          {data.payoutLines.map((l, i) => (
+            <View key={`${l.label}-${i}`} style={styles.earnRow}>
+              <Text style={styles.earnLabel}>{l.label}</Text>
+              <Text style={styles.earnAmount}>${Number(l.amount).toFixed(2)}</Text>
+            </View>
+          ))}
+          {data.payout?.total != null && (
+            <View style={[styles.earnRow, styles.earnTotalRow]}>
+              <Text style={styles.earnTotal}>Total</Text>
+              <Text style={styles.earnTotal}>${Number(data.payout.total).toFixed(2)}</Text>
+            </View>
+          )}
+        </Card>
+      )}
+
       {/* Sits ABOVE the procedure card: en route comes first in the
           sequence, and a vet in the car shouldn't scroll past "mark
           procedure done" to reach it. */}
@@ -275,6 +294,11 @@ function Card({ title, children }) {
 }
 
 const styles = StyleSheet.create({
+  earnRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  earnLabel: { fontSize: 14, color: colors.ink },
+  earnAmount: { fontSize: 14, color: colors.ink },
+  earnTotalRow: { marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line },
+  earnTotal: { fontSize: 15, fontWeight: '700', color: colors.forestDark },
   saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '500' },
   adminNote: { fontSize: 14, lineHeight: 20, color: colors.ink },
   subtle: { fontSize: 13, color: colors.inkSoft, lineHeight: 18 },

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { billBreakdown, payoutBreakdown, extractGst, suggestTimeCategory , clientGstSplit } from './pricing.js';
+import { billBreakdown, payoutBreakdown, extractGst, suggestTimeCategory , clientGstSplit, payoutBreakdownLines } from './pricing.js';
 
 const pricing = {
   services: [
@@ -218,4 +218,18 @@ test('a heavy pet among several on one job still charges the fee once, not per p
   const lines = bill.lines.filter((l) => l.label === 'Oversize pet fee');
   assert.equal(lines.length, 1, 'exactly one oversize line, regardless of pet count');
   assert.equal(lines[0].amount, 60);
+});
+
+test('payoutBreakdownLines: per-pet service, extras itemised, zero lines dropped', () => {
+  const lines = payoutBreakdownLines({
+    serviceName: 'Euthanasia', petCount: 2, serviceAmt: 680, transferAmt: 20,
+    assistantAmt: 0, oversizeAmt: 50, travelAmt: 0,
+    lineItems: [{ label: 'Goodwill', vetPayout: 10 }],
+  });
+  assert.deepEqual(lines.map((l) => l.label), ['Euthanasia × 2', 'Transfer', 'Oversize pet fee', 'Goodwill']);
+  assert.equal(lines.reduce((s, l) => s + l.amount, 0), 760);
+});
+test('payoutBreakdownLines: single pet has no multiplier', () => {
+  const lines = payoutBreakdownLines({ serviceName: 'Euthanasia', petCount: 1, serviceAmt: 340, transferAmt: 0, assistantAmt: 0, oversizeAmt: 0, travelAmt: 0, lineItems: [] });
+  assert.deepEqual(lines, [{ label: 'Euthanasia', amount: 340 }]);
 });

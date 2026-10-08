@@ -36,7 +36,8 @@ import { query } from '../db/pool.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
-import { billBreakdown, payoutBreakdown, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
+import { vetSafeJobResponse } from '../domain/jobVisibility.js';
+import { billBreakdown, payoutBreakdown, payoutBreakdownLines, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
 import { duplicateScore, normalisePhone, sortByConfidence } from '../domain/duplicates.js';
@@ -658,16 +659,7 @@ router.get('/offers/mine', requireAuth, requireRole('vet'), asyncHandler(async (
       // an after-hours double euthanasia with an assistant reads as a
       // mistake — a vet can't sanity-check a number they can't see
       // inside, and one that looks wrong doesn't get accepted.
-      payoutBreakdown: [
-        { label: r.petCount > 1 ? `Euthanasia × ${r.petCount}` : 'Euthanasia', amount: pay.serviceAmt },
-        { label: 'Transfer', amount: pay.transferAmt },
-        { label: 'Extra person', amount: pay.assistantAmt },
-        { label: 'Oversize pet fee', amount: pay.oversizeAmt },
-        { label: 'Extra travel', amount: pay.travelAmt },
-        { label: 'Adjustments', amount: pay.lineItemsAmt },
-      // Zero lines dropped: "Extra travel $0.00" invites the question
-      // of why it's there at all.
-      ].filter((l) => Number(l.amount) > 0),
+      payoutBreakdown: payoutBreakdownLines(pay),
     };
   });
 
@@ -766,7 +758,13 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
     referredByPartner = partnerRows[0] || null;
   }
 
-  res.json({ job: jobWithPets, review: reviewRows[0] || null, referredByPartner, bill, payout });
+  const fullResponse = {
+    job: jobWithPets, review: reviewRows[0] || null, referredByPartner, bill,
+    payout, payoutLines: payoutBreakdownLines(payout),
+  };
+  // Vets get their own earnings only — never the client bill (it shows
+  // the business's margin) or the referral partner.
+  res.json(req.user.role === 'vet' ? vetSafeJobResponse(fullResponse) : fullResponse);
 }));
 
 // RCTI PDF — what the vet is owed for this job. Admin can view any job's

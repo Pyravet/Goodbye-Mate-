@@ -134,6 +134,24 @@ export function payoutBreakdown(job, pricing, lineItems = []) {
   };
 }
 
+/**
+ * Itemised lines for a payout, in display order. Zero lines are dropped
+ * ("Extra travel $0.00" invites the question of why it's there). Shared
+ * by the offers list and the job detail so both explain the figure the
+ * same way.
+ */
+export function payoutBreakdownLines(pay) {
+  const n = pay.petCount || 1;
+  return [
+    { label: n > 1 ? `${pay.serviceName} × ${n}` : pay.serviceName, amount: pay.serviceAmt },
+    { label: 'Transfer', amount: pay.transferAmt },
+    { label: 'Extra person to assist', amount: pay.assistantAmt },
+    { label: 'Oversize pet fee', amount: pay.oversizeAmt },
+    { label: 'Extra travel', amount: pay.travelAmt },
+    ...pay.lineItems.map((i) => ({ label: i.label, amount: i.vetPayout })),
+  ].filter((l) => Number(l.amount) !== 0);
+}
+
 // GST is extracted from a GST-inclusive total: gst = total * rate / (100 + rate).
 // Only broken out on an RCTI if the vet is GST-registered.
 export function extractGst(gstInclusiveTotal, gstPercent) {

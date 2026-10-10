@@ -24,7 +24,7 @@ const TZ = 'Australia/Melbourne';
  * Offers are NOT on this list. An offer is an invitation, and declining
  * by silence is a legitimate answer at 3am.
  */
-const ALWAYS_DELIVER = new Set(['reminder', 'cancellation', 'reassignment']);
+const ALWAYS_DELIVER = new Set(['reminder', 'cancellation', 'reassignment', 'reschedule']);
 
 /** Hour of day in the business's timezone, 0–23. */
 function hourIn(tz, now) {

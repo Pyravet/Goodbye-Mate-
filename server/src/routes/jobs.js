@@ -37,6 +37,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { vetSafeJobResponse } from '../domain/jobVisibility.js';
+import { noticeClient, noticeVet, friendlyWhen } from '../notifications/jobNotices.js';
 import { billBreakdown, payoutBreakdown, payoutBreakdownLines, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
@@ -248,7 +249,7 @@ export async function startOrRollDispatch(jobId) {
     // did not.
     notifyAdmins({
       title: 'No vet available',
-      body: `${job.pet_name} (${job.job_number}) on ${String(job.job_date).slice(0, 10)} `
+      body: `${job.pet_name} (${job.job_number}) on ${ymd(job.job_date)} `
         + `at ${String(job.job_time).slice(0, 5)} has no vet — every eligible vet declined or timed out.`,
       url: `/jobs/${jobId}`,
       category: 'job',
@@ -256,7 +257,7 @@ export async function startOrRollDispatch(jobId) {
 
     sendSlackMessage(
       `⚠️ No vet available for ${job.pet_name} (${job.job_number}) — `
-      + `${String(job.job_date).slice(0, 10)} at ${String(job.job_time).slice(0, 5)}. Needs manual assignment.`
+      + `${ymd(job.job_date)} at ${String(job.job_time).slice(0, 5)}. Needs manual assignment.`
     ).catch((e) => console.error('unassigned slack failed:', e.message));
 
     return { state: 'unassigned' };
@@ -1221,10 +1222,23 @@ router.post('/:id/email-vet-record', outboundMessageLimiter, requireAuth, asyncH
   res.json({ ok: true, to });
 }));
 
+/**
+ * 'YYYY-MM-DD' from a job_date. node-pg returns DATE columns as a JS Date
+ * at LOCAL midnight, so String(date).slice(0, 10) gives "Tue Sep 15" —
+ * which never equals a submitted '2026-09-15' and made every edit look
+ * like a reschedule.
+ */
+function ymd(v) {
+  if (v instanceof Date) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  return String(v ?? '').slice(0, 10);
+}
+
 // --- Notify both sides when a job's status changes ---
 // Status changes were previously silent: a vet could have a job
 // cancelled out from under them with no signal at all.
-async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
+async function notifyStatusChange(job, newStatus, { actorRole, reason, reinstated = false } = {}) {
   const label = {
     available: 'is back on the board and needs a vet',
     assigned: 'has been assigned',
@@ -1237,20 +1251,29 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
   const body = `${job.pet_name} (${job.job_number}) ${label}${reason ? ` — ${reason}` : ''}.`;
 
   // Notify the assigned vet, unless they're the one who triggered it.
+  let vetNotified = null;
   if (job.assigned_vet_id && actorRole !== 'vet') {
-    const { rows } = await query(
-      'SELECT u.id AS user_id, u.phone, u.full_name FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
-      [job.assigned_vet_id]
-    );
-    const vet = rows[0];
-    if (vet) {
-      await notifyUser(vet.user_id, { title: 'Job update', body, url: `/jobs/${job.id}`, category: 'status' })
-        .catch((e) => console.error('status push failed:', e.message));
-      // Cancellation is the one case worth an SMS — the vet may have
-      // already set off, and a push alone can be missed while driving.
-      if (newStatus === 'cancelled' && vet.phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-        await sendTemplatedSms(vet.phone, 'genericMessage', { message: `Hi ${vet.full_name}, ${body}` })
-          .catch((e) => console.error('status sms failed:', e.message));
+    if (newStatus === 'cancelled' || reinstated) {
+      // Cancellation and reinstatement are the cases worth an SMS and an
+      // email as well as a push — the vet may already have set off, and
+      // a push alone can be missed while driving. 'cancellation' /
+      // 'reassignment' ignore a vet's pause and quiet hours.
+      vetNotified = await noticeVet(job.assigned_vet_id, job, {
+        title: newStatus === 'cancelled' ? 'Job cancelled' : 'Job reinstated',
+        message: reinstated
+          ? `${job.pet_name} (${job.job_number}) has been reinstated — it is back on your schedule for ${friendlyWhen(ymd(job.job_date), String(job.job_time).slice(0, 5))}.`
+          : body,
+        subject: `${newStatus === 'cancelled' ? 'Cancelled' : 'Reinstated'}: ${job.pet_name} (${job.job_number})`,
+        category: newStatus === 'cancelled' ? 'cancellation' : 'reassignment',
+      }).catch((e) => { console.error('status notice failed:', e.message); return null; });
+    } else {
+      const { rows } = await query(
+        'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+        [job.assigned_vet_id]
+      );
+      if (rows[0]) {
+        await notifyUser(rows[0].user_id, { title: 'Job update', body, url: `/jobs/${job.id}`, category: 'status' })
+          .catch((e) => console.error('status push failed:', e.message));
       }
     }
   }
@@ -1261,6 +1284,7 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason } = {}) {
       .catch((e) => console.error('notify admins failed:', e.message));
   }
   await sendSlackMessage(`📋 ${body}`).catch((e) => console.error('status slack failed:', e.message));
+  return { vet: vetNotified };
 }
 
 // --- Cancel a job ---
@@ -1334,25 +1358,22 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async
     // made rather than looking like the policy simply didn't fire.
     metadata: { reason, fee, waived, calculatedFee: calculated.fee, hoursNotice: notice },
   });
-  notifyStatusChange(rows[0], 'cancelled', { actorRole: 'admin', reason })
-    .catch((e) => console.error('cancel notify failed:', e.message));
-
-  // The CLIENT, not just the vet and admin. notifyStatusChange above
-  // never reached them at all — a family could be left not knowing
-  // their own appointment had been cancelled, which is the one person
-  // this notification matters most to.
-  if (rows[0].client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-    const feeNote = fee > 0 ? ` A cancellation fee of $${fee.toFixed(2)} applies.` : '';
-    sendTemplatedSms(rows[0].client_phone, 'genericMessage', {
-      message: `Hi ${rows[0].client_name}, your Goodbye Mate appointment for ${rows[0].pet_name} `
-        + `has been cancelled${reason ? ` (${reason})` : ''}.${feeNote} `
-        + `If this isn't right, please call us.`,
-    }).catch((e) => console.error('client cancel sms failed:', e.message));
-  }
+  // Vet (push + SMS + email) and CLIENT (SMS + email). The client is the
+  // one person this matters most to — a family left not knowing their
+  // own appointment had been cancelled is the worst outcome.
+  const statusResult = await notifyStatusChange(rows[0], 'cancelled', { actorRole: 'admin', reason })
+    .catch((e) => { console.error('cancel notify failed:', e.message); return null; });
+  const feeNote = fee > 0 ? ` A cancellation fee of $${fee.toFixed(2)} applies.` : '';
+  const clientNotified = await noticeClient(rows[0], {
+    subject: `Your appointment for ${rows[0].pet_name} has been cancelled`,
+    message: `your Goodbye Mate appointment for ${rows[0].pet_name} has been cancelled`
+      + `${reason ? ` (${reason})` : ''}.${feeNote} If this isn't right, please call us.`,
+  });
 
   res.json({
     job: rows[0],
     cancellation: { fee, waived, calculated, hoursNotice: notice },
+    notified: { client: clientNotified, vet: statusResult?.vet || null },
   });
 }));
 
@@ -1360,7 +1381,7 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async
 // booking to undo one is worse than an explicit un-cancel.
 router.post('/:id/reinstate', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const { rows } = await query(
-    `UPDATE jobs SET status = CASE WHEN assigned_vet_id IS NULL THEN 'available' ELSE 'assigned' END,
+    `UPDATE jobs SET status = CASE WHEN assigned_vet_id IS NULL THEN 'available'::job_status ELSE 'assigned'::job_status END,
        cancelled_at = NULL, cancellation_reason = NULL, updated_at = now()
      WHERE id = $1 AND status = 'cancelled' RETURNING *`,
     [req.params.id]
@@ -1368,10 +1389,16 @@ router.post('/:id/reinstate', requireAuth, requireRole('admin'), asyncHandler(as
   if (!rows[0]) return res.status(404).json({ error: 'Job not found, or not cancelled.' });
 
   await logAction({ actorUserId: req.user.sub, action: 'job_reinstated', targetType: 'job', targetId: req.params.id });
-  notifyStatusChange(rows[0], rows[0].status, { actorRole: 'admin' })
-    .catch((e) => console.error('reinstate notify failed:', e.message));
+  const statusResult = await notifyStatusChange(rows[0], rows[0].status, { actorRole: 'admin', reinstated: true })
+    .catch((e) => { console.error('reinstate notify failed:', e.message); return null; });
+  // The client was told it was cancelled; tell them it is back on.
+  const when = friendlyWhen(ymd(rows[0].job_date), String(rows[0].job_time).slice(0, 5));
+  const clientNotified = await noticeClient(rows[0], {
+    subject: `Your appointment for ${rows[0].pet_name} is back on`,
+    message: `your Goodbye Mate appointment for ${rows[0].pet_name} has been reinstated (${when}). If this isn't right, please call us.`,
+  });
 
-  res.json({ job: rows[0] });
+  res.json({ job: rows[0], notified: { client: clientNotified, vet: statusResult?.vet || null } });
 }));
 
 // --- Admin notes (visible to the assigned vet) ---
@@ -1460,6 +1487,36 @@ router.get('/:id/line-items', requireAuth, asyncHandler(async (req, res) => {
   res.json({ lineItems: rows });
 }));
 
+/**
+ * Tell the client their bill changed, with the NEW total. Only when it
+ * matters to them: the job is already paid, or a vet is assigned (so the
+ * client has a booking and a journey link). Edits to a still-unassigned
+ * booking aren't announced — nothing has been quoted to them yet.
+ */
+async function noticeBillChange(jobId, headline) {
+  try {
+    const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+    const job = rows[0];
+    if (!job) return null;
+    if (job.payment_status !== 'paid' && !job.assigned_vet_id) return { client: 'skipped' };
+    const { rows: pr } = await query('SELECT config FROM pricing_settings WHERE id = true');
+    const bill = billBreakdown(await withPetCount(job), pr[0].config, await getLineItems(jobId));
+    const petLabel = await petNamesTextFor(job);
+    const paidNote = job.payment_status === 'paid'
+      ? ' Any difference from what you paid will be sorted out with you directly.'
+      : ' You can view and pay the updated total on your journey page.';
+    return {
+      client: await noticeClient(job, {
+        subject: `Your invoice for ${petLabel} has been updated`,
+        message: `${headline} for ${petLabel} (${job.job_number}). The new total is $${Number(bill.total).toFixed(2)}.${paidNote}`,
+      }),
+    };
+  } catch (e) {
+    console.error('bill change notice failed:', e.message);
+    return { client: 'failed' };
+  }
+}
+
 router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const parsed = lineItemSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -1500,24 +1557,11 @@ router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(a
       // check reads exactly this field, and would otherwise refuse to
       // let admin chase money that is now actually owed.
       await query("UPDATE jobs SET payment_status = 'pending' WHERE id = $1", [req.params.id]);
-      if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-        sendTemplatedSms(job.client_phone, 'genericMessage', {
-          message: `Hi ${job.client_name}, an additional charge of $${amount.toFixed(2)} (${label}) has been `
-            + `added to your Goodbye Mate invoice for ${await petNamesTextFor(job)}. `
-            + `You can view and pay the updated total on your journey page.`,
-        }).catch((e) => console.error('post-payment charge sms failed:', e.message));
-      }
     } else {
       // A discount after payment means the client may now be owed money
       // back. This does NOT trigger a refund automatically — refunds go
       // through their own deliberate flow — but the client is told, and
       // admin is told plainly that nothing further happens by itself.
-      if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-        sendTemplatedSms(job.client_phone, 'genericMessage', {
-          message: `Hi ${job.client_name}, a discount of $${Math.abs(amount).toFixed(2)} has been applied to your `
-            + `Goodbye Mate invoice for ${await petNamesTextFor(job)}. If a refund is owed, we will be in touch.`,
-        }).catch((e) => console.error('post-payment discount sms failed:', e.message));
-      }
       warnings.push('This discount does not refund the client automatically — use Refund if one is owed.');
     }
   }
@@ -1545,7 +1589,11 @@ router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(a
     }
   }
 
-  res.status(201).json({ id: rows[0].id, warnings });
+  const notified = await noticeBillChange(req.params.id, amount < 0
+    ? `a discount of $${Math.abs(amount).toFixed(2)} (${label}) has been applied to your Goodbye Mate invoice`
+    : `an additional charge of $${amount.toFixed(2)} (${label}) has been added to your Goodbye Mate invoice`);
+
+  res.status(201).json({ id: rows[0].id, warnings, notified });
 }));
 
 router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
@@ -1571,13 +1619,6 @@ router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyn
     // Removing a charge the client already paid means they've now
     // overpaid by exactly that amount. Same treatment as a post-payment
     // discount: the client is told, nothing is refunded automatically.
-    if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-      sendTemplatedSms(job.client_phone, 'genericMessage', {
-        message: `Hi ${job.client_name}, a charge of $${Number(item.amount).toFixed(2)} (${item.label}) has been `
-          + `removed from your Goodbye Mate invoice for ${await petNamesTextFor(job)}. `
-          + `If a refund is owed, we will be in touch.`,
-      }).catch((e) => console.error('line item removal sms failed:', e.message));
-    }
     warnings.push('The client has now overpaid by this amount — use Refund if one is owed.');
   }
 
@@ -1601,7 +1642,13 @@ router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyn
     }
   }
 
-  res.json({ ok: true, warnings });
+  const notified = item
+    ? await noticeBillChange(req.params.id, Number(item.amount) < 0
+      ? `a discount of $${Math.abs(Number(item.amount)).toFixed(2)} (${item.label}) has been removed from your Goodbye Mate invoice`
+      : `a charge of $${Number(item.amount).toFixed(2)} (${item.label}) has been removed from your Goodbye Mate invoice`)
+    : null;
+
+  res.json({ ok: true, warnings, notified });
 }));
 
 /**
@@ -2529,7 +2576,15 @@ router.post('/:id/refund', outboundMessageLimiter, requireAuth, requireRole('adm
     exceptUserId: req.user.sub,
   }).catch((e) => console.error('refund notify failed:', e.message));
 
-  res.json({ ok: true, amount, totalRefunded, fullyRefunded });
+  const notified = {
+    client: await noticeClient(job, {
+      subject: `Refund for ${job.pet_name}`,
+      message: `a ${fullyRefunded ? 'full ' : 'partial '}refund of $${amount.toFixed(2)} for your Goodbye Mate appointment (${job.job_number}) has been processed. `
+        + `Please allow a few business days for it to reach your account. Questions? Just reply or call us.`,
+    }),
+  };
+
+  res.json({ ok: true, amount, totalRefunded, fullyRefunded, notified });
 }));
 
 
@@ -2819,10 +2874,10 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     return res.status(409).json({ error: 'This job is complete and can no longer be edited.' });
   }
 
-  const newDate = d.date || String(job.job_date).slice(0, 10);
+  const newDate = d.date || ymd(job.job_date);
   const newTime = d.time || String(job.job_time).slice(0, 5);
   const timeChanged =
-    (d.date && d.date !== String(job.job_date).slice(0, 10))
+    (d.date && d.date !== ymd(job.job_date))
     || (d.time && d.time !== String(job.job_time).slice(0, 5));
 
   // Recompute the rate band — moving a weekday booking to a Sunday
@@ -2933,6 +2988,7 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     }
   }
 
+  let notified = null;
   if (timeChanged) {
     // Live offers were for the OLD slot, so they're no longer what the
     // vet agreed to consider.
@@ -2942,34 +2998,26 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
       [req.params.id]
     );
 
-    if (job.assigned_vet_id) {
-      const { rows: vetRows } = await query(
-        'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
-        [job.assigned_vet_id]
-      );
-      if (vetRows[0]) {
-        notifyUser(vetRows[0].user_id, {
-          title: 'Booking time changed',
-          body: `${job.pet_name} (${job.job_number}) has moved to ${newDate} at ${newTime}.`,
-          url: `/jobs/${req.params.id}`,
-          category: 'job',
-        }).catch((e) => console.error('time change notify failed:', e.message));
-      }
-    }
-
-    // The CLIENT, who was never told either. The journey page itself
-    // reads the time live and will show the new slot correctly, but
-    // nothing proactively told them it had moved — someone could be
-    // waiting at home for the ORIGINAL time with no idea it changed.
-    if (job.client_phone && isMsg91Configured() && isTemplateConfigured('genericMessage')) {
-      sendTemplatedSms(job.client_phone, 'genericMessage', {
-        message: `Hi ${job.client_name}, your Goodbye Mate appointment for ${job.pet_name} `
-          + `has moved to ${newDate} at ${newTime}. If this time doesn't work, please call us.`,
-      }).catch((e) => console.error('client reschedule sms failed:', e.message));
-    }
+    const when = friendlyWhen(newDate, newTime);
+    const oldWhen = friendlyWhen(ymd(job.job_date), String(job.job_time).slice(0, 5));
+    const petLabel = await petNamesTextFor(job);
+    notified = {
+      vet: await noticeVet(job.assigned_vet_id, job, {
+        title: 'Booking time changed',
+        message: `${petLabel} (${job.job_number}) has moved from ${oldWhen} to ${when}.`,
+        subject: `Time changed: ${petLabel} (${job.job_number})`,
+        category: 'reschedule',
+      }),
+      // The client was never told either: someone could be waiting at
+      // home for the ORIGINAL time with no idea it moved.
+      client: await noticeClient(job, {
+        subject: `Your appointment for ${petLabel} has moved`,
+        message: `your Goodbye Mate appointment for ${petLabel} has moved from ${oldWhen} to ${when}. If this time doesn't work, please call us.`,
+      }),
+    };
   }
 
-  res.json({ job: updatedJob, offersWithdrawn: timeChanged });
+  res.json({ job: updatedJob, offersWithdrawn: timeChanged, notified });
 }));
 
 /**

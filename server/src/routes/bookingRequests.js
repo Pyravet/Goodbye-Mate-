@@ -11,6 +11,7 @@ import { suggestTimeCategory } from '../domain/pricing.js';
 // Reused rather than reimplemented, so a converted request dispatches
 // and links exactly like any other booking.
 import { startOrRollDispatch, sendJourneyLink } from './jobs.js';
+import { noticePartner, friendlyWhen } from '../notifications/jobNotices.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { sendEmail, isEmailConfigured } from '../integrations/email/smtp.js';
 
@@ -221,6 +222,9 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
   const parsed = updateSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: 'Invalid update' });
 
+  const { rows: prevRows } = await query('SELECT status FROM booking_requests WHERE id = $1', [req.params.id]);
+  const prevStatus = prevRows[0]?.status;
+
   const { rows } = await query(
     `UPDATE booking_requests
      SET status = COALESCE($1, status),
@@ -231,6 +235,20 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     [parsed.data.status || null, parsed.data.adminNotes ?? null, req.user.sub, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
+
+  // Tell the referring partner when we've picked up their referral, or
+  // can't take it. (Converted is announced by the convert route.)
+  if (rows[0].referred_by_partner_id && ['contacted', 'declined'].includes(parsed.data.status)
+      && prevStatus !== parsed.data.status) {
+    const who = `${rows[0].pet_name} (${rows[0].client_name})`;
+    noticePartner(rows[0].referred_by_partner_id, {
+      title: parsed.data.status === 'contacted' ? 'Referral contacted' : 'Referral not taken forward',
+      subject: `Your referral for ${rows[0].pet_name}`,
+      message: parsed.data.status === 'contacted'
+        ? `we have contacted the family for your referral ${who}. We'll let you know when it's booked.`
+        : `we were unable to take forward your referral ${who}. Please call us if you'd like to talk it through.`,
+    }).catch((e) => console.error('partner request notice failed:', e.message));
+  }
 
   await logAction({
     actorUserId: req.user.sub,
@@ -356,6 +374,15 @@ router.post('/:id/convert', requireAuth, requireRole('admin'), asyncHandler(asyn
     targetId: req.params.id,
     metadata: { jobId: job.id, dispatched: d.dispatch },
   });
+
+  // The referring partner is told it's booked.
+  if (job.referred_by_partner_id) {
+    noticePartner(job.referred_by_partner_id, {
+      title: 'Referral booked',
+      subject: `Booked: your referral for ${job.pet_name} (${job.job_number})`,
+      message: `your referral ${job.pet_name} (${request.client_name}) is booked for ${friendlyWhen(d.date, d.time)} (${job.job_number}).`,
+    }).catch((e) => console.error('partner convert notice failed:', e.message));
+  }
 
   // Send the client their journey link exactly as a normal booking does.
   sendJourneyLink(job).catch((e) => console.error('journey link failed:', e.message));

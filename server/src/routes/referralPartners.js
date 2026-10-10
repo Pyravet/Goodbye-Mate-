@@ -5,6 +5,8 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { logAction } from '../audit/log.js';
 import { notifyAdmins } from '../notifications/notify.js';
+import { noticePartner } from '../notifications/jobNotices.js';
+import { withPetCount } from '../domain/jobPets.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
 import { encrypt, decrypt, isEncryptionConfigured, maskTail } from '../security/encryption.js';
 import { billBreakdown } from '../domain/pricing.js';
@@ -526,9 +528,18 @@ router.post('/payout-periods/approve', requireAuth, requireRole('admin'), asyncH
 
     let runningTotal = 0;
     const itemRows = [];
+    const skippedRefunded = [];
     for (const job of jobs) {
+      // Commission is a share of money the business KEPT. A fully
+      // refunded job earns nothing; a partial refund reduces the base.
+      if (job.payment_status === 'refunded') { skippedRefunded.push(job.job_number); continue; }
       const lineItems = await getLineItems(job.id);
-      const bill = billBreakdown(job, pricing, lineItems);
+      // withPetCount: the bill depends on how many animals — without it a
+      // multi-pet job was billed as one pet and the commission came out
+      // far too low.
+      const fullBill = billBreakdown(await withPetCount(job), pricing, lineItems);
+      const refunded = Number(job.refunded_amount) || 0;
+      const bill = { total: Math.max(0, Math.round((fullBill.total - refunded) * 100) / 100) };
       const commission = calculateCommission(bill.total, partner);
       runningTotal += commission;
 
@@ -549,6 +560,11 @@ router.post('/payout-periods/approve', requireAuth, requireRole('admin'), asyncH
     // component on a statement to someone not registered for it
     // misstates a tax position.
     const rate = Number(pricing?.gstPercent) || 10;
+    if (itemRows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Every completed referred job in this period was fully refunded (${skippedRefunded.join(', ')}), so no commission is due.` });
+    }
+
     let subtotal = runningTotal;
     let gst = 0;
     if (partner.is_gst_registered) {
@@ -601,7 +617,13 @@ router.post('/payout-periods/approve', requireAuth, requireRole('admin'), asyncH
       metadata: { partnerId, periodStart, statementNumber, total },
     });
 
-    res.json({ period: saved });
+    noticePartner(partnerId, {
+      title: 'Commission statement ready',
+      subject: `Commission statement ${saved.statement_number}`,
+      message: `your commission statement ${saved.statement_number} for $${Number(saved.total).toFixed(2)} (${periodStart} to ${periodEnd}) is ready. You can view and download it in your portal. Payment will follow.`,
+    }).catch((e) => console.error('partner statement notice failed:', e.message));
+
+    res.json({ period: saved, skippedRefunded });
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -632,6 +654,12 @@ router.post('/payout-periods/:id/mark-paid', requireAuth, requireRole('admin'), 
     actorUserId: req.user.sub, action: 'referral_payout_period_paid',
     targetType: 'referral_partner_payout_period', targetId: req.params.id,
   });
+  noticePartner(rows[0].referral_partner_id, {
+    title: 'Commission paid',
+    subject: `Commission paid: ${rows[0].statement_number}`,
+    message: `your commission of $${Number(rows[0].total).toFixed(2)} (statement ${rows[0].statement_number}) has been paid`
+      + `${parsed.data.paymentReference ? `. Reference: ${parsed.data.paymentReference}` : ''}. It should be in your account shortly.`,
+  }).catch((e) => console.error('partner paid notice failed:', e.message));
   res.json({ period: rows[0] });
 }));
 

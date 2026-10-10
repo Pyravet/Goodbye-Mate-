@@ -117,3 +117,40 @@ export async function noticeVet(vetId, job, { title, message, subject, category 
   ]);
   return { push, sms, email };
 }
+
+/**
+ * Tell a REFERRAL PARTNER (e.g. a hospital) about one of its referrals:
+ * in-app bell/push to each partner login, SMS to the partner's phone and
+ * email to the partner's address. Never throws.
+ * @returns {{app: string, sms: string, email: string}}
+ */
+export async function noticePartner(partnerId, { title, message, subject }) {
+  if (!partnerId) return { app: 'no-partner', sms: 'no-partner', email: 'no-partner' };
+  try {
+    const { rows: pr } = await query('SELECT name, phone, email, is_active FROM referral_partners WHERE id = $1', [partnerId]);
+    const partner = pr[0];
+    if (!partner) return { app: 'no-partner', sms: 'no-partner', email: 'no-partner' };
+    const { rows: users } = await query('SELECT user_id FROM referral_partner_users WHERE referral_partner_id = $1', [partnerId]);
+
+    let app = users.length ? 'sent' : 'no-login';
+    for (const u of users) {
+      try {
+        await notifyUser(u.user_id, { title, body: message, url: '/', category: 'job' });
+      } catch (e) {
+        console.error('partner notice app failed:', e.message);
+        app = 'failed';
+      }
+    }
+    const [sms, email] = await Promise.all([
+      trySms(partner.phone, `Hi ${partner.name}, ${message}`),
+      (async () => {
+        const footer = await signOff();
+        return tryEmail(partner.email, subject || title, `Hi ${partner.name},\n\n${message}\n\n${footer}`);
+      })(),
+    ]);
+    return { app, sms, email };
+  } catch (e) {
+    console.error('partner notice failed:', e.message);
+    return { app: 'failed', sms: 'failed', email: 'failed' };
+  }
+}

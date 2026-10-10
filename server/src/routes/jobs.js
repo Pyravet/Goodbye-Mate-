@@ -37,7 +37,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { vetSafeJobResponse } from '../domain/jobVisibility.js';
-import { noticeClient, noticeVet, friendlyWhen } from '../notifications/jobNotices.js';
+import { noticeClient, noticeVet, noticePartner, friendlyWhen } from '../notifications/jobNotices.js';
 import { billBreakdown, payoutBreakdown, payoutBreakdownLines, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
@@ -1284,6 +1284,18 @@ async function notifyStatusChange(job, newStatus, { actorRole, reason, reinstate
       .catch((e) => console.error('notify admins failed:', e.message));
   }
   await sendSlackMessage(`📋 ${body}`).catch((e) => console.error('status slack failed:', e.message));
+
+  // The referring partner (e.g. a hospital) hears how their referral
+  // ended: completed, or cancelled. Intermediate steps stay private.
+  if (job.referred_by_partner_id && !reinstated && (newStatus === 'completed' || newStatus === 'cancelled')) {
+    noticePartner(job.referred_by_partner_id, {
+      title: newStatus === 'completed' ? 'Referral completed' : 'Referral cancelled',
+      subject: `${newStatus === 'completed' ? 'Completed' : 'Cancelled'}: referral for ${job.pet_name} (${job.job_number})`,
+      message: newStatus === 'completed'
+        ? `the visit for your referral ${job.pet_name} (${job.job_number}) has been completed. Thank you for trusting us with your client.`
+        : `your referral ${job.pet_name} (${job.job_number}) has been cancelled${reason ? ` (${reason})` : ''}.`,
+    }).catch((e) => console.error('partner status notice failed:', e.message));
+  }
   return { vet: vetNotified };
 }
 

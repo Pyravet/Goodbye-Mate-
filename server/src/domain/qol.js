@@ -101,21 +101,29 @@ export function interpretScore(total) {
         + 'help more than people expect at this stage.',
     };
   }
+  // 20 and under: quality of life is compromised. Business rule from the
+  // owner of the service — the result tells the family plainly, and
+  // moves the assessment to one of OUR vets so the decision is talked
+  // through with a person. Still never states what the decision should be.
   if (total >= 13) {
     return {
       band: 'concern',
-      headline: 'Several areas are causing real difficulty.',
-      body: 'Please speak to your vet soon. There may still be things that can be done to make '
-        + 'your pet more comfortable, and it is much better to have that conversation before '
-        + 'you are in a crisis.',
+      compromised: true,
+      headline: 'Your pet\'s quality of life looks compromised.',
+      body: 'A score at this level tells us quality of life is compromised. This assessment is best '
+        + 'done together with one of our team — one of our vets can go through it with you, '
+        + 'look at the full picture, and help you think through the decision ahead. '
+        + 'Please get in touch with us so we can do this with you.',
     };
   }
   return {
     band: 'urgent',
-    headline: 'This picture is concerning.',
-    body: 'Please contact your vet as soon as you can, today if possible. They can examine your '
-      + 'pet and talk you through the options properly — that is a conversation to have with a '
-      + 'person who can see them, not a score.',
+    compromised: true,
+    headline: 'Your pet\'s quality of life is compromised.',
+    body: 'A score this low means quality of life is compromised and your pet is struggling in most areas. Please contact us as '
+      + 'soon as you can, today if possible. This assessment is best done with one of our team — '
+      + 'one of our vets can talk it through with you, and help you consider the decision '
+      + 'in front of you, with someone who can see your pet.',
   };
 }
 

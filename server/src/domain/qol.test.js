@@ -77,3 +77,17 @@ test('a mid score with nothing alarming lists no low areas', () => {
   const r = scoreAssessment(answer(3));
   assert.deepEqual(r.lowest, []);
 });
+
+test('20 and under is flagged compromised and points to our team; 21+ is not', () => {
+  for (let total = 0; total <= MAX_SCORE; total++) {
+    const r = interpretScore(total);
+    if (total <= 20) {
+      assert.equal(r.compromised, true, `score ${total} must be compromised`);
+      assert.match(r.body, /compromised/i);
+      assert.match(r.body, /our team/i);
+      assert.match(r.body, /decision/i);
+    } else {
+      assert.notEqual(r.compromised, true, `score ${total} must not be flagged`);
+    }
+  }
+});

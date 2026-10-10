@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { QOL_CATEGORIES, scoreAssessment } from '../domain/qol.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { query } from '../db/pool.js';
 
 const router = Router();
 
@@ -31,7 +32,17 @@ router.post('/score', asyncHandler(async (req, res) => {
       error: 'Please answer every question — a partial total would be misleading.',
     });
   }
-  res.json(result);
+  // Company phone (Settings → Company) so a compromised result can offer
+  // a call button. Public business details only; nothing about the visitor.
+  let contact = { name: 'Goodbye Mate', phone: '' };
+  try {
+    const { rows } = await query("SELECT config->'company' AS company FROM content_settings WHERE id = true");
+    const c = rows[0]?.company || {};
+    contact = { name: c.name || 'Goodbye Mate', phone: c.phone || '' };
+  } catch (e) {
+    console.error('qol contact lookup failed:', e.message);
+  }
+  res.json({ ...result, contact });
 }));
 
 export default router;

@@ -77,6 +77,22 @@ export default function QolPage() {
             <p style={styles.resultBody}>{result.interpretation.body}</p>
           </div>
 
+          {result.interpretation.compromised && (
+            <div style={styles.ctaCard}>
+              <h3 style={styles.cardTitle}>Let&rsquo;s do this together</h3>
+              <p style={styles.body}>
+                One of our team can go through this assessment with you and talk through the
+                decision, at a pace that suits you.
+              </p>
+              {result.contact?.phone && (
+                <a href={`tel:${String(result.contact.phone).replace(/[^+\d]/g, '')}`} style={styles.ctaCall}>
+                  Call us on {result.contact.phone}
+                </a>
+              )}
+              <a href="/request" style={styles.ctaRequest}>Request an appointment</a>
+            </div>
+          )}
+
           {/* The worst areas, named. A total of 24 made of eight 3s is a
               different situation from one where breathing scores 0, and
               a vet needs to hear about the second first. */}
@@ -192,6 +208,9 @@ const styles = {
   footer: { marginTop: 18 },
   progress: { fontSize: 13, color: 'var(--gm-ink-soft)', marginBottom: 8, textAlign: 'center' },
   primaryBtn: { width: '100%', minHeight: 50, background: 'var(--gm-forest)', color: '#fff', border: 'none', borderRadius: 'var(--gm-radius-sm)', fontSize: 16, fontWeight: 500, cursor: 'pointer' },
+  ctaCard: { background: '#fff', border: '2px solid var(--gm-forest)', borderRadius: 'var(--gm-radius)', padding: 20, marginBottom: 14, textAlign: 'center' },
+  ctaCall: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 50, background: 'var(--gm-forest)', color: '#fff', borderRadius: 'var(--gm-radius-sm)', fontSize: 16, fontWeight: 500, textDecoration: 'none', marginBottom: 10 },
+  ctaRequest: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 50, background: '#fff', color: 'var(--gm-forest)', border: '2px solid var(--gm-forest)', borderRadius: 'var(--gm-radius-sm)', fontSize: 16, fontWeight: 500, textDecoration: 'none' },
   secondaryBtn: { width: '100%', minHeight: 46, background: '#fff', border: '1px solid var(--gm-line)', borderRadius: 'var(--gm-radius-sm)', fontSize: 14, cursor: 'pointer' },
   resultCard: { borderRadius: 'var(--gm-radius)', padding: 22, marginBottom: 14, textAlign: 'center' },
   score: { fontFamily: 'var(--gm-font-display)', fontSize: 44, fontWeight: 600, lineHeight: 1 },

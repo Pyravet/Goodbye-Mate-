@@ -9,6 +9,7 @@ import { logAction } from '../audit/log.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { sendPushToAdmins } from '../integrations/push/webPush.js';
 import { sendSlackMessage } from '../integrations/slack/webhook.js';
+import { notifyAdmins } from '../notifications/notify.js';
 import crypto from 'node:crypto';
 import { generateTotpSecret, verifyTotp, totpUri, generateRecoveryCodes } from '../security/totp.js';
 import { encrypt, decrypt, isEncryptionConfigured } from '../security/encryption.js';
@@ -351,6 +352,75 @@ router.post('/vet-signup', vetSignupLimiter, asyncHandler(async (req, res) => {
     res.status(201).json({
       ok: true,
       message: 'Thanks — your application has been received. An admin will review your registration details and activate your account; you\'ll be able to log in once approved.',
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.code === '23505') return res.status(409).json({ error: 'An account with that email already exists.' });
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+
+// --- Referral partner self-signup ---
+//
+// A hospital, funeral home or pet store applying for a partner login.
+// Same approval model as vets: the user AND the partner record are
+// created inactive, so nothing works until an admin approves (which
+// also sets the commission — deliberately NOT chosen by the applicant).
+const partnerSignupSchema = z.object({
+  businessName: z.string().trim().min(1, 'Business name is required'),
+  partnerType: z.enum(['clinic', 'funeral_home', 'pet_store', 'other']).default('other'),
+  contactName: z.string().trim().min(1, 'Contact name is required'),
+  email: z.string().trim().email(),
+  phone: z.string().trim().min(1, 'Phone is required'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  abn: z.string().trim().max(20).optional().nullable(),
+  suburb: z.string().trim().max(100).optional().nullable(),
+  postcode: z.string().trim().max(10).optional().nullable(),
+  state: z.string().trim().max(10).optional().nullable(),
+});
+
+export const PARTNER_SIGNUP_NOTE = 'Applied via website signup — awaiting approval';
+
+router.post('/partner-signup', vetSignupLimiter, asyncHandler(async (req, res) => {
+  const parsed = partnerSignupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid signup' });
+  }
+  const d = parsed.data;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: userRows } = await client.query(
+      `INSERT INTO users (email, password_hash, role, full_name, phone, is_active)
+       VALUES ($1,$2,'referral_partner',$3,$4,false) RETURNING id`,
+      [d.email.toLowerCase(), await bcrypt.hash(d.password, 12), d.contactName, d.phone]
+    );
+    const { rows: partnerRows } = await client.query(
+      `INSERT INTO referral_partners (name, type, phone, email, abn, suburb, postcode, state, is_active, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false,$9) RETURNING id`,
+      [d.businessName, d.partnerType, d.phone, d.email.toLowerCase(), d.abn || null,
+       d.suburb || null, d.postcode || null, d.state || null, PARTNER_SIGNUP_NOTE]
+    );
+    await client.query('INSERT INTO referral_partner_users (user_id, referral_partner_id) VALUES ($1,$2)',
+      [userRows[0].id, partnerRows[0].id]);
+
+    await client.query('COMMIT');
+    await logAction({ actorUserId: null, action: 'partner_signup', targetType: 'referral_partner', targetId: partnerRows[0].id, metadata: { email: d.email.toLowerCase() } });
+
+    const summary = `${d.businessName} (${d.partnerType.replace('_', ' ')}) — ${d.contactName}, ${d.phone}`;
+    notifyAdmins({ title: 'New referral partner application', body: summary, url: '/referral-partners', category: 'job' })
+      .catch((err) => console.error('Admin notice for partner signup failed:', err.message));
+    sendSlackMessage(`🤝 New referral partner application: *${d.businessName}* — ${d.contactName} (${d.email}, ${d.phone}). Review under Referral partners in the admin app.`)
+      .catch((err) => console.error('Slack notify for partner signup failed:', err.message));
+
+    res.status(201).json({
+      ok: true,
+      message: 'Thanks — your application has been received. We\'ll review it, agree your referral arrangement, and activate your account; you\'ll be able to sign in once approved.',
     });
   } catch (err) {
     await client.query('ROLLBACK');

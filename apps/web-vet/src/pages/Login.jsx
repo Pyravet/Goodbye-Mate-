@@ -43,7 +43,7 @@ export default function Login() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
         <Link to="/forgot-password" style={styles.forgotLink}>Forgot your password?</Link>
-        <Link to="/signup" style={styles.link}>New vet? Apply here</Link>
+        <Link to="/signup" style={styles.link}>New here? Create an account (vet or referring partner)</Link>
       </form>
     </div>
   );

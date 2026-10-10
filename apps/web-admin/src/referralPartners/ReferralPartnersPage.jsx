@@ -81,7 +81,11 @@ export default function ReferralPartnersPage() {
                 <div style={styles.name}>
                   {p.name}
                   <span style={styles.typeTag}>{TYPE_LABELS[p.type] || p.type}</span>
-                  {!p.is_active && <span style={styles.inactive}> · inactive</span>}
+                  {!p.is_active && (
+                    /awaiting approval/.test(p.notes || '')
+                      ? <span style={styles.warn}> · new application — awaiting approval</span>
+                      : <span style={styles.inactive}> · inactive</span>
+                  )}
                 </div>
                 <div style={styles.meta}>
                   {[p.suburb, p.state].filter(Boolean).join(' ') || 'No address'}
@@ -538,7 +542,7 @@ function StatusCard({ partner, partnerId, onChanged }) {
         }}
         style={partner.is_active ? styles.dangerBtn : styles.secondaryBtn}
       >
-        {partner.is_active ? 'Deactivate this partner' : 'Reactivate this partner'}
+        {partner.is_active ? 'Deactivate this partner' : (/awaiting approval/.test(partner.notes || '') ? 'Approve this application' : 'Reactivate this partner')}
       </button>
     </div>
   );

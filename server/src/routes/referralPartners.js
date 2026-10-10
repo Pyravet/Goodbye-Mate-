@@ -382,6 +382,21 @@ router.post('/:id/set-active', requireAuth, requireRole('admin'), asyncHandler(a
     [isActive, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Referral partner not found' });
+  // The partner's logins follow the partner: approving an applicant must
+  // let them sign in (signup creates the logins inactive), and deactivating
+  // must lock them out rather than only blocking referrals.
+  await query(
+    'UPDATE users SET is_active = $1 WHERE id IN (SELECT user_id FROM referral_partner_users WHERE referral_partner_id = $2)',
+    [isActive, req.params.id]
+  );
+  if (isActive && /awaiting approval/.test(rows[0].notes || '')) {
+    await query("UPDATE referral_partners SET notes = NULL WHERE id = $1", [req.params.id]);
+    noticePartner(req.params.id, {
+      title: 'Application approved',
+      subject: 'Your Goodbye Mate partner account is active',
+      message: 'your referral partner application has been approved. You can now sign in and submit referrals.',
+    }).catch((e) => console.error('partner approval notice failed:', e.message));
+  }
   await logAction({
     actorUserId: req.user.sub, action: isActive ? 'referral_partner_activated' : 'referral_partner_deactivated',
     targetType: 'referral_partner', targetId: req.params.id,

@@ -494,15 +494,33 @@ router.get('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) 
   res.json({ templates: rows });
 }));
 
+const noteTemplateSchema = z.object({
+  label: z.string().trim().min(1, 'Give the template a name.').max(100, 'The name is too long (100 characters max).'),
+  text: z.string().trim().min(1, 'The template text can\'t be empty.').max(5000, 'The text is too long (5000 characters max).'),
+});
+const MAX_NOTE_TEMPLATES_PER_VET = 50;
+
 router.post('/:vetId/note-templates', requireAuth, asyncHandler(async (req, res) => {
   if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
 
-  const { label, text } = req.body;
-  if (!label || !text) return res.status(400).json({ error: 'label and text required' });
+  // Accept title/body as aliases for label/text: the phone app sent those
+  // names, so every save from it was rejected with "label and text
+  // required".
+  const raw = req.body || {};
+  const parsed = noteTemplateSchema.safeParse({
+    label: raw.label ?? raw.title,
+    text: raw.text ?? raw.body,
+  });
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid template' });
+
+  const { rows: cnt } = await query('SELECT count(*)::int AS n FROM vet_note_templates WHERE vet_id = $1', [req.params.vetId]);
+  if (cnt[0].n >= MAX_NOTE_TEMPLATES_PER_VET) {
+    return res.status(400).json({ error: `You can save up to ${MAX_NOTE_TEMPLATES_PER_VET} templates. Remove one first.` });
+  }
 
   const { rows } = await query(
     `INSERT INTO vet_note_templates (vet_id, label, text) VALUES ($1, $2, $3) RETURNING *`,
-    [req.params.vetId, label, text]
+    [req.params.vetId, parsed.data.label, parsed.data.text]
   );
   res.status(201).json({ template: rows[0] });
 }));
@@ -643,10 +661,14 @@ router.get('/:vetId/reliability', requireAuth, requireRole('admin'), asyncHandle
  */
 router.delete('/:vetId/note-templates/:templateId', requireAuth, asyncHandler(async (req, res) => {
   if (!(await canActForVet(req, req.params.vetId))) return res.status(403).json({ error: 'Not your account' });
-  await query(
+  if (!z.string().uuid().safeParse(req.params.templateId).success) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
+  const { rowCount } = await query(
     'DELETE FROM vet_note_templates WHERE id = $1 AND vet_id = $2',
     [req.params.templateId, req.params.vetId]
   );
+  if (!rowCount) return res.status(404).json({ error: 'Template not found' });
   res.json({ ok: true });
 }));
 

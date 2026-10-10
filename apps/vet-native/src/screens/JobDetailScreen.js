@@ -7,6 +7,7 @@ import { fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, 
 import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 import { getAccessToken } from '../api/client.js';
+import { fetchMe, fetchNoteTemplates } from '../api/vetsApi.js';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'http://localhost:4000/api';
 import { colors } from '../theme.js';
@@ -19,6 +20,7 @@ export default function JobDetailScreen({ route, navigation }) {
   const [etaInput, setEtaInput] = useState('');
   const [noteEntries, setNoteEntries] = useState(null);
   const [noteDraft, setNoteDraft] = useState('');
+  const [noteTemplates, setNoteTemplates] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -28,6 +30,7 @@ export default function JobDetailScreen({ route, navigation }) {
       // Notes load independently — a failure here shouldn't blank the
       // whole job screen the vet needs at the door.
       loadNotes();
+      loadTemplates();
     } catch {
       setData(null);
     } finally {
@@ -77,6 +80,14 @@ export default function JobDetailScreen({ route, navigation }) {
   };
 
   const onProcedureDone = async () => { setBusy(true); try { await markProcedureDone(id); load(); } finally { setBusy(false); } };
+  // The vet's saved snippets, offered above the note box so a note can be
+  // finished in the car with a couple of taps. Failure is silent: the
+  // note box works fine without them.
+  const loadTemplates = () => fetchMe()
+    .then((d) => fetchNoteTemplates(d.vet.id))
+    .then(setNoteTemplates)
+    .catch(() => setNoteTemplates([]));
+  const insertTemplate = (body) => setNoteDraft((d) => (d.trim() ? `${d.replace(/\s+$/, '')}\n${body}` : body));
   const loadNotes = () => fetchMedicalNotes(id).then(setNoteEntries).catch(() => setNoteEntries([]));
 
   const onAddNote = async () => {
@@ -253,6 +264,18 @@ export default function JobDetailScreen({ route, navigation }) {
             ))
           )}
 
+          {noteTemplates.length > 0 && (
+            <View style={styles.tplWrap}>
+              <Text style={styles.tplLabel}>Insert a template</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {noteTemplates.map((t) => (
+                  <TouchableOpacity key={t.id} activeOpacity={0.7} onPress={() => insertTemplate(t.body)} style={styles.tplChip}>
+                    <Text style={styles.tplChipText}>{t.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
           <TextInput
             value={noteDraft}
             onChangeText={setNoteDraft}
@@ -294,6 +317,10 @@ function Card({ title, children }) {
 }
 
 const styles = StyleSheet.create({
+  tplWrap: { marginTop: 4, marginBottom: 8 },
+  tplLabel: { fontSize: 11, color: colors.inkSoft, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  tplChip: { borderWidth: 1, borderColor: colors.forest, borderRadius: 999, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', marginRight: 8, backgroundColor: '#fff' },
+  tplChipText: { fontSize: 14, color: colors.forest, fontWeight: '500' },
   earnRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
   earnLabel: { fontSize: 14, color: colors.ink },
   earnAmount: { fontSize: 14, color: colors.ink },

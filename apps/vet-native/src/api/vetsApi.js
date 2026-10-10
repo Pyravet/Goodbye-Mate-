@@ -93,12 +93,13 @@ export async function fetchNoteTemplates(vetId) {
   const res = await apiFetch(`/vets/${vetId}/note-templates`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not load your templates');
-  return data.templates || [];
+  // The server stores label/text; the screens use title/body.
+  return (data.templates || []).map((t) => ({ id: t.id, title: t.label, body: t.text }));
 }
 
 export async function addNoteTemplate(vetId, { title, body }) {
   const res = await apiFetch(`/vets/${vetId}/note-templates`, {
-    method: 'POST', body: JSON.stringify({ title, body }),
+    method: 'POST', body: JSON.stringify({ label: title, text: body }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not save that template');

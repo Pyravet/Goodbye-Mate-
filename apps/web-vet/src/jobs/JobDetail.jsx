@@ -55,6 +55,7 @@ import AppShell from '../layout/AppShell.jsx';
 import { downloadConsent, fetchJob, acceptOffer, declineOffer, markProcedureDone, notifyEnRoute, openVetRecord, emailVetRecord } from './jobsApi.js';
 import VetRecordCard from '@goodbye-mate/web-shared/src/VetRecordCard.jsx';
 import { fetchMedicalNotes, addMedicalNote } from './jobsApi.js';
+import { fetchMe, fetchNoteTemplates } from '../vets/vetsApi.js';
 import MessageThread from './MessageThread.jsx';
 import { useAuth } from '../AuthContext.jsx';
 
@@ -341,6 +342,13 @@ function MedicalNotesLog({ jobId, onChanged }) {
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [templates, setTemplates] = useState([]);
+
+  // Saved snippets (Profile -> Note templates), offered above the box.
+  useEffect(() => {
+    fetchMe().then((d) => fetchNoteTemplates(d.vet.id)).then(setTemplates).catch(() => setTemplates([]));
+  }, []);
+  const insertTemplate = (text) => setDraft((d) => (d.trim() ? `${d.replace(/\s+$/, '')}\n${text}` : text));
 
   const load = useCallback(() => {
     fetchMedicalNotes(jobId).then(setEntries).catch(() => setEntries([]));
@@ -389,6 +397,19 @@ function MedicalNotesLog({ jobId, onChanged }) {
 
       {error && <p style={styles.errorNote}>{error}</p>}
 
+      {templates.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--gm-ink-soft)', marginBottom: 6 }}>Insert a template</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {templates.map((t) => (
+              <button key={t.id} type="button" onClick={() => insertTemplate(t.text)} title={t.text}
+                style={{ background: '#fff', color: 'var(--gm-forest)', border: '1px solid var(--gm-forest)', borderRadius: 999, padding: '8px 14px', fontSize: 13, minHeight: 36 }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <textarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

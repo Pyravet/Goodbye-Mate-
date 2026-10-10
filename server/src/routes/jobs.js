@@ -1377,17 +1377,20 @@ router.post('/:id/reinstate', requireAuth, requireRole('admin'), asyncHandler(as
 // --- Admin notes (visible to the assigned vet) ---
 router.put('/:id/admin-notes', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const notes = typeof req.body?.notes === 'string' ? req.body.notes : '';
+  const { rows: prev } = await query('SELECT admin_notes FROM jobs WHERE id = $1', [req.params.id]);
   const { rows } = await query(
     'UPDATE jobs SET admin_notes = $1, updated_at = now() WHERE id = $2 RETURNING id, admin_notes, assigned_vet_id, pet_name, job_number',
     [notes.trim() || null, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+  // Saving the same text again must not buzz the vet's phone a second time.
+  const noteChanged = (prev[0]?.admin_notes || '') !== notes.trim();
 
   await logAction({ actorUserId: req.user.sub, action: 'admin_notes_updated', targetType: 'job', targetId: req.params.id });
 
   // Tell the vet there's a new instruction — a note nobody reads is
   // worse than no note, since admin assumes it landed.
-  if (rows[0].assigned_vet_id && notes.trim()) {
+  if (noteChanged && rows[0].assigned_vet_id && notes.trim()) {
     const { rows: vetRows } = await query(
       'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
       [rows[0].assigned_vet_id]
@@ -2276,6 +2279,25 @@ router.post('/:id/medical-notes', requireAuth, asyncHandler(async (req, res) => 
     targetId: req.params.id,
   });
 
+  // An entry written by the OFFICE goes into the vet's clinical record
+  // without them doing anything, so tell them. (Their own entries don't
+  // notify them, of course.)
+  if (req.user.role === 'admin' && jobRows[0].assigned_vet_id) {
+    const { rows: vetUser } = await query(
+      'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+      [jobRows[0].assigned_vet_id]
+    );
+    const { rows: jobInfo } = await query('SELECT pet_name, job_number FROM jobs WHERE id = $1', [req.params.id]);
+    if (vetUser[0]) {
+      notifyUser(vetUser[0].user_id, {
+        title: `Medical note added by the office — ${jobInfo[0]?.pet_name || 'job'}`,
+        body: parsed.data.notes.trim().slice(0, 120),
+        url: `/jobs/${req.params.id}`,
+        category: 'note',
+      }).catch((e) => console.error('medical note notify failed:', e.message));
+    }
+  }
+
   const { rows } = await query(
     `SELECT id, body, author_name, author_role, created_at
      FROM job_medical_notes WHERE job_id = $1 ORDER BY created_at`,
@@ -2764,6 +2786,10 @@ const updateJobSchema = z.object({
   handlingHelp: z.enum(['not_needed', 'client_helps', 'direct_pickup', 'needs_help', 'assistant']).optional(),
   pace: z.enum(['slow', 'normal', 'quick']).optional(),
   handlingNotes: z.string().trim().max(1000).optional().nullable(),
+  // Booking notes. The edit form always sent this, and the UPDATE below
+  // already writes it, but it was missing here — zod stripped it, so
+  // every edit to the booking notes was silently discarded.
+  notes: z.string().trim().max(5000).optional().nullable(),
 });
 
 /**
@@ -2880,6 +2906,32 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     targetId: req.params.id,
     metadata: { fields: Object.keys(d), timeChanged },
   });
+
+  // Details the vet works from. A changed gate code in the notes or a
+  // corrected address is exactly what they need to hear before driving;
+  // the time change has its own message below.
+  if (job.assigned_vet_id) {
+    const norm = (v) => String(v ?? '').trim();
+    const changed = [];
+    if (d.notes !== undefined && d.notes !== null && norm(d.notes) !== norm(job.notes)) changed.push('booking notes');
+    if (d.handlingNotes !== undefined && d.handlingNotes !== null && norm(d.handlingNotes) !== norm(job.handling_notes)) changed.push('handling notes');
+    if ((d.address !== undefined && norm(d.address) !== norm(job.address))
+        || (d.postcode !== undefined && norm(d.postcode) !== norm(job.postcode))) changed.push('address');
+    if (changed.length) {
+      const { rows: vu } = await query(
+        'SELECT u.id AS user_id FROM vets v JOIN users u ON u.id = v.user_id WHERE v.id = $1',
+        [job.assigned_vet_id]
+      );
+      if (vu[0]) {
+        notifyUser(vu[0].user_id, {
+          title: `Booking updated — ${job.pet_name}`,
+          body: `The office updated the ${changed.join(' and ')} for ${job.job_number}. Open the job to see the change.`,
+          url: `/jobs/${req.params.id}`,
+          category: 'job',
+        }).catch((e) => console.error('job update notify failed:', e.message));
+      }
+    }
+  }
 
   if (timeChanged) {
     // Live offers were for the OLD slot, so they're no longer what the

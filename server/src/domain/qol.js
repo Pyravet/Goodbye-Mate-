@@ -78,7 +78,7 @@ export const MAX_SCORE = QOL_CATEGORIES.length * 5; // 40
  * someone about their dog.
  */
 export function interpretScore(total) {
-  if (total >= 30) {
+  if (total >= 31) {
     return {
       band: 'good',
       headline: 'Things look reasonably comfortable at the moment.',
@@ -92,16 +92,7 @@ export function interpretScore(total) {
         + 'meantime, speak to your vet regardless of the number.',
     };
   }
-  if (total >= 21) {
-    return {
-      band: 'watch',
-      headline: 'Some areas are starting to slip.',
-      body: 'This is a good moment to talk to your vet about what could be adjusted — pain '
-        + 'relief, appetite, or making the house easier to move around. Small changes often '
-        + 'help more than people expect at this stage.',
-    };
-  }
-  // 20 and under: quality of life is compromised. Business rule from the
+  // 30 and under: quality of life is compromised. Business rule from the
   // owner of the service — the result tells the family plainly, and
   // moves the assessment to one of OUR vets so the decision is talked
   // through with a person. Still never states what the decision should be.

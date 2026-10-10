@@ -55,9 +55,9 @@ test('every band points back to a vet', () => {
 
 test('the bands get more urgent as the score falls', () => {
   assert.equal(interpretScore(40).band, 'good');
-  assert.equal(interpretScore(30).band, 'good');
-  assert.equal(interpretScore(29).band, 'watch');
-  assert.equal(interpretScore(21).band, 'watch');
+  assert.equal(interpretScore(31).band, 'good');
+  assert.equal(interpretScore(30).band, 'concern');
+  assert.equal(interpretScore(21).band, 'concern');
   assert.equal(interpretScore(20).band, 'concern');
   assert.equal(interpretScore(13).band, 'concern');
   assert.equal(interpretScore(12).band, 'urgent');
@@ -78,10 +78,10 @@ test('a mid score with nothing alarming lists no low areas', () => {
   assert.deepEqual(r.lowest, []);
 });
 
-test('20 and under is flagged compromised and points to our team; 21+ is not', () => {
+test('30 and under is flagged compromised and points to our team; 31+ is not', () => {
   for (let total = 0; total <= MAX_SCORE; total++) {
     const r = interpretScore(total);
-    if (total <= 20) {
+    if (total <= 30) {
       assert.equal(r.compromised, true, `score ${total} must be compromised`);
       assert.match(r.body, /compromised/i);
       assert.match(r.body, /our team/i);

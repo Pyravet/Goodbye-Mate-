@@ -39,13 +39,13 @@ export async function saveTemplate(id, payload) {
   return res.json();
 }
 
-export async function fetchBrochurePdf(kind, state = 'ALL') {
-  const res = await apiFetch(
-    `/settings/content/brochure/${kind}?state=${encodeURIComponent(state)}`
-  );
+/** Open one brochure's PDF in a new tab (admin-authenticated, so it must be fetched, not linked). */
+export async function openBrochurePdf(id) {
+  const res = await apiFetch(`/settings/content/brochure-file/${id}`);
   if (!res.ok) throw new Error('Failed to load brochure');
-  const data = await res.json();
-  return data.document; // { filename, uploaded_at } | null
+  const url = URL.createObjectURL(await res.blob());
+  window.open(url, '_blank', 'noopener');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function fileToBase64(file) {
@@ -58,17 +58,15 @@ function fileToBase64(file) {
 }
 
 /**
- * Upload a brochure for one state, or 'ALL' as the nationwide fallback.
- *
- * The state was never sent, so every upload saved as 'ALL' and
- * overwrote the last one — which is why there was only ever one
- * brochure despite the backend supporting per-state versions all along.
+ * ADD a brochure for a state ('ALL' = nationwide fallback). Several can
+ * exist for the same state — one per cremation provider; `label` names
+ * the provider and is what the family sees as the link text.
  */
-export async function uploadBrochurePdf(kind, file, state = 'ALL') {
+export async function uploadBrochurePdf(kind, file, state = 'ALL', label = '') {
   const dataBase64 = await fileToBase64(file);
   const res = await apiFetch(`/settings/content/brochure/${kind}`, {
     method: 'PUT',
-    body: JSON.stringify({ filename: file.name, dataBase64, state }),
+    body: JSON.stringify({ filename: file.name, dataBase64, state, label: label || null }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Failed to upload brochure');
@@ -78,11 +76,11 @@ export async function uploadBrochurePdf(kind, file, state = 'ALL') {
 export async function listBrochurePdfs(kind) {
   const res = await apiFetch(`/settings/content/brochures/${kind}`);
   if (!res.ok) throw new Error('Could not load brochures');
-  return (await res.json()).documents;
+  return (await res.json()).documents; // [{ id, label, filename, state, uploaded_at }]
 }
 
-export async function removeBrochurePdf(kind, state = 'ALL') {
-  const res = await apiFetch(`/settings/content/brochure/${kind}?state=${encodeURIComponent(state)}`, { method: 'DELETE' });
+export async function removeBrochurePdf(id) {
+  const res = await apiFetch(`/settings/content/brochure/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Failed to remove brochure');
   return res.json();
 }

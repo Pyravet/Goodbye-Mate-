@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { listBrochurePdfs, uploadBrochurePdf, removeBrochurePdf, fetchBrochurePdf } from './settingsApi.js';
+import { listBrochurePdfs, uploadBrochurePdf, removeBrochurePdf, openBrochurePdf } from './settingsApi.js';
 
 const STATES = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
 
@@ -17,6 +17,7 @@ const STATES = ['NSW', 'VIC', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT'];
 export default function BrochureManager({ kind, label }) {
   const [docs, setDocs] = useState(null);
   const [state, setState] = useState('ALL');
+  const [provider, setProvider] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,7 +32,8 @@ export default function BrochureManager({ kind, label }) {
     setBusy(true);
     setError('');
     try {
-      await uploadBrochurePdf(kind, file, state);
+      await uploadBrochurePdf(kind, file, state, provider.trim());
+      setProvider('');
       load();
     } catch (err) {
       setError(err.message);
@@ -40,14 +42,12 @@ export default function BrochureManager({ kind, label }) {
     }
   };
 
-  const remove = async (docState) => {
+  const remove = async (doc) => {
     if (!window.confirm(
-      docState === 'ALL'
-        ? 'Remove the nationwide brochure? States without their own brochure will have none.'
-        : `Remove the ${docState} brochure? Those clients will get the nationwide one instead.`
+      `Remove ${doc.label || doc.filename} (${doc.state === 'ALL' ? 'nationwide' : doc.state})? Families will no longer see it.`
     )) return;
     try {
-      await removeBrochurePdf(kind, docState);
+      await removeBrochurePdf(doc.id);
       load();
     } catch (err) {
       setError(err.message);
@@ -61,8 +61,8 @@ export default function BrochureManager({ kind, label }) {
   return (
     <>
       <p style={styles.hint}>
-        {label}. A booking uses its own state&apos;s brochure; anything without one falls back
-        to the nationwide copy.
+        {label}. A booking shows every brochure uploaded for its own state (add one per provider);
+        a state with none falls back to the nationwide brochures.
       </p>
 
       {error && <p style={styles.error}>{error}</p>}
@@ -73,16 +73,18 @@ export default function BrochureManager({ kind, label }) {
         <p style={styles.hint}>No brochures uploaded yet.</p>
       ) : (
         docs.map((d) => (
-          <div key={d.state} style={styles.row}>
+          <div key={d.id} style={styles.row}>
             <span style={styles.stateTag}>{d.state === 'ALL' ? 'Nationwide' : d.state}</span>
-            <span style={styles.filename}>{d.filename}</span>
+            <span style={styles.filename}>
+              {d.label && <strong>{d.label} · </strong>}{d.filename}
+            </span>
             <button
-              onClick={() => fetchBrochurePdf(kind, d.state).catch((e) => setError(e.message))}
+              onClick={() => openBrochurePdf(d.id).catch((e) => setError(e.message))}
               style={styles.linkBtn}
             >
               View
             </button>
-            <button onClick={() => remove(d.state)} style={styles.removeBtn}>Remove</button>
+            <button onClick={() => remove(d)} style={styles.removeBtn}>Remove</button>
           </div>
         ))
       )}
@@ -103,6 +105,15 @@ export default function BrochureManager({ kind, label }) {
       )}
 
       <div style={styles.uploadRow}>
+        <input
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          placeholder="Provider name (shown to families)"
+          maxLength={120}
+          style={{ ...styles.select, flex: 1, minWidth: 0 }}
+        />
+      </div>
+      <div style={styles.uploadRow}>
         <select value={state} onChange={(e) => setState(e.target.value)} style={styles.select}>
           <option value="ALL">Nationwide (fallback)</option>
           {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -118,11 +129,6 @@ export default function BrochureManager({ kind, label }) {
           />
         </label>
       </div>
-      {covered.has(state) && (
-        <p style={styles.hint}>
-          Uploading will replace the existing {state === 'ALL' ? 'nationwide' : state} brochure.
-        </p>
-      )}
     </>
   );
 }

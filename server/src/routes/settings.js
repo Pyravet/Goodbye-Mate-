@@ -79,28 +79,26 @@ router.put('/templates/:id', requireAuth, requireRole('admin'), asyncHandler(asy
 // cremation brochure).
 const brochureKindSchema = z.enum(['private_cremation', 'communal_cremation']);
 
-router.get('/content/brochure/:kind', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
-  const kind = brochureKindSchema.safeParse(req.params.kind);
-  if (!kind.success) return res.status(400).json({ error: 'Invalid brochure kind' });
-
-  const state = (req.query.state || 'ALL').toUpperCase();
-  const { rows } = await query(
-    'SELECT filename, state, uploaded_at FROM content_documents WHERE kind = $1 AND state = $2',
-    [kind.data, state]
-  );
-  res.json({ document: rows[0] || null });
-}));
-
-// All brochures for a kind, across every state — powers the admin list.
+// Metadata for every brochure of a kind (all states, all providers).
 router.get('/content/brochures/:kind', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const kind = brochureKindSchema.safeParse(req.params.kind);
   if (!kind.success) return res.status(400).json({ error: 'Invalid brochure kind' });
 
   const { rows } = await query(
-    'SELECT filename, state, uploaded_at FROM content_documents WHERE kind = $1 ORDER BY state',
+    'SELECT id, label, filename, state, uploaded_at FROM content_documents WHERE kind = $1 ORDER BY state, uploaded_at',
     [kind.data]
   );
   res.json({ documents: rows });
+}));
+
+// The file itself, for the admin's "View" button.
+router.get('/content/brochure-file/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
+  const { rows } = await query('SELECT filename, mime_type, data FROM content_documents WHERE id = $1', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Brochure not found' });
+  res.setHeader('Content-Type', rows[0].mime_type);
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].filename.replace(/"/g, '')}"`);
+  res.send(rows[0].data);
 }));
 
 const brochureUploadSchema = z.object({
@@ -109,6 +107,9 @@ const brochureUploadSchema = z.object({
   // 'ALL' is the nationwide fallback used when a job's own state has no
   // brochure of its own.
   state: z.enum(['ALL', 'VIC', 'NSW', 'QLD', 'WA', 'SA', 'TAS', 'ACT', 'NT']).default('ALL'),
+  // The provider this brochure belongs to. Shown to the family as the
+  // link text, so several providers in one state can be told apart.
+  label: z.string().trim().max(120).optional().nullable(),
 });
 
 // Shared PDF validation — used by brochures and client resources alike.
@@ -130,6 +131,8 @@ function decodePdf(dataBase64) {
   return { buffer };
 }
 
+// ADDS a brochure. Several can exist for the same kind and state (one per
+// cremation provider); remove one explicitly to replace it.
 router.put('/content/brochure/:kind', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
   const kind = brochureKindSchema.safeParse(req.params.kind);
   if (!kind.success) return res.status(400).json({ error: 'Invalid brochure kind' });
@@ -140,23 +143,21 @@ router.put('/content/brochure/:kind', requireAuth, requireRole('admin'), asyncHa
   const { buffer, error } = decodePdf(parsed.data.dataBase64);
   if (error) return res.status(400).json({ error });
 
-  await query(
-    `INSERT INTO content_documents (kind, state, filename, mime_type, data, uploaded_by)
-     VALUES ($1, $2, $3, 'application/pdf', $4, $5)
-     ON CONFLICT (kind, state) DO UPDATE SET filename = EXCLUDED.filename, data = EXCLUDED.data, uploaded_at = now(), uploaded_by = EXCLUDED.uploaded_by`,
-    [kind.data, parsed.data.state, parsed.data.filename, buffer, req.user.sub]
+  const { rows } = await query(
+    `INSERT INTO content_documents (kind, state, label, filename, mime_type, data, uploaded_by)
+     VALUES ($1, $2, $3, $4, 'application/pdf', $5, $6) RETURNING id`,
+    [kind.data, parsed.data.state, parsed.data.label || null, parsed.data.filename, buffer, req.user.sub]
   );
-  await logAction({ actorUserId: req.user.sub, action: 'brochure_pdf_uploaded', targetType: 'content_document', targetId: `${kind.data}:${parsed.data.state}`, metadata: { filename: parsed.data.filename, state: parsed.data.state } });
-  res.json({ ok: true });
+  await logAction({ actorUserId: req.user.sub, action: 'brochure_pdf_uploaded', targetType: 'content_document', targetId: rows[0].id, metadata: { kind: kind.data, filename: parsed.data.filename, state: parsed.data.state, label: parsed.data.label || null } });
+  res.status(201).json({ ok: true, id: rows[0].id });
 }));
 
-router.delete('/content/brochure/:kind', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
-  const kind = brochureKindSchema.safeParse(req.params.kind);
-  if (!kind.success) return res.status(400).json({ error: 'Invalid brochure kind' });
-  const state = (req.query.state || 'ALL').toUpperCase();
-
-  await query('DELETE FROM content_documents WHERE kind = $1 AND state = $2', [kind.data, state]);
-  await logAction({ actorUserId: req.user.sub, action: 'brochure_pdf_removed', targetType: 'content_document', targetId: `${kind.data}:${state}` });
+// Remove ONE brochure by id.
+router.delete('/content/brochure/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(400).json({ error: 'Invalid id' });
+  const { rowCount } = await query('DELETE FROM content_documents WHERE id = $1', [req.params.id]);
+  if (!rowCount) return res.status(404).json({ error: 'Brochure not found' });
+  await logAction({ actorUserId: req.user.sub, action: 'brochure_pdf_removed', targetType: 'content_document', targetId: req.params.id });
   res.json({ ok: true });
 }));
 

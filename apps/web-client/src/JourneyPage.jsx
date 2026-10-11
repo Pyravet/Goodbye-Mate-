@@ -616,6 +616,27 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expa
   );
 }
 
+/** One link per cremation provider's brochure (a state can have several). */
+function BrochureLinks({ token, content }) {
+  const list = content.brochurePdfs || (content.brochurePdf ? [content.brochurePdf] : []);
+  if (list.length === 0) return null;
+  return (
+    <>
+      {list.map((b, i) => (
+        <a
+          key={b.id || i}
+          href={b.id ? `${API_URL}/public/journey/${token}/brochure/${b.id}.pdf` : `${API_URL}/public/journey/${token}/brochure.pdf`}
+          target="_blank"
+          rel="noreferrer"
+          style={styles.pdfLink}
+        >
+          📄 {b.label ? `${b.label} — brochure (PDF)` : list.length > 1 ? `Brochure ${i + 1} (PDF)` : 'View brochure (PDF)'}
+        </a>
+      ))}
+    </>
+  );
+}
+
 function AftercareSection({ token, content, isActive, onContinue, expanded, onToggle }) {
   if (!isActive) {
     return (
@@ -624,11 +645,7 @@ function AftercareSection({ token, content, isActive, onContinue, expanded, onTo
         {expanded && (
           <>
             <p style={styles.bodyText}>{content.brochure}</p>
-            {content.brochurePdf && (
-              <a href={`${API_URL}/public/journey/${token}/brochure.pdf`} target="_blank" rel="noreferrer" style={styles.pdfLink}>
-                📄 View brochure (PDF)
-              </a>
-            )}
+            <BrochureLinks token={token} content={content} />
           </>
         )}
       </>
@@ -639,16 +656,7 @@ function AftercareSection({ token, content, isActive, onContinue, expanded, onTo
       <SectionHeader label="Aftercare" done={false} />
       <p style={styles.bodyText}>{content.brochure}</p>
       <ResourceLinks resources={content.resources} />
-      {content.brochurePdf && (
-        <a
-          href={`${API_URL}/public/journey/${token}/brochure.pdf`}
-          target="_blank"
-          rel="noreferrer"
-          style={styles.pdfLink}
-        >
-          📄 View brochure (PDF)
-        </a>
-      )}
+      <BrochureLinks token={token} content={content} />
       <button onClick={onContinue} style={styles.primaryBtn}>Got it</button>
     </>
   );
@@ -918,7 +926,7 @@ const styles = {
   billTotal: { borderTop: '1px solid var(--gm-line)', marginTop: 6, paddingTop: 8, fontWeight: 600, fontSize: 14 },
   doneBanner: { textAlign: 'center', padding: '20px 16px', marginTop: 8 },
   doneBannerText: { fontSize: 14, color: 'var(--gm-forest-dark)', lineHeight: 1.6 },
-  pdfLink: { display: 'inline-block', marginBottom: 16, color: 'var(--gm-forest)', fontWeight: 500, fontSize: 14, textDecoration: 'none' },
+  pdfLink: { display: 'block', marginBottom: 16, color: 'var(--gm-forest)', fontWeight: 500, fontSize: 14, textDecoration: 'none' },
   starRow: { display: 'flex', gap: 6, marginBottom: 10 },
   starBtn: { background: 'none', border: 'none', fontSize: 36, lineHeight: 1, color: 'var(--gm-honey)', padding: 2, cursor: 'pointer' },
   resourceBox: { marginBottom: 16, paddingTop: 4 },

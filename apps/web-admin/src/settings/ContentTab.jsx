@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import BrochureManager from './BrochureManager.jsx';
 import TwoFactorCard from './TwoFactorCard.jsx';
 import JourneyBlocksEditor from '../journey/JourneyBlocksEditor.jsx';
-import { fetchClientResources, addClientResource, removeClientResource, verifyEmail, sendTestEmail, fetchContent, saveContent, fetchBrochurePdf, uploadBrochurePdf, removeBrochurePdf } from './settingsApi.js';
+import { fetchClientResources, addClientResource, removeClientResource, verifyEmail, sendTestEmail, fetchContent, saveContent } from './settingsApi.js';
 
 const TEXT_FIELDS = [
   { key: 'consentTemplate', label: 'Consent form text' },
@@ -221,17 +221,18 @@ export default function ContentTab() {
       <Card title="Brochure PDFs">
         <p style={{ ...styles.hint, marginBottom: 14 }}>
           Attach a PDF brochure for each cremation option. Different cremation partners operate
-          in different states, so you can upload one brochure per state — a booking gets its own
-          state&apos;s brochure, or the nationwide copy if there isn&apos;t one.
+          in different states, so you can upload brochures per state, and more than one per state when several
+          providers operate there — the family sees all of their state&apos;s brochures, or the
+          nationwide ones if their state has none.
         </p>
         <BrochureManager
           kind="private_cremation"
-          label="Private cremation brochure, per state"
+          label="Private cremation brochures"
         />
         <div style={{ height: 18 }} />
         <BrochureManager
           kind="communal_cremation"
-          label="Communal cremation brochure, per state"
+          label="Communal cremation brochures"
         />
       </Card>
 

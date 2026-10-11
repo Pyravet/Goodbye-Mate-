@@ -122,6 +122,27 @@ async function loadJobByToken(token) {
 // brochure for this job's service type), and company details for the
 // footer/branding. Nothing here exposes other clients' data, vet payout
 // figures, or anything admin-only.
+/**
+ * Every brochure this job's family should see: all of the job's own state
+ * for its cremation type (one per provider), or — if that state has none —
+ * the nationwide set. Metadata only; the file is served separately.
+ */
+async function brochuresForJob(job) {
+  const state = (job.state || 'ALL').toUpperCase();
+  const { rows } = await query(
+    `SELECT id, label, filename, state FROM content_documents
+     WHERE kind = $1 AND state = $2 ORDER BY uploaded_at`,
+    [job.service_type, state]
+  );
+  if (rows.length) return rows;
+  const { rows: all } = await query(
+    `SELECT id, label, filename, state FROM content_documents
+     WHERE kind = $1 AND state = 'ALL' ORDER BY uploaded_at`,
+    [job.service_type]
+  );
+  return all;
+}
+
 router.get('/:token', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
@@ -160,19 +181,11 @@ router.get('/:token', asyncHandler(async (req, res) => {
   else if (job.service_type === 'communal_cremation') brochure = fillPlaceholders(content.communalCremationBrochure, job, vetName);
   else brochure = fillPlaceholders(content.noCremationNote, job, vetName);
 
-  let brochurePdf = null;
-  if (job.service_type !== 'euthanasia_only') {
-    // Prefer a brochure for this job's own state; fall back to the
-    // nationwide 'ALL' one. ORDER BY puts the state-specific row first.
-    const { rows: docRows } = await query(
-      `SELECT filename, state FROM content_documents
-       WHERE kind = $1 AND state IN ($2, 'ALL')
-       ORDER BY CASE WHEN state = $2 THEN 0 ELSE 1 END
-       LIMIT 1`,
-      [job.service_type, (job.state || 'ALL').toUpperCase()]
-    );
-    if (docRows[0]) brochurePdf = { filename: docRows[0].filename };
-  }
+  const brochurePdfs = job.service_type !== 'euthanasia_only'
+    ? await brochuresForJob(job)
+    : [];
+  // First one kept under the old name for any client still reading it.
+  const brochurePdf = brochurePdfs[0] || null;
 
   // Supporting documents / grief resources — global ones plus any
   // targeted at this job's state.
@@ -232,6 +245,7 @@ router.get('/:token', asyncHandler(async (req, res) => {
       ),
       brochure,
       brochurePdf,
+      brochurePdfs,
       vet: vetDetails,
       // The pet list, so the client sees whose form is outstanding
       // rather than a single "not signed" for a visit covering three
@@ -547,28 +561,38 @@ router.get('/:token/consent.pdf', asyncHandler(async (req, res) => {
   });
 }));
 
-// Serves the uploaded brochure PDF for this job's cremation type, if one
-// has been uploaded. Deliberately routed through the job token (not a
-// generic /content/brochure/:kind endpoint) so a client only ever reaches
-// the document relevant to their own booking.
-router.get('/:token/brochure.pdf', asyncHandler(async (req, res) => {
+// Serves an uploaded brochure PDF, but only one that applies to THIS job
+// (its cremation type, and its own state or the nationwide set). Routed
+// through the job token so a client cannot reach another booking's
+// documents by guessing ids.
+router.get('/:token/brochure/:id.pdf', asyncHandler(async (req, res) => {
   const job = await loadJobByToken(req.params.token);
   if (!job) return res.status(404).json({ error: 'This link is not valid.' });
   if (job.service_type === 'euthanasia_only') return res.status(404).json({ error: 'No brochure for this service type.' });
 
-  const { rows } = await query(
-    `SELECT filename, mime_type, data FROM content_documents
-     WHERE kind = $1 AND state IN ($2, 'ALL')
-     ORDER BY CASE WHEN state = $2 THEN 0 ELSE 1 END
-     LIMIT 1`,
-    [job.service_type, (job.state || 'ALL').toUpperCase()]
-  );
-  const doc = rows[0];
-  if (!doc) return res.status(404).json({ error: 'No brochure has been uploaded yet.' });
+  const allowed = await brochuresForJob(job);
+  if (!allowed.some((d) => d.id === req.params.id)) return res.status(404).json({ error: 'Brochure not found.' });
 
+  const { rows } = await query('SELECT filename, mime_type, data FROM content_documents WHERE id = $1', [req.params.id]);
+  const doc = rows[0];
+  if (!doc) return res.status(404).json({ error: 'Brochure not found.' });
   res.setHeader('Content-Type', doc.mime_type);
   res.setHeader('Content-Disposition', `inline; filename="${doc.filename.replace(/"/g, '')}"`);
   res.send(doc.data);
+}));
+
+// Original single-brochure URL, kept so links already sent keep working:
+// serves the first applicable brochure.
+router.get('/:token/brochure.pdf', asyncHandler(async (req, res) => {
+  const job = await loadJobByToken(req.params.token);
+  if (!job) return res.status(404).json({ error: 'This link is not valid.' });
+  if (job.service_type === 'euthanasia_only') return res.status(404).json({ error: 'No brochure for this service type.' });
+  const first = (await brochuresForJob(job))[0];
+  if (!first) return res.status(404).json({ error: 'No brochure has been uploaded yet.' });
+  const { rows } = await query('SELECT filename, mime_type, data FROM content_documents WHERE id = $1', [first.id]);
+  res.setHeader('Content-Type', rows[0].mime_type);
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].filename.replace(/"/g, '')}"`);
+  res.send(rows[0].data);
 }));
 
 // Serves an uploaded resource PDF, scoped to a valid job token so these

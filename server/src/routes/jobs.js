@@ -38,6 +38,7 @@ import { logAction } from '../audit/log.js';
 import { notifyUser, notifyAdmins } from '../notifications/notify.js';
 import { vetSafeJobResponse } from '../domain/jobVisibility.js';
 import { noticeClient, noticeVet, noticePartner, friendlyWhen } from '../notifications/jobNotices.js';
+import { getPaymentPosition } from '../domain/payments.js';
 import { billBreakdown, payoutBreakdown, payoutBreakdownLines, suggestTimeCategory, extractGst, clientGstSplit } from '../domain/pricing.js';
 import { rankVets, DISPATCH_TIMEOUT_MS } from '../domain/dispatch.js';
 import { cancellationFee, hoursUntilAppointment } from '../domain/cancellation.js';
@@ -340,7 +341,7 @@ router.post('/', requireAuth, requireRole('admin'), asyncHandler(async (req, res
   }
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricingRows[0].config, await getLineItems(job.id));
 
   res.status(201).json({ job, dispatch, bill });
 }));
@@ -761,6 +762,7 @@ router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
 
   const fullResponse = {
     job: jobWithPets, review: reviewRows[0] || null, referredByPartner, bill,
+    payment: await getPaymentPosition(rows[0].id, bill.total),
     payout, payoutLines: payoutBreakdownLines(payout),
   };
   // Vets get their own earnings only — never the client bill (it shows
@@ -819,10 +821,10 @@ router.get('/:id/invoice.pdf', requireAuth, requireRole('admin'), asyncHandler(a
   const pricing = pricingRows[0].config;
   const company = contentRows[0].config.company || {};
 
-  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricing, await getLineItems(job.id));
   const asQuote = req.query.quote === '1';
 
-  generateInvoicePdf({ res, job, bill, company, asQuote, gst: clientGst(bill.total, pricingRows[0].config) });
+  generateInvoicePdf({ res, job, bill, company, asQuote, gst: clientGst(bill.total, pricingRows[0].config), payment: await getPaymentPosition(job.id, bill.total) });
 }));
 
 // Charge the client's card via eWay — server never receives raw card
@@ -905,10 +907,18 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
-  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricing, await getLineItems(job.id));
+  // Charge only what is still OWED. After an extra charge on a paid job
+  // the client owes the difference; charging the whole total again would
+  // take their money twice.
+  const position = await getPaymentPosition(job.id, bill.total);
+  if (position.due <= 0) {
+    await query(`UPDATE jobs SET payment_status = 'paid', updated_at = now() WHERE id = $1`, [job.id]);
+    return res.json({ ok: true, alreadySettled: true, amount: 0 });
+  }
 
   const result = await chargeCard({
-    amountDollars: bill.total,
+    amountDollars: position.due,
     invoiceReference: job.job_number,
     customerName: job.client_name,
     encryptedCard: parsed.data.encryptedCard,
@@ -917,7 +927,7 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async
   await query(
     `INSERT INTO payments (job_id, amount, provider, provider_transaction_id, status, response_message, processed_by_user_id)
      VALUES ($1,$2,'eway',$3,$4,$5,$6)`,
-    [job.id, bill.total, result.transactionId, result.success ? 'succeeded' : 'failed', result.responseMessage, req.user.sub]
+    [job.id, position.due, result.transactionId, result.success ? 'succeeded' : 'failed', result.responseMessage, req.user.sub]
   );
 
   if (!result.success) {
@@ -929,9 +939,9 @@ router.post('/:id/charge', requireAuth, requireRole('admin'), asyncHandler(async
     `UPDATE jobs SET payment_status = 'paid', payment_reference = $1, updated_at = now() WHERE id = $2 RETURNING *`,
     [result.transactionId, job.id]
   );
-  await logAction({ actorUserId: req.user.sub, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: bill.total } });
+  await logAction({ actorUserId: req.user.sub, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: position.due } });
 
-  res.json({ ok: true, job: updated[0], transactionId: result.transactionId, amount: bill.total });
+  res.json({ ok: true, job: updated[0], transactionId: result.transactionId, amount: position.due });
 }));
 
 // Emails a quote, invoice, or RCTI as a PDF attachment — the automated
@@ -976,8 +986,8 @@ router.post('/:id/email-document', outboundMessageLimiter, requireAuth, requireR
     } else {
       const asQuote = type === 'quote';
       if (!job.client_email) return res.status(400).json({ error: 'Client has no email on file for this job' });
-      const bill = billBreakdown(job, pricing, await getLineItems(job.id));
-      const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote, gst: clientGst(bill.total, pricing) });
+      const bill = billBreakdown(await withPetCount(job), pricing, await getLineItems(job.id));
+      const buffer = await generateInvoicePdfBuffer({ job, bill, company, asQuote, gst: clientGst(bill.total, pricing), payment: await getPaymentPosition(job.id, bill.total) });
 
       await sendEmail({
         to: job.client_email,
@@ -1007,7 +1017,7 @@ router.post('/:id/sms-quote', outboundMessageLimiter, requireAuth, requireRole('
   if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricingRows[0].config, await getLineItems(job.id));
 
   const message = `Hi ${job.client_name}, your quote for ${await petNamesTextFor(job)} is $${bill.total.toFixed(2)}. We've also sent a detailed quote to your email if provided.`;
 
@@ -1039,7 +1049,7 @@ router.post('/:id/whatsapp-quote', outboundMessageLimiter, requireAuth, requireR
   if (!job.client_phone) return res.status(400).json({ error: 'Client has no phone number on file for this job' });
 
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
-  const bill = billBreakdown(job, pricingRows[0].config, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricingRows[0].config, await getLineItems(job.id));
 
   try {
     await sendWhatsappTemplate(job.client_phone, [job.client_name, job.pet_name, `$${bill.total.toFixed(2)}`]);
@@ -1316,7 +1326,7 @@ router.get('/:id/cancellation-preview', requireAuth, requireRole('admin'), async
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const pricing = pricingRows[0].config;
 
-  const bill = billBreakdown(job, pricing, await getLineItems(job.id));
+  const bill = billBreakdown(await withPetCount(job), pricing, await getLineItems(job.id));
   const hoursNotice = hoursUntilAppointment(job.job_date, job.job_time);
   const result = cancellationFee({ billTotal: bill.total, hoursNotice, pricing });
 
@@ -1340,7 +1350,7 @@ router.post('/:id/cancel', requireAuth, requireRole('admin'), asyncHandler(async
   const existingJob = existingRows[0];
   if (!existingJob) return res.status(404).json({ error: 'Job not found' });
 
-  const bill = billBreakdown(existingJob, pricingConfig, await getLineItems(existingJob.id));
+  const bill = billBreakdown(await withPetCount(existingJob), pricingConfig, await getLineItems(existingJob.id));
   const notice = hoursUntilAppointment(existingJob.job_date, existingJob.job_time);
   // Admin can override the calculated fee, or waive it entirely — the
   // policy is a default, not a rule the person on the phone can't
@@ -1500,6 +1510,31 @@ router.get('/:id/line-items', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 /**
+ * Keep payment_status honest after ANYTHING that changes the bill: an
+ * extra, a discount, a pet added or removed, a changed time band.
+ *
+ *  - paid + now owes more  -> 'pending' (the client has a balance to pay)
+ *  - pending + nothing owed (and something was paid) -> 'paid'
+ *
+ * 'refunded' is never touched here — it only changes through the refund
+ * flow. Returns the payment position after reconciling.
+ */
+async function reconcilePaymentStatus(jobId) {
+  const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
+  const job = rows[0];
+  if (!job) return null;
+  const { rows: pr } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const bill = billBreakdown(await withPetCount(job), pr[0].config, await getLineItems(jobId));
+  const position = await getPaymentPosition(jobId, bill.total);
+  if (job.payment_status === 'paid' && position.due > 0) {
+    await query("UPDATE jobs SET payment_status = 'pending', updated_at = now() WHERE id = $1", [jobId]);
+  } else if (job.payment_status === 'pending' && position.due === 0 && position.paid > 0) {
+    await query("UPDATE jobs SET payment_status = 'paid', updated_at = now() WHERE id = $1", [jobId]);
+  }
+  return { ...position, bill };
+}
+
+/**
  * Tell the client their bill changed, with the NEW total. Only when it
  * matters to them: the job is already paid, or a vet is assigned (so the
  * client has a booking and a journey link). Edits to a still-unassigned
@@ -1510,13 +1545,19 @@ async function noticeBillChange(jobId, headline) {
     const { rows } = await query('SELECT * FROM jobs WHERE id = $1', [jobId]);
     const job = rows[0];
     if (!job) return null;
-    if (job.payment_status !== 'paid' && !job.assigned_vet_id) return { client: 'skipped' };
     const { rows: pr } = await query('SELECT config FROM pricing_settings WHERE id = true');
     const bill = billBreakdown(await withPetCount(job), pr[0].config, await getLineItems(jobId));
+    const pos = await getPaymentPosition(jobId, bill.total);
+    // Only worth telling the client if they have paid something or a vet
+    // is assigned (so they have a booking and a journey link).
+    if (pos.paid <= 0 && !job.assigned_vet_id) return { client: 'skipped' };
     const petLabel = await petNamesTextFor(job);
-    const paidNote = job.payment_status === 'paid'
-      ? ' Any difference from what you paid will be sorted out with you directly.'
-      : ' You can view and pay the updated total on your journey page.';
+    const money = (n) => `$${Number(n).toFixed(2)}`;
+    let paidNote;
+    if (pos.paid > 0 && pos.due > 0) paidNote = ` You've already paid ${money(pos.paid)}, so ${money(pos.due)} is still to pay — you can do that on your journey page.`;
+    else if (pos.paid > 0 && pos.credit > 0) paidNote = ` You've already paid ${money(pos.paid)}, so we'll be in touch about the ${money(pos.credit)} difference.`;
+    else if (pos.paid > 0) paidNote = ' You have already paid in full — nothing more to pay.';
+    else paidNote = ' You can view and pay the updated total on your journey page.';
     return {
       client: await noticeClient(job, {
         subject: `Your invoice for ${petLabel} has been updated`,
@@ -1561,6 +1602,7 @@ router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(a
   await logAction({ actorUserId: req.user.sub, action: amount < 0 ? 'discount_added' : 'extra_charge_added', targetType: 'job', targetId: req.params.id, metadata: { label, amount, afterPayment: wasAlreadyPaid, payoutFrozen } });
 
   const warnings = [];
+  await reconcilePaymentStatus(req.params.id);
 
   if (wasAlreadyPaid) {
     if (amount > 0) {
@@ -1568,7 +1610,7 @@ router.post('/:id/line-items', requireAuth, requireRole('admin'), asyncHandler(a
       // claiming the job is settled — the "nothing outstanding" nudge
       // check reads exactly this field, and would otherwise refuse to
       // let admin chase money that is now actually owed.
-      await query("UPDATE jobs SET payment_status = 'pending' WHERE id = $1", [req.params.id]);
+      // payment_status is reconciled against the ledger below.
     } else {
       // A discount after payment means the client may now be owed money
       // back. This does NOT trigger a refund automatically — refunds go
@@ -1626,6 +1668,7 @@ router.delete('/:id/line-items/:itemId', requireAuth, requireRole('admin'), asyn
   await logAction({ actorUserId: req.user.sub, action: 'line_item_removed', targetType: 'job', targetId: req.params.id, metadata: item ? { label: item.label, amount: item.amount } : undefined });
 
   const warnings = [];
+  await reconcilePaymentStatus(req.params.id);
 
   if (item && job?.payment_status === 'paid' && Number(item.amount) > 0) {
     // Removing a charge the client already paid means they've now
@@ -2066,9 +2109,24 @@ router.post('/:id/consent-signed', requireAuth, asyncHandler(async (req, res) =>
 }));
 
 router.post('/:id/payment-received', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
+  const { rows: jr } = await query('SELECT * FROM jobs WHERE id = $1', [req.params.id]);
+  if (!jr[0]) return res.status(404).json({ error: 'Job not found' });
+
+  // Record WHAT was received in the ledger. Without a row, the system
+  // doesn't know how much has been paid — so a later extra charge made
+  // the client owe the whole total again instead of just the difference.
+  const { rows: pr } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const bill = billBreakdown(await withPetCount(jr[0]), pr[0].config, await getLineItems(jr[0].id));
+  const position = await getPaymentPosition(jr[0].id, bill.total);
+  if (position.due > 0) {
+    await query(
+      `INSERT INTO payments (job_id, amount, provider, status, response_message, processed_by_user_id, is_manual)
+       VALUES ($1, $2, 'manual', 'succeeded', 'Marked paid by admin', $3, true)`,
+      [jr[0].id, position.due, req.user.sub]
+    );
+  }
   const { rows } = await query(`UPDATE jobs SET payment_status = 'paid', updated_at = now() WHERE id = $1 RETURNING *`, [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
-  await logAction({ actorUserId: req.user.sub, action: 'payment_recorded', targetType: 'job', targetId: req.params.id });
+  await logAction({ actorUserId: req.user.sub, action: 'payment_recorded', targetType: 'job', targetId: req.params.id, metadata: { amount: position.due } });
   res.json({ job: rows[0] });
 }));
 
@@ -2966,6 +3024,8 @@ router.put('/:id', requireAuth, requireRole('admin'), asyncHandler(async (req, r
     updatedJob = await syncPrimaryPet(req.params.id);
   }
 
+  if (timeChanged || 'serviceType' in d || petFieldGiven) await reconcilePaymentStatus(req.params.id);
+
   await logAction({
     actorUserId: req.user.sub,
     action: 'job_updated',
@@ -3232,7 +3292,9 @@ router.post('/:id/pets', requireAuth, requireRole('admin'), asyncHandler(async (
     targetType: 'job', targetId: req.params.id, metadata: { petName: d.name },
   });
 
-  res.status(201).json({ pet: rows[0] });
+  await reconcilePaymentStatus(req.params.id);
+  const notified = await noticeBillChange(req.params.id, `${d.name} has been added to your Goodbye Mate booking`);
+  res.status(201).json({ pet: rows[0], notified });
 }));
 
 router.put('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandler(async (req, res) => {
@@ -3251,6 +3313,7 @@ router.put('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandler(a
   if (!rows[0]) return res.status(404).json({ error: 'Pet not found on this job' });
 
   await syncPrimaryPet(req.params.id);
+  await reconcilePaymentStatus(req.params.id);
   res.json({ pet: rows[0] });
 }));
 
@@ -3278,7 +3341,9 @@ router.delete('/:id/pets/:petId', requireAuth, requireRole('admin'), asyncHandle
     actorUserId: req.user.sub, action: 'job_pet_removed',
     targetType: 'job', targetId: req.params.id, metadata: { petId: req.params.petId },
   });
-  res.json({ ok: true });
+  await reconcilePaymentStatus(req.params.id);
+  const notified = await noticeBillChange(req.params.id, `${target?.name || 'A pet'} has been removed from your Goodbye Mate booking`);
+  res.json({ ok: true, notified });
 }));
 
 

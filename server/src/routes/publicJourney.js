@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { query } from '../db/pool.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { billBreakdown, clientGstSplit } from '../domain/pricing.js';
+import { getPaymentPosition } from '../domain/payments.js';
 import { chargeCard, isEwayConfigured } from '../integrations/payments/eway.js';
 import { generateInvoicePdf } from '../pdf/generateInvoice.js';
 import { generateConsentPdf, generateConsentPdfBuffer, consentFilename } from '../pdf/generateConsent.js';
@@ -62,6 +63,15 @@ function fillPlaceholders(text, job, vetName, petName) {
  * charged another — a discount was displayed but never applied, and an
  * extra was quoted but never collected.
  */
+async function journeyGst(total) {
+  const { rows } = await query('SELECT config FROM pricing_settings WHERE id = true');
+  const cfg = rows[0].config;
+  const split = clientGstSplit(total, cfg);
+  return split.isGstRegistered
+    ? { subtotal: split.subtotal, gst: split.gst, ratePercent: Number(cfg?.gstPercent) || 10 }
+    : null;
+}
+
 async function billForJob(job) {
   const { rows: pricingRows } = await query('SELECT config FROM pricing_settings WHERE id = true');
   const { rows: lineItems } = await query(
@@ -234,7 +244,16 @@ router.get('/:token', asyncHandler(async (req, res) => {
       ashesReturned: job.ashes_returned,
       reviewRating: reviewRows[0]?.rating ?? null,
     },
-    bill: { total: bill.total, lines: bill.lines },
+    bill: {
+      total: bill.total,
+      lines: bill.lines,
+      // GST is INCLUDED in the prices; shown only when the business is
+      // registered. Same split the invoice PDF uses.
+      gst: await journeyGst(bill.total),
+      // What's been received and what is still owed (after an extra
+      // charge on a paid job, only the difference).
+      ...(await (async () => { const p = await getPaymentPosition(job.id, bill.total); return { paid: p.paid, due: p.due, credit: p.credit }; })()),
+    },
     content: {
       educationalIntro: fillPlaceholders(content.educationalIntro, job, vetName),
       // Filled for the pet whose form is next, so the wording names the
@@ -433,9 +452,16 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: 'Invalid card details' });
 
   const bill = await billForJob(job);
+  // Charge what is still owed, not the whole total again (see the admin
+  // charge route).
+  const position = await getPaymentPosition(job.id, bill.total);
+  if (position.due <= 0) {
+    await query(`UPDATE jobs SET payment_status = 'paid', updated_at = now() WHERE id = $1`, [job.id]);
+    return res.json({ ok: true, alreadyPaid: true });
+  }
 
   const result = await chargeCard({
-    amountDollars: bill.total,
+    amountDollars: position.due,
     invoiceReference: job.job_number,
     customerName: job.client_name,
     encryptedCard: parsed.data.encryptedCard,
@@ -444,7 +470,7 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
   await query(
     `INSERT INTO payments (job_id, amount, provider, provider_transaction_id, status, response_message)
      VALUES ($1,$2,'eway',$3,$4,$5)`,
-    [job.id, bill.total, result.transactionId, result.success ? 'succeeded' : 'failed', result.responseMessage]
+    [job.id, position.due, result.transactionId, result.success ? 'succeeded' : 'failed', result.responseMessage]
   );
 
   if (!result.success) {
@@ -463,7 +489,7 @@ router.post('/:token/pay', asyncHandler(async (req, res) => {
   }
 
   await query(`UPDATE jobs SET payment_status = 'paid', payment_reference = $1, updated_at = now() WHERE id = $2`, [result.transactionId, job.id]);
-  await logAction({ actorUserId: null, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: bill.total, source: 'client_journey' } });
+  await logAction({ actorUserId: null, action: 'payment_succeeded', targetType: 'job', targetId: job.id, metadata: { transactionId: result.transactionId, amount: position.due, source: 'client_journey' } });
 
   res.json({ ok: true, transactionId: result.transactionId });
 }));
@@ -519,6 +545,7 @@ router.get('/:token/receipt.pdf', asyncHandler(async (req, res) => {
     gst: split.isGstRegistered
       ? { ...split, ratePercent: Number(gstPricing[0].config?.gstPercent) || 10 }
       : null,
+    payment: await getPaymentPosition(job.id, bill.total),
   });
 }));
 

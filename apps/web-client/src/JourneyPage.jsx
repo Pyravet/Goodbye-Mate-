@@ -572,7 +572,21 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expa
         {bill.lines.map((l, i) => (
           <div key={i} style={styles.billLine}><span>{l.label}</span><span>{formatMoney(l.amount)}</span></div>
         ))}
-        <div style={{ ...styles.billLine, ...styles.billTotal }}><span>Total</span><span>{formatMoney(bill.total)}</span></div>
+        {bill.gst && (
+          <>
+            <div style={styles.billLine}><span>Subtotal (ex GST)</span><span>{formatMoney(bill.gst.subtotal)}</span></div>
+            <div style={styles.billLine}><span>GST ({bill.gst.ratePercent}%)</span><span>{formatMoney(bill.gst.gst)}</span></div>
+          </>
+        )}
+        <div style={{ ...styles.billLine, ...styles.billTotal }}><span>{bill.gst ? 'Total (incl. GST)' : 'Total'}</span><span>{formatMoney(bill.total)}</span></div>
+        {bill.paid > 0 && (
+          <>
+            <div style={styles.billLine}><span>Paid to date</span><span>-{formatMoney(bill.paid)}</span></div>
+            {bill.credit > 0
+              ? <div style={{ ...styles.billLine, fontWeight: 600 }}><span>Credit owing to you</span><span>{formatMoney(bill.credit)}</span></div>
+              : <div style={{ ...styles.billLine, fontWeight: 600 }}><span>Balance due</span><span>{formatMoney(bill.due)}</span></div>}
+          </>
+        )}
       </div>
 
       {!eway.configured ? (
@@ -608,7 +622,7 @@ function PaymentSection({ token, bill, job, eway, isActive, onPaid, onSkip, expa
             </label>
           </div>
           <button type="submit" disabled={submitting} style={styles.primaryBtn}>
-            {submitting ? 'Processing…' : `Pay ${formatMoney(bill.total)}`}
+            {submitting ? 'Processing…' : `Pay ${formatMoney(bill.due ?? bill.total)}`}
           </button>
         </form>
       )}

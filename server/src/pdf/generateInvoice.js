@@ -12,7 +12,7 @@ function formatDate(d) {
 // Draws the document content onto an already-created PDFDocument — shared
 // by both the "stream straight to the browser" path and the "collect into
 // a Buffer for emailing" path, so the layout only lives in one place.
-function drawInvoiceDoc(doc, { job, bill, company, asQuote, gst }) {
+function drawInvoiceDoc(doc, { job, bill, company, asQuote, gst, payment }) {
   const isPaid = job.payment_status === 'paid';
   const docLabel = asQuote ? 'Quote' : isPaid ? 'Receipt' : 'Invoice';
 
@@ -80,6 +80,25 @@ function drawInvoiceDoc(doc, { job, bill, company, asQuote, gst }) {
   doc.text(gst && gst.isGstRegistered ? 'Total (incl. GST)' : 'Total', 50, tableY);
   doc.text(formatMoney(bill.total), 480, tableY, { width: 65, align: 'right' });
 
+  // Money already received. Without this, an invoice reissued after an
+  // extra charge on a paid job read as if the whole total were owed
+  // again. Not shown on quotes (nothing has been paid against a quote).
+  if (!asQuote && payment && payment.paid > 0 && !(isPaid && payment.due === 0 && payment.credit === 0)) {
+    tableY += 20;
+    doc.fontSize(10).fillColor(INK_SOFT);
+    doc.text('Paid to date', 50, tableY);
+    doc.text(`-${formatMoney(payment.paid)}`, 480, tableY, { width: 65, align: 'right' });
+    tableY += 16;
+    doc.fontSize(12).fillColor(FOREST);
+    if (payment.credit > 0) {
+      doc.text('Credit owing to you', 50, tableY);
+      doc.text(formatMoney(payment.credit), 480, tableY, { width: 65, align: 'right' });
+    } else {
+      doc.text('Balance due', 50, tableY);
+      doc.text(formatMoney(payment.due), 480, tableY, { width: 65, align: 'right' });
+    }
+  }
+
   tableY += 40;
   doc.fontSize(9).fillColor(INK_SOFT).text(
     asQuote
@@ -101,25 +120,25 @@ function docLabelFor(job, asQuote) {
 
 // Client-facing invoice/receipt/quote — streamed straight to an HTTP
 // response (browser download).
-export function generateInvoicePdf({ res, job, bill, company, asQuote = false, gst = null }) {
+export function generateInvoicePdf({ res, job, bill, company, asQuote = false, gst = null, payment = null }) {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${docLabelFor(job, asQuote)}-${job.job_number}.pdf"`);
   doc.pipe(res);
-  drawInvoiceDoc(doc, { job, bill, company, asQuote, gst });
+  drawInvoiceDoc(doc, { job, bill, company, asQuote, gst, payment });
   doc.end();
 }
 
 // Same document, collected into a Buffer instead — for attaching to an
 // email rather than streaming to a browser.
-export function generateInvoicePdfBuffer({ job, bill, company, asQuote = false, gst = null }) {
+export function generateInvoicePdfBuffer({ job, bill, company, asQuote = false, gst = null, payment = null }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks = [];
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
-    drawInvoiceDoc(doc, { job, bill, company, asQuote, gst });
+    drawInvoiceDoc(doc, { job, bill, company, asQuote, gst, payment });
     doc.end();
   });
 }

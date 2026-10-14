@@ -156,7 +156,7 @@ export default function JobDetail() {
   if (loading) return <AppShell><div style={styles.page}>Loading…</div></AppShell>;
   if (!data) return <AppShell><div style={styles.page}>Job not found.</div></AppShell>;
 
-  const { job, bill, review, referredByPartner } = data;
+  const { job, bill, review, referredByPartner, payment } = data;
   const clientAppBase = import.meta.env.VITE_CLIENT_APP_URL || 'https://care.goodbyemate.com.au';
   const journeyLink = `${clientAppBase.replace(/\/$/, '')}/${job.client_token}`;
   const isCommunalOrPrivate = job.service_type !== 'euthanasia_only';
@@ -413,6 +413,21 @@ export default function JobDetail() {
               <div style={{ ...styles.billLine, ...styles.billTotal }}>
                 <span>Total</span><span>${bill.total.toFixed(2)}</span>
               </div>
+              {payment && payment.paid > 0 && (
+                <>
+                  <div style={styles.billLine}>
+                    <span>Paid to date</span><span>-${payment.paid.toFixed(2)}</span>
+                  </div>
+                  <div style={{ ...styles.billLine, fontWeight: 600 }}>
+                    {payment.credit > 0
+                      ? <><span>Credit owing to client</span><span>${payment.credit.toFixed(2)}</span></>
+                      : <><span>Balance due</span><span>${payment.due.toFixed(2)}</span></>}
+                  </div>
+                  {payment.credit > 0 && (
+                    <p style={styles.paidNote}>The client has paid more than the new total — use Refund if it should go back to them.</p>
+                  )}
+                </>
+              )}
 
               {job.payment_status === 'paid' ? (
                 <p style={styles.paidNote}>
@@ -423,7 +438,7 @@ export default function JobDetail() {
               ) : showPayment ? (
                 <TakePayment
                   jobId={id}
-                  amount={bill.total}
+                  amount={payment ? payment.due : bill.total}
                   onSuccess={(result) => { setPaymentSuccess(result); setShowPayment(false); load(); }}
                 />
               ) : (
